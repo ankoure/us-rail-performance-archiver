@@ -1,0 +1,53 @@
+writer:
+  base_dir: ./archive
+
+agencies:
+  - agency_id: BART
+    name: Bay Area Rapid Transit
+    region: San Francisco Bay Area
+    base_url: https://api.bart.gov/gtfsrt
+    auth:
+      type: none
+    feeds:
+      - name: bart-trips
+        path: /tripupdate.aspx
+        expected_format: protobuf
+      - name: bart-alerts
+        path: /alerts.aspx
+        expected_format: protobuf
+
+  - agency_id: MBTA
+    name: Massachusetts Bay Transportation Authority
+    region: Greater Boston
+    base_url: https://cdn.mbta.com/realtime
+    auth:
+      type: api_key
+      header: x-api-key
+      env: MBTA_API_KEY
+    feeds:
+      - name: mbta-vehicles
+        path: /VehiclePositions.pb
+        expected_format: protobuf
+      - name: mbta-trips
+        path: /TripUpdates.pb
+        expected_format: protobuf
+      - name: mbta-alerts
+        path: /Alerts.pb
+        expected_format: protobuf
+
+  - agency_id: SEPTA
+    name: Southeastern Pennsylvania Transportation Authority
+    region: Philadelphia
+    base_url: https://www3.septa.org/gtfsrt/septarail-pa-us
+    auth:
+      type: none
+    feeds:
+      - name: septa-vehicles
+        path: /Vehicle/rtVehiclePosition.pb
+        expected_format: protobuf
+      - name: septa-trips
+        path: /Trip/rtTripUpdates.pb
+        expected_format: protobuf
+      - name: septa-alerts
+        path: /Service/rtServiceAlerts.pb
+        expected_format: protobuf

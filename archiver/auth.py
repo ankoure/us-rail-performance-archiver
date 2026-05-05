@@ -61,5 +61,5 @@ class APIClient:
         return cls(base_url, auth=BearerAuth(token), **kwargs)
 
     @classmethod
-    def with_api_key(cls, base_url: str, key: str, **kwargs):
-        return cls(base_url, auth=APIKeyAuth(key), **kwargs)
+    def with_api_key(cls, base_url: str, key: str, header: str = "X-API-Key", **kwargs):
+        return cls(base_url, auth=APIKeyAuth(key, header=header), **kwargs)

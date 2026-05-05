@@ -27,7 +27,7 @@ class LocalWriter:
             tmp_path.rename(file_path)
 
         else:
-            logger.log("No content to persist")
+            logger.info("No content to persist")
 
         self._write_metadata(response, metadata_file_path)
 

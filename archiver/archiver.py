@@ -10,5 +10,5 @@ class FeedArchiver:
 
     def archive_once(self):
         for feed in self.feeds:
-            response = parse_response(feed.client.get(feed.path))
+            response = parse_response(feed.client.get(feed.path), feed.expected_format)
             self.writer.write(feed.name, response)
