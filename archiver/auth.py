@@ -43,7 +43,6 @@ class APIClient:
         url = f"{self.base_url}/{path.lstrip('/')}"
         kwargs.setdefault("timeout", self.timeout)
         response = self.session.request(method, url, **kwargs)
-        response.raise_for_status()
         return response
 
     def get(self, path, **kwargs):

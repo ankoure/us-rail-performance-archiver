@@ -4,9 +4,35 @@ from google.protobuf.message import DecodeError
 from google.transit.gtfs_realtime_pb2 import FeedMessage
 
 
-class FeedResponse(ABC):
+class ArchivableEvent(ABC):
+    def __init__(self) -> None:
+        self._timestamp = datetime.now(timezone.utc).timestamp()
+
+    def get_timestamp(self) -> float:
+        return self._timestamp
+
+    def to_metadata_row(self) -> dict:
+        return {
+            "timestamp": self._timestamp,
+            **self._extra_metadata(),
+        }
+
+    def raw_payload(self) -> None:
+        return None
+
+    def _extra_metadata(self) -> dict:
+        """Subclasses override to add extra fields. Default none
+
+        Returns:
+            dict: _description_
+        """
+        return {}
+
+
+class FeedResponse(ArchivableEvent):
     def __init__(self, http_response):
-        self._http = http_response  # private, by convention
+        super().__init__()
+        self._http = http_response
 
     @property
     def status_code(self):
@@ -19,22 +45,30 @@ class FeedResponse(ABC):
     def raw_payload(self) -> bytes:
         return self._http.content
 
-    def to_metadata_row(self) -> dict:
-        return {
-            "timestamp": datetime.now(timezone.utc).timestamp(),
-            "content_type": self.content_type,
-            "status_code": self.status_code,
-            "response_type": type(self).__name__,
-            **self._extra_metadata(),
-        }
-
     def _extra_metadata(self) -> dict:
         """Subclasses override to add extra fields. Default none
 
         Returns:
             dict: _description_
         """
-        return {}
+        return {
+            "content_type": self.content_type,
+            "status_code": self.status_code,
+            "response_type": type(self).__name__,
+        }
+
+
+class TransportErrorResponse(ArchivableEvent):
+    def __init__(self, error_type: str, error_message: str) -> None:
+        super().__init__()
+        self.error_type = error_type
+        self.error_message = error_message
+
+    def _extra_metadata(self) -> dict:
+        return super()._extra_metadata() | {
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+        }
 
 
 class ProtobufResponse(FeedResponse):
@@ -47,12 +81,12 @@ class ProtobufResponse(FeedResponse):
 
     def _extra_metadata(self) -> dict:
         # TODO: Add metadata for Vehicle, Service Alert and Trip Update counts
-        return {}
+        return super()._extra_metadata()
 
 
 class ErrorResponse(FeedResponse):
     def _extra_metadata(self) -> dict:
-        return {"error_body": self._http.text[:500]}
+        return super()._extra_metadata() | {"error_body": self._http.text[:500]}
 
 
 class UnknownResponse(FeedResponse):
