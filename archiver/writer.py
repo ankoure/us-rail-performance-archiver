@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from archiver.response import FeedResponse
-from datetime import datetime, timezone
+from datetime import datetime
 from archiver.logger import logger
 import json
 
@@ -11,11 +11,27 @@ class LocalWriter:
         self.base_dir = Path(base_dir)
 
     def write(self, feed_name: str, response: FeedResponse) -> None:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        file_path = self.base_dir / feed_name / "raw" / f"{timestamp}.bin"
+        date: datetime = response.get_datetime()
+        file_path = (
+            self.base_dir
+            / feed_name
+            / "raw"
+            / f"year={date.year}"
+            / f"month={date.month}"
+            / f"day={date.day}"
+            / f"{response.get_timestamp()}.bin"
+        )
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        metadata_file_path = self.base_dir / feed_name / "metadata.jsonl"
+        metadata_file_path = (
+            self.base_dir
+            / feed_name
+            / "metadata"
+            / f"year={date.year}"
+            / f"month={date.month}"
+            / f"day={date.day}"
+            / "data.jsonl"
+        )
         metadata_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         payload = response.raw_payload()

@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from abc import ABC
 from google.protobuf.message import DecodeError
+from archiver.summary import summarize_feed
 from google.transit.gtfs_realtime_pb2 import FeedMessage
+from dataclasses import asdict
 
 
 class ArchivableEvent(ABC):
@@ -10,6 +12,9 @@ class ArchivableEvent(ABC):
 
     def get_timestamp(self) -> float:
         return self._timestamp
+
+    def get_datetime(self) -> datetime:
+        return datetime.fromtimestamp(self._timestamp, tz=timezone.utc)
 
     def to_metadata_row(self) -> dict:
         return {
@@ -80,8 +85,8 @@ class ProtobufResponse(FeedResponse):
         return self._parsed
 
     def _extra_metadata(self) -> dict:
-        # TODO: Add metadata for Vehicle, Service Alert and Trip Update counts
-        return super()._extra_metadata()
+        summary = summarize_feed(self._parsed)
+        return super()._extra_metadata() | asdict(summary)
 
 
 class ErrorResponse(FeedResponse):
