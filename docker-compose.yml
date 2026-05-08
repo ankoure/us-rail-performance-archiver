@@ -1,6 +1,8 @@
 services:
   app:
     build: .
+    restart: unless-stopped
+    user: "1000:1000"
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive

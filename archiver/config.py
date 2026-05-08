@@ -62,6 +62,7 @@ class FeedConfig(BaseModel):
     name: str
     path: str
     expected_format: Literal["protobuf", "json", "auto"] = "protobuf"
+    decoder: Literal["standard", "mta_nyct", "marta_json"] = "standard"
 
 
 class AgencyConfig(BaseModel):

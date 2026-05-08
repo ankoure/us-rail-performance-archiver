@@ -12,9 +12,11 @@ agencies:
       - name: bart-trips
         path: /tripupdate.aspx
         expected_format: protobuf
+        decoder: standard
       - name: bart-alerts
         path: /alerts.aspx
         expected_format: protobuf
+        decoder: standard
 
   - agency_id: MBTA
     name: Massachusetts Bay Transportation Authority
@@ -28,12 +30,15 @@ agencies:
       - name: mbta-vehicles
         path: /VehiclePositions.pb
         expected_format: protobuf
+        decoder: standard
       - name: mbta-trips
         path: /TripUpdates.pb
         expected_format: protobuf
+        decoder: standard
       - name: mbta-alerts
         path: /Alerts.pb
         expected_format: protobuf
+        decoder: standard
 
   - agency_id: SEPTA
     name: Southeastern Pennsylvania Transportation Authority
@@ -45,9 +50,12 @@ agencies:
       - name: septa-vehicles
         path: /Vehicle/rtVehiclePosition.pb
         expected_format: protobuf
+        decoder: standard
       - name: septa-trips
         path: /Trip/rtTripUpdates.pb
         expected_format: protobuf
+        decoder: standard
       - name: septa-alerts
         path: /Service/rtServiceAlerts.pb
         expected_format: protobuf
+        decoder: standard
