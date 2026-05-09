@@ -18,44 +18,476 @@ agencies:
         expected_format: protobuf
         decoder: standard
 
-  - agency_id: MBTA
-    name: Massachusetts Bay Transportation Authority
-    region: Greater Boston
-    base_url: https://cdn.mbta.com/realtime
+  - agency_id: METRO_STL
+    name: MetroLink (St. Louis)
+    region: St. Louis
+    base_url: https://www.metrostlouis.org/RealTimeData
     auth:
-      type: api_key
-      header: x-api-key
-      env: MBTA_API_KEY
+      type: none
     feeds:
-      - name: mbta-vehicles
-        path: /VehiclePositions.pb
+      - name: metrostl-vehicles
+        path: /StlRealTimeVehicles.pb
         expected_format: protobuf
         decoder: standard
-      - name: mbta-trips
+      - name: metrostl-trips
+        path: /StlRealTimeTrips.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: metrostl-alerts
+        path: /StlRealTimeAlerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: CATS
+    name: Charlotte Area Transit System
+    region: Charlotte
+    base_url: https://gtfsrealtime.ridetransit.org/GTFSRealTime
+    auth:
+      type: none
+    feeds:
+      - name: cats-vehicles
+        path: /Vehicle/VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: cats-trips
+        path: /TripUpdate/Tripupdates.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: cats-alerts
+        path: /Alerts/Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: GCRTA
+    name: Greater Cleveland Regional Transit Authority
+    region: Cleveland
+    base_url: https://gtfs-rt.gcrta.vontascloud.com/TMGTFSRealTimeWebService
+    auth:
+      type: none
+    feeds:
+      - name: gcrta-vehicles
+        path: /Vehicle/VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: gcrta-trips
+        path: /TripUpdate/TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: gcrta-alerts
+        path: /Alert/Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: HRT
+    name: Hampton Roads Transit
+    region: Hampton Roads
+    base_url: https://gtfs.gohrt.com/gtfs-rt
+    auth:
+      type: none
+    feeds:
+      - name: hrt-trips
         path: /TripUpdates.pb
         expected_format: protobuf
         decoder: standard
-      - name: mbta-alerts
+      - name: hrt-alerts
         path: /Alerts.pb
         expected_format: protobuf
         decoder: standard
 
-  - agency_id: SEPTA
-    name: Southeastern Pennsylvania Transportation Authority
+  - agency_id: METRA
+    name: Metra (Chicago Commuter Rail)
+    region: Chicago
+    base_url: https://gtfspublic.metrarr.com/gtfs/public
+    auth:
+      type: api_key
+      param: api_token
+      env: METRA_API_KEY
+    feeds:
+      - name: metra-vehicles
+        path: /positions
+        expected_format: protobuf
+        decoder: standard
+      - name: metra-trips
+        path: /tripupdates
+        expected_format: protobuf
+        decoder: standard
+      - name: metra-alerts
+        path: /alerts
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: METRO_MN
+    name: Metro Transit (Twin Cities)
+    region: Minneapolis-Saint Paul
+    base_url: https://svc.metrotransit.org/mtgtfs
+    auth:
+      type: none
+    feeds:
+      - name: metromn-vehicles
+        path: /vehiclepositions.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: metromn-trips
+        path: /tripupdates.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: metromn-alerts
+        path: /alerts.pb
+        expected_format: protobuf
+        decoder: standard
+  - agency_id: MTA
+    name: MTA New York City Transit
+    region: New York City
+    base_url: https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/
+    auth:
+      type: none
+    feeds:
+    # MTA's endpoint requires the literal %2F in the URL — do not "clean" to '/', requests will 404.
+      - name: sir
+        path: "nyct%2Fgtfs-si"
+        expected_format: protobuf
+        decoder: standard
+      - name: nyct-1234567s
+        path: "nyct%2Fgtfs"
+        expected_format: protobuf
+        decoder: mta_nyct
+      - name: nyct-nqrw
+        path: "nyct%2Fgtfs-nqrw"
+        expected_format: protobuf
+        decoder: mta_nyct
+      - name: nyct-g
+        path: "nyct%2Fgtfs-g"
+        expected_format: protobuf
+        decoder: mta_nyct
+      - name: nyct-acesr
+        path: "nyct%2Fgtfs-ace"
+        expected_format: protobuf
+        decoder: mta_nyct
+      - name: nyct-bdfmsf
+        path: "nyct%2Fgtfs-bdfm"
+        expected_format: protobuf
+        decoder: mta_nyct
+      - name: nyct-jz
+        path: "nyct%2Fgtfs-jz"
+        expected_format: protobuf
+        decoder: mta_nyct
+      - name: nyct-l
+        path: "nyct%2Fgtfs-l"
+        expected_format: protobuf
+        decoder: mta_nyct
+
+  - agency_id: PRT
+    name: Pittsburgh Regional Transit
+    region: Pittsburgh
+    base_url: https://truetime.portauthority.org/gtfsrt-train
+    auth:
+      type: none
+    feeds:
+      - name: prt-vehicles
+        path: /vehicles
+        expected_format: protobuf
+        decoder: standard
+      - name: prt-trips
+        path: /trips
+        expected_format: protobuf
+        decoder: standard
+      - name: prt-alerts
+        path: /alerts
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: RTD
+    name: Denver Regional Transportation District
+    region: Denver
+    base_url: https://open-data.rtd-denver.com/files/gtfs-rt/rtd
+    auth:
+      type: none
+    feeds:
+      - name: rtd-vehicles
+        path: /VehiclePosition.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: rtd-trips
+        path: /TripUpdate.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: rtd-alerts
+        path: /Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: SACRT
+    name: Sacramento Regional Transit
+    region: Sacramento
+    base_url: https://bustime.sacrt.com/gtfsrt
+    auth:
+      type: none
+    feeds:
+      - name: sacrt-vehicles
+        path: /vehicles
+        expected_format: protobuf
+        decoder: standard
+      - name: sacrt-trips
+        path: /trips
+        expected_format: protobuf
+        decoder: standard
+      - name: sacrt-alerts
+        path: /alerts
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: SEPTA_RAIL
+    name: Southeastern Pennsylvania Transportation Authority (Rail)
     region: Philadelphia
     base_url: https://www3.septa.org/gtfsrt/septarail-pa-us
     auth:
       type: none
     feeds:
-      - name: septa-vehicles
+      - name: septa-rail-vehicles
         path: /Vehicle/rtVehiclePosition.pb
         expected_format: protobuf
         decoder: standard
-      - name: septa-trips
+      - name: septa-rail-trips
         path: /Trip/rtTripUpdates.pb
         expected_format: protobuf
         decoder: standard
-      - name: septa-alerts
+      - name: septa-rail-alerts
         path: /Service/rtServiceAlerts.pb
         expected_format: protobuf
         decoder: standard
+
+  - agency_id: SEPTA_BUS
+    name: Southeastern Pennsylvania Transportation Authority (Bus/Trolley)
+    region: Philadelphia
+    base_url: https://www3.septa.org/gtfsrt/septa-pa-us
+    auth:
+      type: none
+    feeds:
+      - name: septa-bus-vehicles
+        path: /Vehicle/rtVehiclePosition.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: septa-bus-trips
+        path: /Trip/rtTripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: septa-bus-alerts
+        path: /Service/rtServiceAlerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: SFMTA
+    name: San Francisco Municipal Transportation Agency (Muni Metro)
+    region: San Francisco Bay Area
+    base_url: https://api.511.org/transit
+    auth:
+      type: none
+    feeds:
+      - name: sfmta-vehicles
+        path: /vehiclepositions?agency=SF
+        expected_format: protobuf
+        decoder: standard
+      - name: sfmta-trips
+        path: /tripupdates?agency=SF
+        expected_format: protobuf
+        decoder: standard
+      - name: sfmta-alerts
+        path: /servicealerts?agency=SF
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: SOUND_TRANSIT
+    name: Sound Transit (Link)
+    region: Seattle
+    base_url: https://api.pugetsound.onebusaway.org/api/gtfs_realtime
+    auth:
+      type: none
+    feeds:
+      - name: st-vehicles
+        path: /vehicle-positions-for-agency/40.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: st-trips
+        path: /trip-updates-for-agency/40.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: st-alerts
+        path: /alerts-for-agency/40.pb
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: TRIMET
+    name: TriMet (MAX Light Rail)
+    region: Portland
+    base_url: https://developer.trimet.org/ws/V1
+    auth:
+      type: none
+    feeds:
+      - name: trimet-vehicles
+        path: /VehiclePositions
+        expected_format: protobuf
+        decoder: standard
+      - name: trimet-trips
+        path: /TripUpdate
+        expected_format: protobuf
+        decoder: standard
+      - name: trimet-alerts
+        path: /FeedSpecAlerts
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: UTA
+    name: Utah Transit Authority (TRAX)
+    region: Salt Lake City
+    base_url: https://apps.rideuta.com/tms/gtfs
+    auth:
+      type: none
+    feeds:
+      - name: uta-vehicles
+        path: /Vehicle
+        expected_format: protobuf
+        decoder: standard
+      - name: uta-trips
+        path: /TripUpdate
+        expected_format: protobuf
+        decoder: standard
+      - name: uta-alerts
+        path: /Alert
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: VALLEY_METRO
+    name: Valley Metro Rail & Streetcar
+    region: Phoenix
+    base_url: https://mna.mecatran.com/utw/ws/gtfsfeed
+    auth:
+      type: api_key
+      param: apiKey
+      env: VALLEY_METRO_API_KEY
+    feeds:
+      - name: valleymetro-vehicles
+        path: /vehicles/valleymetro
+        expected_format: protobuf
+        decoder: standard
+      - name: valleymetro-trips
+        path: /realtime/valleymetro
+        expected_format: protobuf
+        decoder: standard
+      - name: valleymetro-alerts
+        path: /alerts/valleymetro
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: WMATA
+    name: Washington Metropolitan Area Transit Authority
+    region: Washington DC
+    base_url: https://api.wmata.com/gtfs
+    auth:
+      type: api_key
+      header: api_key
+      env: WMATA_API_KEY
+    feeds:
+      - name: wmata-vehicles
+        path: /rail-gtfsrt-vehiclepositions.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: wmata-trips
+        path: /rail-gtfsrt-tripupdates.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: wmata-alerts
+        path: /rail-gtfs-metro-alerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: TRI_RAIL
+    name: Tri-Rail (South Florida)
+    region: South Florida
+    base_url: https://gtfsr.tri-rail.com
+    auth:
+      type: none
+    feeds:
+      - name: trirail-vehicles
+        path: /download.aspx?file=position_updates.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: trirail-trips
+        path: /download.aspx?file=trip_updates.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: trirail-alerts
+        path: /download.aspx?file=alerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+  # The following agencies have developer portals or use third-party providers
+  # but lack direct GTFS-RT feed URLs in the source data.
+  # Feed URLs must be retrieved from their respective portals.
+
+  # - agency_id: CTA
+  #   name: Chicago Transit Authority
+  #   region: Chicago
+  #   developer_portal: https://www.transitchicago.com/developers/
+  #   notes: API key required; obtain feeds from developer portal.
+
+  # - agency_id: DART
+  #   name: Dallas Area Rapid Transit
+  #   region: Dallas
+  #   developer_portal: https://developer.dart.org
+
+  # - agency_id: LACMTA
+  #   name: Los Angeles County Metropolitan Transportation Authority
+  #   region: Los Angeles
+  #   notes: Uses Swiftly. Obtain feeds from Metro Open Data portal.
+
+  # - agency_id: MBTA
+  #   name: Massachusetts Bay Transportation Authority
+  #   region: Greater Boston
+  #   notes: Feed URLs not provided in source; check https://api.mbta.com
+
+  # - agency_id: MIAMI_DADE
+  #   name: Miami-Dade Transit (Metrorail)
+  #   region: Miami
+  #   notes: Uses Swiftly. Obtain feeds from Transit Open Data portal.
+
+  # - agency_id: BALT_MTA
+  #   name: Baltimore MTA (Metro SubwayLink)
+  #   region: Baltimore
+  #   notes: Uses Swiftly.
+
+  # - agency_id: MARTA
+  #   name: Metropolitan Atlanta Rapid Transit Authority
+  #   region: Atlanta
+  #   developer_portal: https://www.itsmarta.com/app-developer-resources.aspx
+  #   notes: Offers RESTful real-time API; not standard GTFS-RT protobuf.
+
+  # - agency_id: METRO_HOUSTON
+  #   name: Houston METRO (METRORail)
+  #   region: Houston
+  #   developer_portal: https://developer.ridemetro.org
+  #   notes: Azure API Management portal; API key required.
+
+  # - agency_id: NCTD
+  #   name: North County Transit District (SPRINTER)
+  #   region: San Diego
+  #   notes: Uses Swiftly via 511 SD.
+
+  # - agency_id: MTS
+  #   name: Metropolitan Transit System (San Diego Trolley)
+  #   region: San Diego
+  #   notes: Accessible via 511 SD portal.
+
+  # - agency_id: VTA
+  #   name: Santa Clara Valley Transportation Authority
+  #   region: San Jose
+  #   notes: Accessible via 511 SF Bay portal; API key required.
+
+  # - agency_id: EMBARK
+  #   name: EMBARK (Oklahoma City Streetcar)
+  #   region: Oklahoma City
+  #   developer_portal: https://embarkok.com/transit-data
+
+  # Agencies with no feeds found or discontinued feeds:
+  # ATI (Tren Urbano), HART (TECO Line), KCSA (KC Streetcar),
+  # M-1 Rail (Q-Line), NFTA (Buffalo Metro Rail), PATCO,
+  # DDOT (DC Streetcar - discontinued)
