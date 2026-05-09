@@ -33,9 +33,14 @@ def build_client(agency: AgencyConfig) -> APIClient:
         case NoAuthConfig():
             return APIClient(base_url)
         case APIKeyAuthConfig() as a:
-            return APIClient.with_api_key(
-                base_url, key=_read_env(a.env), header=a.header
-            )
+            if a.header is not None:
+                return APIClient.with_api_key(
+                    base_url, key=_read_env(a.env), header=a.header
+                )
+            else:
+                return APIClient.with_api_key_query(
+                    base_url, key=_read_env(a.env), param=a.param
+                )
         case BearerAuthConfig() as a:
             return APIClient.with_bearer(base_url, token=_read_env(a.env))
         case BasicAuthConfig() as a:

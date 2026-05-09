@@ -2,6 +2,7 @@ from typing import Optional
 
 import requests
 from requests.auth import AuthBase, HTTPBasicAuth
+from urllib.parse import quote
 
 
 class BearerAuth(AuthBase):
@@ -20,6 +21,18 @@ class APIKeyAuth(AuthBase):
 
     def __call__(self, request):
         request.headers[self.header] = self.key
+        return request
+
+
+class APIKeyQueryAuth(AuthBase):
+    def __init__(self, key: str, param: str):
+        self.key = key
+        self.param = param
+
+    def __call__(self, request):
+        sep = "&" if "?" in request.url else "?"
+        encoded_value = quote(self.key)
+        request.url = f"{request.url}{sep}{self.param}={encoded_value}"
         return request
 
 
@@ -62,3 +75,7 @@ class APIClient:
     @classmethod
     def with_api_key(cls, base_url: str, key: str, header: str = "X-API-Key", **kwargs):
         return cls(base_url, auth=APIKeyAuth(key, header=header), **kwargs)
+
+    @classmethod
+    def with_api_key_query(cls, base_url: str, key: str, param: str, **kwargs):
+        return cls(base_url, auth=APIKeyQueryAuth(key, param=param), **kwargs)

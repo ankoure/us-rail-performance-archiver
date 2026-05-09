@@ -34,8 +34,17 @@ class NoAuthConfig(BaseModel):
 class APIKeyAuthConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["api_key"]
-    header: str = "X-API-Key"
+    header: str | None = None
+    param: str | None = None
     env: str
+
+    @model_validator(mode="after")
+    def exactly_one_of_header_or_param(self) -> "APIKeyAuthConfig":
+        if self.header is None and self.param is None:
+            raise ValueError("Either header or param should be set")
+        if self.header and self.param:
+            raise ValueError("Header and param are both set")
+        return self
 
 
 class BearerAuthConfig(BaseModel):
