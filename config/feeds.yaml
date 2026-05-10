@@ -142,7 +142,7 @@ agencies:
     auth:
       type: none
     feeds:
-    # MTA's endpoint requires the literal %2F in the URL — do not "clean" to '/', requests will 404.
+      # MTA's endpoint requires the literal %2F in the URL — do not "clean" to '/', requests will 404.
       - name: sir
         path: "nyct%2Fgtfs-si"
         expected_format: protobuf

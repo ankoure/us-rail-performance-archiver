@@ -1,2 +1,20 @@
-config/
+# data
+archive/
+*.parquet
+*.jsonl
+*.bin
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# vcs / ci
+.git/
+.github/
+
+# secrets / local
 .env
+config/
