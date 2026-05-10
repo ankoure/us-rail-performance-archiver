@@ -31,7 +31,7 @@ class APIKeyQueryAuth(AuthBase):
 
     def __call__(self, request):
         sep = "&" if "?" in request.url else "?"
-        encoded_value = quote(self.key)
+        encoded_value = quote(self.key, safe="")
         request.url = f"{request.url}{sep}{self.param}={encoded_value}"
         return request
 
