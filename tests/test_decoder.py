@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 import json
+from zoneinfo import ZoneInfo
 
 import pytest
 from google.transit import gtfs_realtime_pb2 as gtfs
@@ -6,6 +8,7 @@ from google.transit import gtfs_realtime_pb2 as gtfs
 from archiver.decoder import (
     GtfsRtDecoder,
     MartaJsonDecoder,
+    MartaPredictionRow,
     StandardDecoder,
     MTADecoder,
     VehicleRow,
@@ -356,8 +359,51 @@ def test_marta_decode_smoke():
             }
         ]
     ).encode()
-    rows = list(MartaJsonDecoder().decode(raw))
-    assert len(rows) == 2
-    veh, stu = rows
-    assert isinstance(veh.feed_timestamp, int)
-    assert isinstance(stu.feed_timestamp, int)
+    ts = int(datetime.now(timezone.utc).timestamp())
+    rows = list(MartaJsonDecoder().decode(raw, fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, MartaPredictionRow)
+    assert row.feed_timestamp == ts
+    assert row.destination == "Airport"
+    assert row.direction == "S"
+    # assert row.event_time == ts
+    assert row.is_realtime is True
+    assert row.line == "RED"
+    # assert row.next_arr == ts
+    assert row.station == "DUNWOODY STATION"
+    assert row.train_id == "411"
+    assert row.waiting_seconds == 64
+    assert row.waiting_time == "1 min"
+    assert row.delay == 197
+    assert row.latitude == 33.91
+    assert row.longitude == -84.35
+    assert isinstance(row.event_time, int)
+    assert row.event_time > 0
+    assert isinstance(row.next_arr, int)
+    assert (
+        row.next_arr >= row.event_time
+    )  # predicted arrival is at or after observation
+
+
+def test_parse_event_time_dst():
+    result = MartaJsonDecoder._parse_event_time("05/08/2026 4:35:20 PM")
+    expected = datetime(
+        2026, 5, 8, 16, 35, 20, tzinfo=ZoneInfo("America/New_York")
+    ).astimezone(timezone.utc)
+    assert result == expected
+
+
+def test_combine_date_and_time_same_day():
+    event_dt = datetime(2026, 5, 8, 20, 35, 20, tzinfo=timezone.utc)  # 4:35 PM EDT
+    result = MartaJsonDecoder._combine_date_and_time(event_dt, "04:36:34 PM")
+    assert result == datetime(2026, 5, 8, 20, 36, 34, tzinfo=timezone.utc)
+
+
+def test_combine_date_and_time_midnight_rollover():
+    # event at 11:55 PM EDT on May 8; prediction "12:05 AM" should roll forward to May 9
+    event_dt = datetime(2026, 5, 9, 3, 55, 0, tzinfo=timezone.utc)  # 11:55 PM EDT May 8
+    result = MartaJsonDecoder._combine_date_and_time(event_dt, "12:05:00 AM")
+    assert result == datetime(
+        2026, 5, 9, 4, 5, 0, tzinfo=timezone.utc
+    )  # 12:05 AM EDT May 9

@@ -1,9 +1,37 @@
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Iterator
 import pyarrow.parquet as pq
 import pyarrow as pa
 from archiver.decoder import VehicleRow
 from archiver.rollup import _schema_from_dataclass, Rollup
 import pytest
+from archiver.decoder import Row, Decoder, TableSpec
+
+
+@dataclass
+class FakeRow(Row):
+    feed_timestamp: int
+    destination: str
+    direction: str
+
+
+class FakeDecoder(Decoder):
+    produces = {FakeRow: TableSpec("fakes")}
+
+    def decode(self, raw: bytes, *, fetched_at: int | None = None) -> Iterator[Row]:
+
+        for _ in range(5):
+            feed_timestamp = datetime.now()
+            destination = "Hollywood Hills"
+            direction = "West"
+            yield (
+                FakeRow(
+                    feed_timestamp=feed_timestamp,
+                    destination=destination,
+                    direction=direction,
+                )
+            )
 
 
 # tests/test_rollup.py
@@ -61,3 +89,7 @@ def test_streaming_writer_exception_no_orphan(tmp_path):
     assert not out.exists()
     # tmp shouldn't be left behind either
     assert not out.with_suffix(".parquet.tmp").exists()
+
+
+def test_rollup_routes_unknwon_decoder_to_its_own_table(tmp_path):
+    pass

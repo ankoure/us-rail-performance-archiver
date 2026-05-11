@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import dataclasses
 import typing
 from dataclasses import asdict
@@ -11,11 +11,8 @@ import pyarrow.parquet as pq
 import pyarrow.dataset as ds
 from datetime import date, datetime, timezone
 from archiver.decoder import (
-    AlertRow,
     DecodeFailure,
     StandardDecoder,
-    StopTimeUpdateRow,
-    VehicleRow,
 )
 from archiver.logger import logger
 
@@ -89,24 +86,16 @@ class Rollup:
             logger.warning("nothing to roll up for %s/%s", feed_name, day)
 
     def _rollup_data(self, feed_name: str, day: date) -> None:
-        paths = {
-            "vehicles": self._curated_path("vehicles", feed_name, day),
-            "trip_updates": self._curated_path("trip_updates", feed_name, day),
-            "alerts": self._curated_path("alerts", feed_name, day),
-        }
-        schemas = {
-            "vehicles": _schema_from_dataclass(VehicleRow),
-            "trip_updates": _schema_from_dataclass(StopTimeUpdateRow),
-            "alerts": _schema_from_dataclass(AlertRow),
-        }
 
-        with (
-            self._streaming_writer(paths["vehicles"], schemas["vehicles"]) as write_v,
-            self._streaming_writer(
-                paths["trip_updates"], schemas["trip_updates"]
-            ) as write_t,
-            self._streaming_writer(paths["alerts"], schemas["alerts"]) as write_a,
-        ):
+        with ExitStack() as stack:
+            writers = {}
+            for row_class, spec in self.decoder.produces.items():
+                path = self._curated_path(spec.name, feed_name, day)
+                schema = _schema_from_dataclass(row_class)
+                writers[row_class] = stack.enter_context(
+                    (self._streaming_writer(path, schema))
+                )
+
             for bin_file in _iter_partition_files(
                 self.base_dir / feed_name / "raw",
                 "*.bin",
@@ -119,14 +108,11 @@ class Rollup:
                     continue
 
                 for row in rows:
-                    if isinstance(row, VehicleRow):
-                        write_v(asdict(row))
-                    elif isinstance(row, StopTimeUpdateRow):
-                        write_t(asdict(row))
-                    elif isinstance(row, AlertRow):
-                        write_a(asdict(row))
-                    else:
+                    append = writers.get(type(row))
+                    if append is None:
                         logger.warning("unexpected row type: %s", type(row).__name__)
+                        continue
+                    append(asdict(row))
 
     @staticmethod
     def _write_parquet(table: pa.Table, path: Path) -> None:

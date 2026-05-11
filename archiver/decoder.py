@@ -2,14 +2,43 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
-from typing import Iterator
+from typing import ClassVar, Iterator
 from zoneinfo import ZoneInfo
 from google.transit import gtfs_realtime_pb2 as gtfs
 from google.protobuf.message import DecodeError as _ProtobufDecodeError
 
 
 @dataclass
-class VehicleRow:
+class TableSpec:
+    name: str
+    dedup_keys: tuple[str, ...] = ()
+
+
+@dataclass
+class Row:
+    pass
+
+
+@dataclass
+class MartaPredictionRow(Row):
+    feed_timestamp: int
+    destination: str
+    direction: str
+    event_time: int
+    is_realtime: bool
+    line: str
+    next_arr: int
+    station: str
+    train_id: str
+    waiting_seconds: int
+    waiting_time: str
+    delay: int
+    latitude: float
+    longitude: float
+
+
+@dataclass
+class VehicleRow(Row):
     feed_timestamp: int | None = None
     vehicle_id: str | None = None
     vehicle_label: str | None = None
@@ -31,7 +60,7 @@ class VehicleRow:
 
 
 @dataclass
-class StopTimeUpdateRow:
+class StopTimeUpdateRow(Row):
     feed_timestamp: int | None = None
     trip_id: str | None = None
     route_id: str | None = None
@@ -55,7 +84,7 @@ class StopTimeUpdateRow:
 
 
 @dataclass
-class AlertRow:
+class AlertRow(Row):
     feed_timestamp: int | None = None
     alert_id: str | None = None
     cause: str | None = None  # Alert.Cause
@@ -80,15 +109,19 @@ class DecodeFailure(Exception):
 
 
 class Decoder(ABC):
+    produces: ClassVar[dict[type[Row], TableSpec]]
+
     @abstractmethod
-    def decode(self, raw: bytes) -> Iterator[VehicleRow | StopTimeUpdateRow | AlertRow]:
+    def decode(self, raw: bytes, *, fetched_at: int | None = None) -> Iterator[Row]:
         raise NotImplementedError
 
 
 class GtfsRtDecoder(Decoder):
     """Any decoder for the GTFS-RT protobuf format. Subclasses provide entity-level hooks."""
 
-    def decode(self, raw: bytes) -> Iterator[VehicleRow | StopTimeUpdateRow | AlertRow]:
+    def decode(
+        self, raw: bytes, *, fetched_at: int | None = None
+    ) -> Iterator[VehicleRow | StopTimeUpdateRow | AlertRow]:
         feed = gtfs.FeedMessage()
         try:
             feed.ParseFromString(raw)
@@ -96,22 +129,30 @@ class GtfsRtDecoder(Decoder):
             raise DecodeFailure(f"protobuf parse failed: {e}") from e
         for entity in feed.entity:
             if entity.HasField("vehicle"):
-                yield self._decode_vehicle(entity.vehicle, feed.header)
+                yield self._decode_vehicle(entity.vehicle, feed.header, fetched_at)
             elif entity.HasField("trip_update"):
-                yield from self._decode_trip_update(entity.trip_update, feed.header)
+                yield from self._decode_trip_update(
+                    entity.trip_update, feed.header, fetched_at
+                )
             elif entity.HasField("alert"):
-                yield from self._decode_alert(entity.alert, entity.id, feed.header)
+                yield from self._decode_alert(
+                    entity.alert, entity.id, feed.header, fetched_at
+                )
 
     @abstractmethod
-    def _decode_vehicle(self, vp, header) -> VehicleRow:
+    def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
         raise NotImplementedError
 
     @abstractmethod
-    def _decode_trip_update(self, tu, header) -> Iterator[StopTimeUpdateRow]:
+    def _decode_trip_update(
+        self, tu, header, fetched_at: int | None = None
+    ) -> Iterator[StopTimeUpdateRow]:
         raise NotImplementedError
 
     @abstractmethod
-    def _decode_alert(self, sa, alert_id, header) -> Iterator[AlertRow]:
+    def _decode_alert(
+        self, sa, alert_id, header, fetched_at: int | None = None
+    ) -> Iterator[AlertRow]:
         raise NotImplementedError
 
     @staticmethod
@@ -123,7 +164,13 @@ class GtfsRtDecoder(Decoder):
 
 
 class StandardDecoder(GtfsRtDecoder):
-    def _decode_vehicle(self, vp, header) -> VehicleRow:
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        VehicleRow: TableSpec("vehicles", ("vehicle_id", "vehicle_timestamp")),
+        StopTimeUpdateRow: TableSpec("trip_updates"),
+        AlertRow: TableSpec("alerts"),
+    }
+
+    def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
         return VehicleRow(
             feed_timestamp=header.timestamp,
             vehicle_id=self._opt(vp.vehicle, "id"),
@@ -153,7 +200,9 @@ class StandardDecoder(GtfsRtDecoder):
             vehicle_timestamp=self._opt(vp, "timestamp"),
         )
 
-    def _decode_trip_update(self, tu, header) -> Iterator[StopTimeUpdateRow]:
+    def _decode_trip_update(
+        self, tu, header, fetched_at: int | None = None
+    ) -> Iterator[StopTimeUpdateRow]:
         trip_id = self._opt(tu.trip, "trip_id")
         route_id = self._opt(tu.trip, "route_id")
         direction_id = self._opt(tu.trip, "direction_id")
@@ -193,7 +242,9 @@ class StandardDecoder(GtfsRtDecoder):
                 ),
             )
 
-    def _decode_alert(self, sa, alert_id, header) -> Iterator[AlertRow]:
+    def _decode_alert(
+        self, sa, alert_id, header, fetched_at: int | None = None
+    ) -> Iterator[AlertRow]:
         cause = self._opt(sa, "cause", gtfs.Alert.Cause.Name)
         effect = self._opt(sa, "effect", gtfs.Alert.Effect.Name)
         severity_level = self._opt(sa, "severity_level", gtfs.Alert.SeverityLevel.Name)
@@ -230,60 +281,49 @@ class StandardDecoder(GtfsRtDecoder):
 
 
 class MTADecoder(StandardDecoder):
-    def _decode_vehicle(self, vp, header) -> VehicleRow:
+    def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
         base = super()._decode_vehicle(vp, header)
         # add NYCT-specific fields by reading vp's extensions
         return base
 
 
+# TODO: schema-drift detection — compare incoming r.keys() against the expected
+# set derived from MartaPredictionRow's dataclass fields. Log loudly (or raise) on
+# unknown keys or missing required keys, so MARTA changing their API doesn't
+# silently break the parse.
 class MartaJsonDecoder(Decoder):
-    def decode(self, raw: bytes) -> Iterator[VehicleRow | StopTimeUpdateRow | AlertRow]:
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        MartaPredictionRow: TableSpec("marta_predictions")
+    }
+
+    def decode(self, raw: bytes, *, fetched_at: int | None = None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("MartaJsonDecoder requires fetched_at")
         try:
             rows = json.loads(raw)
         except json.JSONDecodeError as e:
             raise DecodeFailure(f"json parse failed: {e}") from e
 
-        seen_trains: set[str] = set()
-
         for r in rows:
-            trip_id = self._synthesize_trip_id(r)
             event_dt = self._parse_event_time(r["EVENT_TIME"])  # → UTC datetime
-
-            # Vehicle: emit once per train per response
-            train_id = r["TRAIN_ID"]
-            if train_id not in seen_trains:
-                seen_trains.add(train_id)
-                yield VehicleRow(
-                    feed_timestamp=int(event_dt.timestamp()),
-                    vehicle_id=train_id,
-                    vehicle_label=train_id,
-                    trip_id=trip_id,
-                    route_id=r["LINE"],
-                    direction_id=self._direction_id(r["DIRECTION"]),
-                    latitude=float(r["LATITUDE"]),
-                    longitude=float(r["LONGITUDE"]),
-                    vehicle_timestamp=int(event_dt.timestamp()),
-                )
-
-            # StopTimeUpdate: one per row
-            yield StopTimeUpdateRow(
-                feed_timestamp=int(event_dt.timestamp()),
-                trip_id=trip_id,
-                route_id=r["LINE"],
-                direction_id=self._direction_id(r["DIRECTION"]),
-                start_date=event_dt.strftime("%Y%m%d"),
-                vehicle_id=train_id,
-                vehicle_label=train_id,
-                stop_id=r["STATION"],
-                arrival_time=int(
+            yield MartaPredictionRow(
+                feed_timestamp=fetched_at,
+                destination=r["DESTINATION"],
+                direction=r["DIRECTION"],
+                event_time=int(event_dt.timestamp()),
+                is_realtime=(r["IS_REALTIME"].lower() == "true"),
+                line=r["LINE"],
+                next_arr=int(
                     self._combine_date_and_time(event_dt, r["NEXT_ARR"]).timestamp()
                 ),
-                arrival_delay=self._parse_delay(r["DELAY"]),
+                station=r["STATION"],
+                train_id=r["TRAIN_ID"],
+                waiting_seconds=int(r["WAITING_SECONDS"]),
+                waiting_time=r["WAITING_TIME"],
+                delay=self._parse_delay(r["DELAY"]),
+                latitude=float(r["LATITUDE"]),
+                longitude=float(r["LONGITUDE"]),
             )
-
-    @staticmethod
-    def _direction_id(direction: str) -> int:
-        return 0 if direction in ("N", "E") else 1
 
     @staticmethod
     def _parse_delay(delay: str) -> int:
@@ -310,9 +350,3 @@ class MartaJsonDecoder(Decoder):
         if (event_dt - candidate).total_seconds() > 12 * 3600:
             candidate += timedelta(days=1)
         return candidate.astimezone(timezone.utc)
-
-    @staticmethod
-    def _synthesize_trip_id(r: dict) -> str:
-        # Stable per (line, train, direction, day) — same trip_id should appear in every row of that train's predictions
-        # this is a fragile heuristic; refine when you observe real behavior
-        return f"{r['LINE']}-{r['TRAIN_ID']}-{r['DIRECTION']}-{r['EVENT_TIME'][:10]}"
