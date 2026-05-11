@@ -281,7 +281,9 @@ agencies:
     region: San Francisco Bay Area
     base_url: https://api.511.org/transit
     auth:
-      type: none
+      type: api_key
+      param: api_key
+      env: BAY_AREA_511_API_KEY
     feeds:
       - name: sfmta-vehicles
         path: /vehiclepositions?agency=SF
@@ -323,7 +325,9 @@ agencies:
     region: Portland
     base_url: https://developer.trimet.org/ws/V1
     auth:
-      type: none
+      type: api_key
+      param: appID
+      env: TRIMET_API_KEY
     feeds:
       - name: trimet-vehicles
         path: /VehiclePositions
@@ -398,7 +402,7 @@ agencies:
         expected_format: protobuf
         decoder: standard
       - name: wmata-alerts
-        path: /rail-gtfs-metro-alerts.pb
+        path: /rail-gtfsrt-alerts.pb
         expected_format: protobuf
         decoder: standard
 
