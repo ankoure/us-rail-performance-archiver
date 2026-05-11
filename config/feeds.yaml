@@ -301,7 +301,9 @@ agencies:
     region: Seattle
     base_url: https://api.pugetsound.onebusaway.org/api/gtfs_realtime
     auth:
-      type: none
+      type: api_key
+      param: key
+      env: SOUND_TRANSIT_API_KEY
     feeds:
       - name: st-vehicles
         path: /vehicle-positions-for-agency/40.pb
