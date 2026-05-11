@@ -1,0 +1,104 @@
+name: New feed request
+description: Add a new agency or GTFS-RT feed to config/feeds.yaml
+labels: ["feed-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this to propose adding a new agency or extra feed. If you're not sure about a field, leave it blank and note what's missing.
+
+  - type: input
+    id: agency_id
+    attributes:
+      label: agency_id
+      description: Short identifier used in `feeds.yaml` (uppercase, underscores). e.g. `BART`, `METRO_STL`.
+    validations:
+      required: true
+
+  - type: input
+    id: name
+    attributes:
+      label: Agency name
+      placeholder: Bay Area Rapid Transit
+    validations:
+      required: true
+
+  - type: input
+    id: region
+    attributes:
+      label: Region
+      placeholder: San Francisco Bay Area
+    validations:
+      required: true
+
+  - type: input
+    id: base_url
+    attributes:
+      label: base_url
+      description: Root URL the feed paths are appended to.
+      placeholder: https://api.example.gov/gtfsrt
+    validations:
+      required: false
+
+  - type: dropdown
+    id: auth_type
+    attributes:
+      label: Auth type
+      options:
+        - none
+        - api_key
+        - bearer
+        - basic
+        - other / unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: auth_details
+    attributes:
+      label: Auth details
+      description: Header name, query param, developer portal link, etc. Do **not** paste real credentials.
+      placeholder: |
+        Header: `x-api-key`
+        Developer portal: https://...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: feed_types
+    attributes:
+      label: Feed types offered
+      options:
+        - label: Vehicle positions
+        - label: Trip updates
+        - label: Service alerts
+        - label: Non-standard / mixed (explain below)
+
+  - type: textarea
+    id: feeds
+    attributes:
+      label: Feed paths
+      description: One per line, ideally as `name: path` pairs matching the `feeds.yaml` shape.
+      placeholder: |
+        bart-trips: /tripupdate.aspx
+        bart-alerts: /alerts.aspx
+      render: yaml
+    validations:
+      required: false
+
+  - type: input
+    id: decoder
+    attributes:
+      label: Decoder
+      description: Usually `standard`. Mention if the agency uses GTFS-RT extensions (e.g. NYC MTA).
+      placeholder: standard
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Quirks, rate limits, refresh cadence, license terms, anything else worth knowing.
+    validations:
+      required: false

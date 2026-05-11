@@ -1,0 +1,89 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. The more detail you provide, the faster it can be triaged.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear, one-or-two sentence description of the problem.
+      placeholder: When fetching the BART alerts feed, the archiver writes an empty file instead of raising on a 404.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, config snippets, or feed entries needed to reproduce.
+      placeholder: |
+        1. Set BART `path` to `/does-not-exist.aspx`
+        2. Run `uv run archiver ...`
+        3. Observe the contents of `archive/...`
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include relevant log output or stack traces. Use code fences for readability.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - Fetcher / HTTP client
+        - Decoder (protobuf)
+        - Landing zone writer (jsonl + raw bins)
+        - Parquet rollup
+        - Config / feeds.yaml
+        - Scheduler / orchestration
+        - CI / tooling
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: agency
+    attributes:
+      label: Agency / feed (if applicable)
+      description: e.g. `BART`, `METRO_STL`, `bart-alerts`
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit / version
+      description: Output of `git rev-parse --short HEAD`, or a tag.
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, OS, and anything else relevant (Docker, host, etc.).
+      placeholder: |
+        - Python: 3.12
+        - OS: Ubuntu 24.04
+        - Running via: Docker / bare metal / cron
+    validations:
+      required: false

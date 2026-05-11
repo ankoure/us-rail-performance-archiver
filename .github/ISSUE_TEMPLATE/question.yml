@@ -1,0 +1,33 @@
+name: Question / discussion
+description: Ask a question or open a design discussion that isn't a bug or feature
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to figure out or discuss?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What have you already tried, read, or ruled out? Links to code or docs are helpful.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Architecture / design
+        - Data model (parquet, jsonl, raw bins)
+        - Specific feed / agency
+        - Tooling / CI
+        - Other
+    validations:
+      required: false
