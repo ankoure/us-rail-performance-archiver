@@ -1,4 +1,4 @@
-from archiver.auth import APIKeyQueryAuth
+from archiver.auth import APIClient, APIKeyQueryAuth
 import pytest
 from unittest.mock import Mock
 
@@ -41,3 +41,10 @@ def test_special_characters_encoded(key, expected_encoded):
     assert (
         mock_request.url == f"https://api.example.com/data?api_key={expected_encoded}"
     )
+
+
+def test_apiclient_sets_default_user_agent():
+    client = APIClient("https://example.com")
+    ua = client.session.headers["User-Agent"]
+    assert "us-rail-archiver" in ua
+    assert "github.com" in ua

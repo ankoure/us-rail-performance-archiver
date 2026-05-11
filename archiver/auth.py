@@ -37,6 +37,12 @@ class APIKeyQueryAuth(AuthBase):
 
 
 class APIClient:
+    DEFAULT_USER_AGENT = (
+        "us-rail-archiver/0.1 "
+        "(+https://github.com/ankoure/us-rail-peformance-archiver; "
+        "contact: andkoure2@gmail.com)"
+    )
+
     def __init__(
         self,
         base_url: str,
@@ -46,6 +52,7 @@ class APIClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        self.session.headers["User-Agent"] = self.DEFAULT_USER_AGENT
         self.session.auth = auth
 
     def set_auth(self, auth: AuthBase):

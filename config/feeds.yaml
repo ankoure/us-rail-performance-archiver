@@ -78,21 +78,23 @@ agencies:
         expected_format: protobuf
         decoder: standard
 
-  - agency_id: HRT
-    name: Hampton Roads Transit
-    region: Hampton Roads
-    base_url: https://gtfs.gohrt.com/gtfs-rt
-    auth:
-      type: none
-    feeds:
-      - name: hrt-trips
-        path: /TripUpdates.pb
-        expected_format: protobuf
-        decoder: standard
-      - name: hrt-alerts
-        path: /Alerts.pb
-        expected_format: protobuf
-        decoder: standard
+# Disabled 2026-05-11: gtfs.gohrt.com TCP/443 unreachable (DNS resolves to 72.52.161.174, connections time out).
+# Check HRT developer docs for current endpoint before re-enabling.
+#   - agency_id: HRT
+#     name: Hampton Roads Transit
+#     region: Hampton Roads
+#     base_url: https://gtfs.gohrt.com/gtfs-rt
+#     auth:
+#       type: none
+#     feeds:
+#       - name: hrt-trips
+#         path: /TripUpdates.pb
+#         expected_format: protobuf
+#         decoder: standard
+#       - name: hrt-alerts
+#         path: /Alerts.pb
+#         expected_format: protobuf
+#         decoder: standard
 
   - agency_id: METRA
     name: Metra (Chicago Commuter Rail)
