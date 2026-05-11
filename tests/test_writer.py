@@ -26,7 +26,7 @@ class FakeWriteableResponse:
 
 
 @dataclass
-class FakeErrorResponse(FakeWriteableResponse):
+class FakeEmptyPayloadResponse(FakeWriteableResponse):
     def raw_payload(self) -> bytes:
         return None
 
@@ -77,7 +77,7 @@ def test_writer_creates_raw_file_and_metadata(tmp_path):
 
 def test_errorresponse_writes_no_bin(tmp_path):
     writer = LocalWriter(base_dir=str(tmp_path))
-    response = FakeErrorResponse(
+    response = FakeEmptyPayloadResponse(
         _payload=b"",
         _metadata={"status_code": 401, "response_type": "ErrorResponse"},
     )
