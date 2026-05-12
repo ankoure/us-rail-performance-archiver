@@ -1,6 +1,9 @@
 # loader.py
 import os
+from pathlib import Path
 import yaml
+import archiver.decoder  # noqa: F401 — populate Decoder._registry via import side effects
+import archiver.parser  # noqa: F401 — populate Parser._registry via import side effects
 from archiver.archiver import FeedArchiver
 from archiver.auth import APIClient
 from archiver.config import (
@@ -11,7 +14,10 @@ from archiver.config import (
     BasicAuthConfig,
     NoAuthConfig,
 )
+from archiver.decoder import Decoder
 from archiver.feed import Feed
+from archiver.parser import Parser
+from archiver.rollup import Rollup
 from archiver.writer import LocalWriter
 
 
@@ -51,7 +57,7 @@ def build_client(agency: AgencyConfig) -> APIClient:
             )
 
 
-def build_archiver(config: ArchiverConfig) -> FeedArchiver:
+def build_feeds(config: ArchiverConfig) -> list[Feed]:
     feeds: list[Feed] = []
     for agency in config.agencies:
         client = build_client(agency)
@@ -61,8 +67,23 @@ def build_archiver(config: ArchiverConfig) -> FeedArchiver:
                     name=feed_cfg.name,
                     path=feed_cfg.path,
                     client=client,
-                    expected_format=feed_cfg.expected_format,
+                    parser=Parser.from_name(feed_cfg.expected_format),
+                    decoder=Decoder.from_name(feed_cfg.decoder),
                 )
             )
+    return feeds
+
+
+def build_archiver(config: ArchiverConfig) -> FeedArchiver:
+    feeds = build_feeds(config)
     writer = LocalWriter(str(config.writer.base_dir))
     return FeedArchiver(feeds=feeds, writer=writer)
+
+
+def build_rollup(config: ArchiverConfig, curated_dir: Path) -> Rollup:
+    feeds = build_feeds(config)
+    return Rollup(
+        feeds=feeds,
+        base_dir=config.writer.base_dir,
+        curated_dir=curated_dir,
+    )

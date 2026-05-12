@@ -78,23 +78,23 @@ agencies:
         expected_format: protobuf
         decoder: standard
 
-# Disabled 2026-05-11: gtfs.gohrt.com TCP/443 unreachable (DNS resolves to 72.52.161.174, connections time out).
-# Check HRT developer docs for current endpoint before re-enabling.
-#   - agency_id: HRT
-#     name: Hampton Roads Transit
-#     region: Hampton Roads
-#     base_url: https://gtfs.gohrt.com/gtfs-rt
-#     auth:
-#       type: none
-#     feeds:
-#       - name: hrt-trips
-#         path: /TripUpdates.pb
-#         expected_format: protobuf
-#         decoder: standard
-#       - name: hrt-alerts
-#         path: /Alerts.pb
-#         expected_format: protobuf
-#         decoder: standard
+  # Disabled 2026-05-11: gtfs.gohrt.com TCP/443 unreachable (DNS resolves to 72.52.161.174, connections time out).
+  # Check HRT developer docs for current endpoint before re-enabling.
+  #   - agency_id: HRT
+  #     name: Hampton Roads Transit
+  #     region: Hampton Roads
+  #     base_url: https://gtfs.gohrt.com/gtfs-rt
+  #     auth:
+  #       type: none
+  #     feeds:
+  #       - name: hrt-trips
+  #         path: /TripUpdates.pb
+  #         expected_format: protobuf
+  #         decoder: standard
+  #       - name: hrt-alerts
+  #         path: /Alerts.pb
+  #         expected_format: protobuf
+  #         decoder: standard
 
   - agency_id: METRA
     name: Metra (Chicago Commuter Rail)
@@ -300,6 +300,138 @@ agencies:
         expected_format: protobuf
         decoder: standard
 
+  - agency_id: VTA
+    name: Santa Clara Valley Transportation Authority
+    region: San Jose
+    base_url: https://api.511.org/transit
+    auth:
+      type: api_key
+      param: api_key
+      env: BAY_AREA_511_API_KEY
+    feeds:
+      - name: vta-vehicles
+        path: /vehiclepositions?agency=SC
+        expected_format: protobuf
+        decoder: standard
+      - name: vta-trips
+        path: /tripupdates?agency=SC
+        expected_format: protobuf
+        decoder: standard
+      - name: vta-alerts
+        path: /servicealerts?agency=SC
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: CALTRAIN
+    name: Caltrain
+    region: San Francisco Bay Area
+    base_url: https://api.511.org/transit
+    auth:
+      type: api_key
+      param: api_key
+      env: BAY_AREA_511_API_KEY
+    feeds:
+      - name: caltrain-vehicles
+        path: /vehiclepositions?agency=CT
+        expected_format: protobuf
+        decoder: standard
+      - name: caltrain-trips
+        path: /tripupdates?agency=CT
+        expected_format: protobuf
+        decoder: standard
+      - name: caltrain-alerts
+        path: /servicealerts?agency=CT
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: ACE
+    name: Altamont Corridor Express
+    region: San Francisco Bay Area
+    base_url: https://api.511.org/transit
+    auth:
+      type: api_key
+      param: api_key
+      env: BAY_AREA_511_API_KEY
+    feeds:
+      - name: ace-vehicles
+        path: /vehiclepositions?agency=CE
+        expected_format: protobuf
+        decoder: standard
+      - name: ace-trips
+        path: /tripupdates?agency=CE
+        expected_format: protobuf
+        decoder: standard
+      - name: ace-alerts
+        path: /servicealerts?agency=CE
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: CAPITOL_CORRIDOR
+    name: Capitol Corridor Joint Powers Authority
+    region: San Francisco Bay Area
+    base_url: https://api.511.org/transit
+    auth:
+      type: api_key
+      param: api_key
+      env: BAY_AREA_511_API_KEY
+    feeds:
+      - name: capcor-vehicles
+        path: /vehiclepositions?agency=AM
+        expected_format: protobuf
+        decoder: standard
+      - name: capcor-trips
+        path: /tripupdates?agency=AM
+        expected_format: protobuf
+        decoder: standard
+      - name: capcor-alerts
+        path: /servicealerts?agency=AM
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: SMART
+    name: Sonoma-Marin Area Rail Transit
+    region: San Francisco Bay Area
+    base_url: https://api.511.org/transit
+    auth:
+      type: api_key
+      param: api_key
+      env: BAY_AREA_511_API_KEY
+    feeds:
+      - name: smart-vehicles
+        path: /vehiclepositions?agency=SA
+        expected_format: protobuf
+        decoder: standard
+      - name: smart-trips
+        path: /tripupdates?agency=SA
+        expected_format: protobuf
+        decoder: standard
+      - name: smart-alerts
+        path: /servicealerts?agency=SA
+        expected_format: protobuf
+        decoder: standard
+
+  - agency_id: MTS
+    name: Metropolitan Transit System (San Diego Trolley)
+    region: San Diego
+    base_url: https://realtime.sdmts.com/api/api/gtfs_realtime/
+    auth:
+      type: api_key
+      param: key
+      env: SAN_DIEGO_MTS_API_KEY
+    feeds:
+      - name: mts-vehicles
+        path: /vehicle-positions-for-agency/MTS.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: mts-trips
+        path: /trip-updates-for-agency/MTS.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: mts-alerts
+        path: TODO
+        expected_format: protobuf
+        decoder: standard
+
   - agency_id: SOUND_TRANSIT
     name: Sound Transit (Link)
     region: Seattle
@@ -428,6 +560,41 @@ agencies:
         expected_format: protobuf
         decoder: standard
 
+  # MARTA exposes a REST/JSON arrivals API rather than GTFS-RT protobuf.
+  # Requires a non-standard decoder (see MartaJsonDecoder) and JSON response handling.
+  - agency_id: MARTA
+    name: Metropolitan Atlanta Rapid Transit Authority
+    region: Atlanta
+    base_url: https://developerservices.itsmarta.com:18096/itsmarta
+    auth:
+      type: api_key
+      param: apiKey
+      env: MARTA_API_KEY
+    feeds:
+      - name: marta-traindata
+        path: /railrealtimearrivals/developerservices/traindata
+        expected_format: json
+        decoder: marta_json
+
+  - agency_id: METRO_HOUSTON
+    name: Houston METRO (METRORail)
+    region: Houston
+    base_url: https://api.ridemetro.org
+    auth:
+      type: api_key
+      header: Ocp-Apim-Subscription-Key
+      env: METRO_HOUSTON_API_KEY
+    feeds:
+      - name: metro-houston-trips
+        path: /GtfsRealtime/TripUpdates
+        expected_format: protobuf
+        decoder: standard
+      - name: metro-houston-alerts
+        path: /v2alertspb/alerts.pb
+        expected_format: protobuf
+        decoder: standard
+
+
   # The following agencies have developer portals or use third-party providers
   # but lack direct GTFS-RT feed URLs in the source data.
   # Feed URLs must be retrieved from their respective portals.
@@ -463,32 +630,10 @@ agencies:
   #   region: Baltimore
   #   notes: Uses Swiftly.
 
-  # - agency_id: MARTA
-  #   name: Metropolitan Atlanta Rapid Transit Authority
-  #   region: Atlanta
-  #   developer_portal: https://www.itsmarta.com/app-developer-resources.aspx
-  #   notes: Offers RESTful real-time API; not standard GTFS-RT protobuf.
-
-  # - agency_id: METRO_HOUSTON
-  #   name: Houston METRO (METRORail)
-  #   region: Houston
-  #   developer_portal: https://developer.ridemetro.org
-  #   notes: Azure API Management portal; API key required.
-
   # - agency_id: NCTD
   #   name: North County Transit District (SPRINTER)
   #   region: San Diego
-  #   notes: Uses Swiftly via 511 SD.
-
-  # - agency_id: MTS
-  #   name: Metropolitan Transit System (San Diego Trolley)
-  #   region: San Diego
-  #   notes: Accessible via 511 SD portal.
-
-  # - agency_id: VTA
-  #   name: Santa Clara Valley Transportation Authority
-  #   region: San Jose
-  #   notes: Accessible via 511 SF Bay portal; API key required.
+  #   notes: Uses Swiftly.
 
   # - agency_id: EMBARK
   #   name: EMBARK (Oklahoma City Streetcar)

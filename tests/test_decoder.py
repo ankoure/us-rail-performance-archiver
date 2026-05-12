@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-import json
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,7 +11,6 @@ from archiver.decoder import (
     StandardDecoder,
     MTADecoder,
     VehicleRow,
-    DecodeFailure,
 )
 
 # ---------------------------------------------------------------------------
@@ -99,7 +97,7 @@ class TestStandardDecoderFullEntity:
     @pytest.fixture(scope="class")
     def pos(self):
         feed = make_feed()
-        results = list(self.decoder.decode(feed.SerializeToString()))
+        results = list(self.decoder.decode(feed))
 
         assert len(results) == 1
         return results[0]
@@ -174,7 +172,7 @@ class TestStandardDecoderOptionalFields:
 
     def _decode_minimal(self):
         feed = make_minimal_feed()
-        return list(self.decoder.decode(feed.SerializeToString()))[0]
+        return list(self.decoder.decode(feed))[0]
 
     def test_missing_vehicle_id_is_none(self):
         pos = self._decode_minimal()
@@ -221,7 +219,7 @@ class TestDecoderEntityFiltering:
         feed = gtfs.FeedMessage()
         feed.header.gtfs_realtime_version = "2.0"
         feed.header.timestamp = 0
-        assert list(self.decoder.decode(feed.SerializeToString())) == []
+        assert list(self.decoder.decode(feed)) == []
 
     def test_non_vehicle_entity_is_skipped(self):
         """A feed with only a trip_update entity should yield no VehiclePositions."""
@@ -234,7 +232,7 @@ class TestDecoderEntityFiltering:
         tu = entity.trip_update
         tu.trip.trip_id = "trip-x"
 
-        assert list(self.decoder.decode(feed.SerializeToString())) == []
+        assert list(self.decoder.decode(feed)) == []
 
     def test_multiple_vehicle_entities_all_decoded(self):
         feed = gtfs.FeedMessage()
@@ -246,7 +244,7 @@ class TestDecoderEntityFiltering:
             entity.id = f"ent-{i}"
             entity.vehicle.vehicle.id = f"v{i}"
 
-        results = list(self.decoder.decode(feed.SerializeToString()))
+        results = list(self.decoder.decode(feed))
 
         assert len(results) == 3
         assert [r.vehicle_id for r in results] == ["v0", "v1", "v2"]
@@ -267,7 +265,7 @@ class TestDecoderEntityFiltering:
         tu_ent.id = "tu-ent"
         tu_ent.trip_update.trip.trip_id = "trip-ignored"
 
-        results = list(self.decoder.decode(feed.SerializeToString()))
+        results = list(self.decoder.decode(feed))
 
         assert len(results) == 1
         assert results[0].vehicle_id == "bus-1"
@@ -319,7 +317,7 @@ class TestMTADecoder:
 
     def test_returns_vehicle_position(self):
         feed = make_feed()
-        results = list(self.decoder.decode(feed.SerializeToString()))
+        results = list(self.decoder.decode(feed))
 
         assert len(results) == 1
         assert isinstance(results[0], VehicleRow)
@@ -327,40 +325,31 @@ class TestMTADecoder:
     def test_base_fields_preserved(self):
         """MTADecoder currently delegates to StandardDecoder; spot-check a few fields."""
         feed = make_feed(vehicle_id="mta-bus", route_id="M15")
-        pos = list(self.decoder.decode(feed.SerializeToString()))[0]
+        pos = list(self.decoder.decode(feed))[0]
         assert pos.vehicle_id == "mta-bus"
         assert pos.route_id == "M15"
 
 
-class TestDecodeFailure:
-    def test_malformed_bytes_raises_decode_failure(self):
-        decoder = StandardDecoder()
-        with pytest.raises(DecodeFailure):
-            list(decoder.decode(b"\x00\x01not protobuf"))
-
-
 def test_marta_decode_smoke():
-    raw = json.dumps(
-        [
-            {
-                "DESTINATION": "Airport",
-                "DIRECTION": "S",
-                "EVENT_TIME": "05/08/2026 4:35:20 PM",
-                "IS_REALTIME": "true",
-                "LINE": "RED",
-                "NEXT_ARR": "04:36:34 PM",
-                "STATION": "DUNWOODY STATION",
-                "TRAIN_ID": "411",
-                "WAITING_SECONDS": "64",
-                "WAITING_TIME": "1 min",
-                "DELAY": "T197S",
-                "LATITUDE": "33.91",
-                "LONGITUDE": "-84.35",
-            }
-        ]
-    ).encode()
+    parsed = [
+        {
+            "DESTINATION": "Airport",
+            "DIRECTION": "S",
+            "EVENT_TIME": "05/08/2026 4:35:20 PM",
+            "IS_REALTIME": "true",
+            "LINE": "RED",
+            "NEXT_ARR": "04:36:34 PM",
+            "STATION": "DUNWOODY STATION",
+            "TRAIN_ID": "411",
+            "WAITING_SECONDS": "64",
+            "WAITING_TIME": "1 min",
+            "DELAY": "T197S",
+            "LATITUDE": "33.91",
+            "LONGITUDE": "-84.35",
+        }
+    ]
     ts = int(datetime.now(timezone.utc).timestamp())
-    rows = list(MartaJsonDecoder().decode(raw, fetched_at=ts))
+    rows = list(MartaJsonDecoder().decode(parsed, fetched_at=ts))
     assert len(rows) == 1
     row = rows[0]
     assert isinstance(row, MartaPredictionRow)

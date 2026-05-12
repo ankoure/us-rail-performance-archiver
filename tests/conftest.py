@@ -10,6 +10,7 @@ from google.transit.gtfs_realtime_pb2 import (
     Alert,
 )
 import time
+from tests.fakes.recording_telemetry import RecordingTelemetry
 
 
 @dataclass
@@ -144,3 +145,8 @@ def create_mixed_protobuf():
         return feed.SerializeToString()
 
     return _create
+
+
+@pytest.fixture
+def telemetry():
+    return RecordingTelemetry()

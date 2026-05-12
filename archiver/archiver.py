@@ -1,4 +1,5 @@
-from archiver.response import TransportErrorResponse, parse_response
+from archiver.response import TransportErrorResponse
+from archiver.parser import parse_response
 from archiver.feed import Feed
 from archiver.writer import LocalWriter
 import requests
@@ -13,9 +14,7 @@ class FeedArchiver:
     def archive_once(self):
         for feed in self.feeds:
             try:
-                response = parse_response(
-                    feed.client.get(feed.path), feed.expected_format
-                )
+                response = parse_response(feed.client.get(feed.path), feed.parser)
             except requests.RequestException as e:
                 response = TransportErrorResponse(
                     error_type=type(e).__name__, error_message=str(e)

@@ -10,10 +10,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.dataset as ds
 from datetime import date, datetime, timezone
-from archiver.decoder import (
-    DecodeFailure,
-    StandardDecoder,
-)
+from archiver.decoder import DecodeFailure
+from archiver.feed import Feed
+from archiver.parser import ParseFailure
 from archiver.logger import logger
 
 _PY_TO_ARROW = {
@@ -43,20 +42,25 @@ def _unwrap_optional(annotation):
 class Rollup:
     def __init__(
         self,
+        feeds: list[Feed],
         base_dir: Path,
         curated_dir: Path,
     ) -> None:
         self.base_dir = base_dir
         self.curated_dir = curated_dir
-        self.decoder = StandardDecoder()  # TODO: per-feed dispatch when MTA arrives
+        self.feeds_by_name = {f.name: f for f in feeds}
 
     def run(self) -> None:
         for feed_name, day in self._discover():
             self.rollup_one(feed_name, day)
 
     def rollup_one(self, feed_name: str, day: date) -> None:
+        feed = self.feeds_by_name.get(feed_name)
+        if feed is None:
+            logger.warning("orphaned data for unknown feed: %s", feed_name)
+            return
         self._rollup_metadata(feed_name, day)
-        self._rollup_data(feed_name, day)
+        self._rollup_data(feed, day)
 
     def _discover(self) -> Iterator[tuple[str, date]]:
         """Yield (feed_name, day) for every metadata partition older than today UTC."""
@@ -85,11 +89,11 @@ class Rollup:
         else:
             logger.warning("nothing to roll up for %s/%s", feed_name, day)
 
-    def _rollup_data(self, feed_name: str, day: date) -> None:
-
+    def _rollup_data(self, feed: Feed, day: date) -> None:
+        feed_name = feed.name
         with ExitStack() as stack:
             writers = {}
-            for row_class, spec in self.decoder.produces.items():
+            for row_class, spec in feed.decoder.produces.items():
                 path = self._curated_path(spec.name, feed_name, day)
                 schema = _schema_from_dataclass(row_class)
                 writers[row_class] = stack.enter_context(
@@ -102,8 +106,9 @@ class Rollup:
                 _partition_filters(day.year, day.month, day.day),
             ):
                 try:
-                    rows = self.decoder.decode(bin_file.read_bytes())
-                except DecodeFailure:
+                    parsed = feed.parser.parse(bin_file.read_bytes())
+                    rows = feed.decoder.decode(parsed)
+                except (ParseFailure, DecodeFailure):
                     logger.warning("skipping malformed .bin: %s", bin_file)
                     continue
 

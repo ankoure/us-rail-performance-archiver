@@ -1,9 +1,7 @@
 from pydantic import ValidationError
 import pytest
 
-from archiver.config import ArchiverConfig
 from unittest.mock import patch, mock_open
-import yaml
 
 from archiver.loader import load_config
 
@@ -100,7 +98,7 @@ def test_archiverconfig_parses_with_no_telemetry_key():
 
 def test_telemetry_typo_rejected():
     with pytest.raises(ValidationError):
-        config = _mock_load_config(mock_yaml_content_extra_fields)
+        _mock_load_config(mock_yaml_content_extra_fields)
 
 
 def test_explicit_telemetry_values_pass_through():

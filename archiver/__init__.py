@@ -1,6 +1,7 @@
 from .auth import APIClient, BearerAuth, APIKeyAuth
 from .feed import Feed
-from .response import FeedResponse, parse_response
+from .response import FeedResponse
+from .parser import parse_response
 from .archiver import FeedArchiver
 
 __all__ = [

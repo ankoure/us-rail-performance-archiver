@@ -2,7 +2,7 @@ from archiver.telemetry import NoOpTelemetry, Telemetry
 
 
 def test_no_op_telemetry_is_telemetry():
-    isinstance(NoOpTelemetry(), Telemetry)
+    assert isinstance(NoOpTelemetry(), Telemetry)
 
 
 def test_noop_metric_methods_callable():
@@ -15,3 +15,9 @@ def test_noop_metric_methods_callable():
     t.histogram("m", 1.0, tags={"f": "x"})
     t.timing("m", 1.0)
     t.timing("m", 1.0, tags={"f": "x"})
+
+
+def test_noop_span_context_manager_works():
+    with NoOpTelemetry().span("op", resource="r", tags={"k": "v"}) as s:
+        s.set_tag("a", "b")
+        s.set_error(RuntimeError("boom"))

@@ -1,11 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import json
-from typing import ClassVar, Iterator
+from typing import Any, ClassVar, Iterator
 from zoneinfo import ZoneInfo
 from google.transit import gtfs_realtime_pb2 as gtfs
-from google.protobuf.message import DecodeError as _ProtobufDecodeError
 
 
 @dataclass
@@ -111,8 +109,34 @@ class DecodeFailure(Exception):
 class Decoder(ABC):
     produces: ClassVar[dict[type[Row], TableSpec]]
 
+    # Registration happens as an import side effect — every module defining a
+    # @Decoder.register(...) subclass must be imported before from_name() is called.
+    _registry: ClassVar[dict[str, type["Decoder"]]] = {}
+
+    @classmethod
+    def register(cls, name: str):
+        def decorator(subclass: type["Decoder"]) -> type["Decoder"]:
+            if name in cls._registry:
+                raise ValueError(
+                    f"decoder name {name!r} already registered to "
+                    f"{cls._registry[name].__name__}"
+                )
+            cls._registry[name] = subclass
+            return subclass
+
+        return decorator
+
+    @classmethod
+    def from_name(cls, name: str) -> "Decoder":
+        try:
+            return cls._registry[name]()
+        except KeyError:
+            raise KeyError(
+                f"no decoder registered for {name!r}; known: {sorted(cls._registry)}"
+            ) from None
+
     @abstractmethod
-    def decode(self, raw: bytes, *, fetched_at: int | None = None) -> Iterator[Row]:
+    def decode(self, parsed: Any, *, fetched_at: int | None = None) -> Iterator[Row]:
         raise NotImplementedError
 
 
@@ -120,13 +144,9 @@ class GtfsRtDecoder(Decoder):
     """Any decoder for the GTFS-RT protobuf format. Subclasses provide entity-level hooks."""
 
     def decode(
-        self, raw: bytes, *, fetched_at: int | None = None
+        self, parsed: gtfs.FeedMessage, *, fetched_at: int | None = None
     ) -> Iterator[VehicleRow | StopTimeUpdateRow | AlertRow]:
-        feed = gtfs.FeedMessage()
-        try:
-            feed.ParseFromString(raw)
-        except _ProtobufDecodeError as e:
-            raise DecodeFailure(f"protobuf parse failed: {e}") from e
+        feed = parsed
         for entity in feed.entity:
             if entity.HasField("vehicle"):
                 yield self._decode_vehicle(entity.vehicle, feed.header, fetched_at)
@@ -163,6 +183,7 @@ class GtfsRtDecoder(Decoder):
         return transform(value) if transform else value
 
 
+@Decoder.register("standard")
 class StandardDecoder(GtfsRtDecoder):
     produces: ClassVar[dict[type[Row], TableSpec]] = {
         VehicleRow: TableSpec("vehicles", ("vehicle_id", "vehicle_timestamp")),
@@ -280,6 +301,7 @@ class StandardDecoder(GtfsRtDecoder):
         return ts.translation[0].text  # fall back to first available
 
 
+@Decoder.register("mta_nyct")
 class MTADecoder(StandardDecoder):
     def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
         base = super()._decode_vehicle(vp, header)
@@ -291,20 +313,16 @@ class MTADecoder(StandardDecoder):
 # set derived from MartaPredictionRow's dataclass fields. Log loudly (or raise) on
 # unknown keys or missing required keys, so MARTA changing their API doesn't
 # silently break the parse.
+@Decoder.register("marta_json")
 class MartaJsonDecoder(Decoder):
     produces: ClassVar[dict[type[Row], TableSpec]] = {
         MartaPredictionRow: TableSpec("marta_predictions")
     }
 
-    def decode(self, raw: bytes, *, fetched_at: int | None = None) -> Iterator[Row]:
+    def decode(self, parsed: list, *, fetched_at: int | None = None) -> Iterator[Row]:
         if fetched_at is None:
             raise ValueError("MartaJsonDecoder requires fetched_at")
-        try:
-            rows = json.loads(raw)
-        except json.JSONDecodeError as e:
-            raise DecodeFailure(f"json parse failed: {e}") from e
-
-        for r in rows:
+        for r in parsed:
             event_dt = self._parse_event_time(r["EVENT_TIME"])  # → UTC datetime
             yield MartaPredictionRow(
                 feed_timestamp=fetched_at,

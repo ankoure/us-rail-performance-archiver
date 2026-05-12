@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from abc import ABC
-from google.protobuf.message import DecodeError
 from archiver.summary import summarize_feed
 from google.transit.gtfs_realtime_pb2 import FeedMessage
 from dataclasses import asdict
@@ -89,6 +88,15 @@ class ProtobufResponse(FeedResponse):
         return super()._extra_metadata() | asdict(summary)
 
 
+class JsonResponse(FeedResponse):
+    def __init__(self, http_response, parsed: dict | list):
+        super().__init__(http_response)
+        self._parsed = parsed
+
+    def parsed_payload(self) -> dict | list:
+        return self._parsed
+
+
 class ErrorResponse(FeedResponse):
     def raw_payload(self) -> None:
         return None
@@ -99,20 +107,3 @@ class ErrorResponse(FeedResponse):
 
 class UnknownResponse(FeedResponse):
     pass
-
-
-def parse_response(http_response, expected_format: str | None = None) -> FeedResponse:
-    if http_response.status_code >= 400:
-        return ErrorResponse(http_response)
-
-    body = http_response.content
-    content_type = http_response.headers.get("Content-Type", "")
-
-    if expected_format == "protobuf" or "protobuf" in content_type:
-        try:
-            parsed = FeedMessage.FromString(body)
-            return ProtobufResponse(http_response, parsed=parsed)
-        except DecodeError:
-            pass  # not actually protobuf — fall through
-
-    return UnknownResponse(http_response)
