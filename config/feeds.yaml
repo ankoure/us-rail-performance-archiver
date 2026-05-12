@@ -590,7 +590,6 @@ agencies:
         expected_format: protobuf
         decoder: standard
 
-
   # The following agencies have developer portals or use third-party providers
   # but lack direct GTFS-RT feed URLs in the source data.
   # Feed URLs must be retrieved from their respective portals.
