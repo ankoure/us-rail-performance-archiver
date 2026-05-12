@@ -94,9 +94,20 @@ class WriterConfig(BaseModel):
     base_dir: Path
 
 
+class TelemetryConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    service: str = "rail-archiver"
+    env: str = "dev"
+    agent_host: str = "localhost"
+    statsd_port: int = 8125
+    tags: dict[str, str] = {}
+
+
 class ArchiverConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     writer: WriterConfig
+    telemetry: TelemetryConfig = TelemetryConfig()
     agencies: list[AgencyConfig]
 
     @field_validator("agencies")
