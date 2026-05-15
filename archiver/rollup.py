@@ -72,8 +72,8 @@ class Rollup:
         if not force and not missing:
             logger.info("skipping %s/%s — all outputs exist", feed_name, day)
             return
-        self._rollup_metadata(feed_name, day)
-        self._rollup_data(feed, day)
+        self._rollup_metadata(feed_name, day, force=force)
+        self._rollup_data(feed, day, force=force)
 
     def _discover(
         self, feed: str | None = None, day: date | None = None
@@ -100,28 +100,38 @@ class Rollup:
                     continue
                 yield feed_name, partition_day
 
-    def _rollup_metadata(self, feed_name: str, day: date) -> None:
+    def _rollup_metadata(
+        self, feed_name: str, day: date, *, force: bool = False
+    ) -> None:
+
         root = self.landing_dir / feed_name / self._METADATA_KIND
+        out_path = self._curated_path(self._METADATA_KIND, feed_name, day)
+        if not force and out_path.exists():
+            return
+
         table = ds.dataset(root, format="json", partitioning="hive").to_table(
             filter=_build_filter(day.year, day.month, day.day)
         )
         table = table.drop_columns(["year", "month", "day"])
-        out_path = self._curated_path(self._METADATA_KIND, feed_name, day)
         if table.num_rows > 0:
             self._write_parquet(table, out_path)
         else:
             logger.warning("nothing to roll up for %s/%s", feed_name, day)
 
-    def _rollup_data(self, feed: Feed, day: date) -> None:
+    def _rollup_data(self, feed: Feed, day: date, *, force: bool = False) -> None:
         feed_name = feed.name
         with ExitStack() as stack:
             writers = {}
             for row_class, spec in feed.decoder.produces.items():
                 path = self._curated_path(spec.name, feed_name, day)
+                if not force and path.exists():
+                    continue
                 schema = _schema_from_dataclass(row_class)
                 writers[row_class] = stack.enter_context(
                     (self._streaming_writer(path, schema))
                 )
+            if not writers: 
+                return
 
             for bin_file in _iter_partition_files(
                 self.landing_dir / feed_name / "raw",
@@ -137,10 +147,12 @@ class Rollup:
                     continue
 
                 for row in rows:
-                    append = writers.get(type(row))
-                    if append is None:
+                    if type(row) not in feed.decoder.produces:
                         logger.warning("unexpected row type: %s", type(row).__name__)
                         continue
+                    append = writers.get(type(row))
+                    if append is None:
+                        continue # known type, but its output already exists
                     append(asdict(row))
 
     def _expected_outputs(self, feed: Feed, day: date) -> dict[str, Path]:
