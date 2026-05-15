@@ -91,7 +91,8 @@ class AgencyConfig(BaseModel):
 
 class WriterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    base_dir: Path
+    landing_dir: Path
+    curated_dir: Path
 
 
 class TelemetryConfig(BaseModel):

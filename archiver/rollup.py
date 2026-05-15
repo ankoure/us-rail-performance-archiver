@@ -40,50 +40,73 @@ def _unwrap_optional(annotation):
 
 
 class Rollup:
+    _METADATA_KIND = "metadata"
+
     def __init__(
         self,
         feeds: list[Feed],
-        base_dir: Path,
+        landing_dir: Path,
         curated_dir: Path,
     ) -> None:
-        self.base_dir = base_dir
+        self.landing_dir = landing_dir
         self.curated_dir = curated_dir
         self.feeds_by_name = {f.name: f for f in feeds}
 
-    def run(self) -> None:
-        for feed_name, day in self._discover():
-            self.rollup_one(feed_name, day)
+    def run(
+        self, feed: str | None = None, day: date | None = None, *, force: bool = False
+    ) -> None:
+        if feed is not None and feed not in self.feeds_by_name:
+            raise ValueError(f"unknown feed: {feed}")
+        for feed_name, partition_day in self._discover(feed=feed, day=day):
+            self.rollup_one(feed_name, partition_day, force=force)
 
-    def rollup_one(self, feed_name: str, day: date) -> None:
+    def rollup_one(self, feed_name: str, day: date, *, force: bool = False) -> None:
         feed = self.feeds_by_name.get(feed_name)
         if feed is None:
             logger.warning("orphaned data for unknown feed: %s", feed_name)
             return
+        expected_outputs = self._expected_outputs(feed=feed, day=day)
+        missing = {
+            kind: path for kind, path in expected_outputs.items() if not path.exists()
+        }
+        if not force and not missing:
+            logger.info("skipping %s/%s — all outputs exist", feed_name, day)
+            return
         self._rollup_metadata(feed_name, day)
         self._rollup_data(feed, day)
 
-    def _discover(self) -> Iterator[tuple[str, date]]:
-        """Yield (feed_name, day) for every metadata partition older than today UTC."""
+    def _discover(
+        self, feed: str | None = None, day: date | None = None
+    ) -> Iterator[tuple[str, date]]:
+        """Yield (feed_name, day) for every metadata partition older than today UTC,
+        optionally filtered to a single feed and/or day."""
         today = datetime.now(timezone.utc).date()
-        for metadata_dir in self.base_dir.glob("*/metadata"):
+        for metadata_dir in self.landing_dir.glob(f"*/{self._METADATA_KIND}"):
             feed_name = metadata_dir.parent.name
+            if feed is not None and feed_name != feed:
+                continue
             for jsonl_path in metadata_dir.rglob("data.jsonl"):
                 partitions = {
                     part.split("=")[0]: int(part.split("=")[1])
                     for part in jsonl_path.parts
                     if "=" in part
                 }
-                day = date(partitions["year"], partitions["month"], partitions["day"])
-                if day < today:
-                    yield feed_name, day
+                partition_day = date(
+                    partitions["year"], partitions["month"], partitions["day"]
+                )
+                if partition_day >= today:
+                    continue
+                if day is not None and partition_day != day:
+                    continue
+                yield feed_name, partition_day
 
     def _rollup_metadata(self, feed_name: str, day: date) -> None:
-        root = self.base_dir / feed_name / "metadata"
+        root = self.landing_dir / feed_name / self._METADATA_KIND
         table = ds.dataset(root, format="json", partitioning="hive").to_table(
             filter=_build_filter(day.year, day.month, day.day)
         )
         table = table.drop_columns(["year", "month", "day"])
-        out_path = self._curated_path("metadata", feed_name, day)
+        out_path = self._curated_path(self._METADATA_KIND, feed_name, day)
         if table.num_rows > 0:
             self._write_parquet(table, out_path)
         else:
@@ -101,13 +124,14 @@ class Rollup:
                 )
 
             for bin_file in _iter_partition_files(
-                self.base_dir / feed_name / "raw",
+                self.landing_dir / feed_name / "raw",
                 "*.bin",
                 _partition_filters(day.year, day.month, day.day),
             ):
+                fetched_at = int(float(bin_file.stem))
                 try:
                     parsed = feed.parser.parse(bin_file.read_bytes())
-                    rows = feed.decoder.decode(parsed)
+                    rows = feed.decoder.decode(parsed, fetched_at=fetched_at)
                 except (ParseFailure, DecodeFailure):
                     logger.warning("skipping malformed .bin: %s", bin_file)
                     continue
@@ -118,6 +142,16 @@ class Rollup:
                         logger.warning("unexpected row type: %s", type(row).__name__)
                         continue
                     append(asdict(row))
+
+    def _expected_outputs(self, feed: Feed, day: date) -> dict[str, Path]:
+        shape = {
+            self._METADATA_KIND: self._curated_path(self._METADATA_KIND, feed.name, day)
+        }
+        feed_name = feed.name
+        for _, spec in feed.decoder.produces.items():
+            path = self._curated_path(spec.name, feed_name, day)
+            shape[spec.name] = path
+        return shape
 
     @staticmethod
     def _write_parquet(table: pa.Table, path: Path) -> None:
@@ -141,8 +175,6 @@ class Rollup:
     @contextmanager
     def _streaming_writer(path: Path, schema: pa.Schema, batch_size: int = 10_000):
         tmp = path.with_suffix(".parquet.tmp")
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-
         writer: pq.ParquetWriter | None = None
         buffer: list[dict] = []
 
@@ -151,6 +183,7 @@ class Rollup:
             if not buffer:
                 return
             if writer is None:
+                tmp.parent.mkdir(parents=True, exist_ok=True)
                 writer = pq.ParquetWriter(tmp, schema)
             writer.write_table(pa.Table.from_pylist(buffer, schema=schema))
             buffer.clear()

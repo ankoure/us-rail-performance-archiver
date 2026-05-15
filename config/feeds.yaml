@@ -1,5 +1,6 @@
 writer:
-  base_dir: ./archive
+  landing_dir: ./archive
+  curated_dir: ./curated
 
 agencies:
   - agency_id: BART

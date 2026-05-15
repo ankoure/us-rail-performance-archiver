@@ -7,7 +7,8 @@ from archiver.loader import load_config
 
 mock_yaml_content = """
 writer:
-  base_dir: ./archive
+  landing_dir: ./archive
+  curated_dir: ./curated
 
 agencies:
   - agency_id: BART
@@ -29,7 +30,8 @@ agencies:
 
 mock_yaml_content_extra_fields = """
 writer:
-  base_dir: ./archive
+  landing_dir: ./archive
+  curated_dir: ./curated
 
 telemetry:
   enbaled: true   # the typo we're catching
@@ -54,7 +56,8 @@ agencies:
 
 mock_yaml_content_with_telemetry = """
 writer:
-  base_dir: ./archive
+  landing_dir: ./archive
+  curated_dir: ./curated
 
 telemetry:
   enabled: true

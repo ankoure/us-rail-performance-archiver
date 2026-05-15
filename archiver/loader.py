@@ -1,6 +1,5 @@
 # loader.py
 import os
-from pathlib import Path
 import yaml
 import archiver.decoder  # noqa: F401 — populate Decoder._registry via import side effects
 import archiver.parser  # noqa: F401 — populate Parser._registry via import side effects
@@ -76,14 +75,14 @@ def build_feeds(config: ArchiverConfig) -> list[Feed]:
 
 def build_archiver(config: ArchiverConfig) -> FeedArchiver:
     feeds = build_feeds(config)
-    writer = LocalWriter(str(config.writer.base_dir))
+    writer = LocalWriter(str(config.writer.landing_dir))
     return FeedArchiver(feeds=feeds, writer=writer)
 
 
-def build_rollup(config: ArchiverConfig, curated_dir: Path) -> Rollup:
+def build_rollup(config: ArchiverConfig) -> Rollup:
     feeds = build_feeds(config)
     return Rollup(
         feeds=feeds,
-        base_dir=config.writer.base_dir,
-        curated_dir=curated_dir,
+        landing_dir=config.writer.landing_dir,
+        curated_dir=config.writer.curated_dir,
     )
