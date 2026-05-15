@@ -113,7 +113,9 @@ def test_skip_happens_when_outputs_exist(tmp_path, monkeypatch):
         path.touch()
     metadata_calls = []
     data_calls = []
-    monkeypatch.setattr(rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1))
+    monkeypatch.setattr(
+        rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1)
+    )
     monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
 
     rollup.rollup_one("fake-feed", day)
@@ -136,13 +138,16 @@ def test_skip_does_not_happen_when_outputs_missing(tmp_path, monkeypatch):
     rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
     metadata_calls = []
     data_calls = []
-    monkeypatch.setattr(rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1))
+    monkeypatch.setattr(
+        rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1)
+    )
     monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
 
     rollup.rollup_one(feed_name="fake-feed", day=day)
 
     assert metadata_calls == [1]
     assert data_calls == [1]
+
 
 def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
     landing_dir = tmp_path / "landing"
@@ -161,7 +166,9 @@ def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
         path.touch()
     metadata_calls = []
     data_calls = []
-    monkeypatch.setattr(rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1))
+    monkeypatch.setattr(
+        rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1)
+    )
     monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
 
     rollup.rollup_one(feed_name="fake-feed", day=day, force=True)

@@ -130,7 +130,7 @@ class Rollup:
                 writers[row_class] = stack.enter_context(
                     (self._streaming_writer(path, schema))
                 )
-            if not writers: 
+            if not writers:
                 return
 
             for bin_file in _iter_partition_files(
@@ -152,7 +152,7 @@ class Rollup:
                         continue
                     append = writers.get(type(row))
                     if append is None:
-                        continue # known type, but its output already exists
+                        continue  # known type, but its output already exists
                     append(asdict(row))
 
     def _expected_outputs(self, feed: Feed, day: date) -> dict[str, Path]:
