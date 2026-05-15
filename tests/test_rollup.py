@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Iterator
+from archiver.feed import Feed
 import pyarrow.parquet as pq
 import pyarrow as pa
 from archiver.decoder import VehicleRow
@@ -93,3 +94,77 @@ def test_streaming_writer_exception_no_orphan(tmp_path):
 
 def test_rollup_routes_unknwon_decoder_to_its_own_table(tmp_path):
     pass
+
+
+def test_skip_happens_when_outputs_exist(tmp_path, monkeypatch):
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    feed = Feed(
+        name="fake-feed",
+        path="/whatever",
+        client=None,
+        parser=None,
+        decoder=FakeDecoder(),
+    )
+    day = date(2026, 5, 1)
+    rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
+    for path in rollup._expected_outputs(feed, day).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    metadata_calls = []
+    data_calls = []
+    monkeypatch.setattr(rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1))
+    monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
+
+    rollup.rollup_one("fake-feed", day)
+
+    assert metadata_calls == []
+    assert data_calls == []
+
+
+def test_skip_does_not_happen_when_outputs_missing(tmp_path, monkeypatch):
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    feed = Feed(
+        name="fake-feed",
+        path="/whatever",
+        client=None,
+        parser=None,
+        decoder=FakeDecoder(),
+    )
+    day = date(2026, 5, 1)
+    rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
+    metadata_calls = []
+    data_calls = []
+    monkeypatch.setattr(rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1))
+    monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
+
+    rollup.rollup_one(feed_name="fake-feed", day=day)
+
+    assert metadata_calls == [1]
+    assert data_calls == [1]
+
+def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    feed = Feed(
+        name="fake-feed",
+        path="/whatever",
+        client=None,
+        parser=None,
+        decoder=FakeDecoder(),
+    )
+    day = date(2026, 5, 1)
+    rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
+    for path in rollup._expected_outputs(feed, day).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    metadata_calls = []
+    data_calls = []
+    monkeypatch.setattr(rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1))
+    monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
+
+    rollup.rollup_one(feed_name="fake-feed", day=day, force=True)
+
+    assert metadata_calls == [1]
+    assert data_calls == [1]
