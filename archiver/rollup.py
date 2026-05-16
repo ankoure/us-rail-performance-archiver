@@ -14,6 +14,7 @@ from archiver.decoder import DecodeFailure
 from archiver.feed import Feed
 from archiver.parser import ParseFailure
 from archiver.logger import logger
+from archiver.telemetry import Telemetry, NoOpTelemetry
 
 _PY_TO_ARROW = {
     int: pa.int64(),
@@ -47,18 +48,21 @@ class Rollup:
         feeds: list[Feed],
         landing_dir: Path,
         curated_dir: Path,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self.landing_dir = landing_dir
         self.curated_dir = curated_dir
         self.feeds_by_name = {f.name: f for f in feeds}
+        self.telemetry = telemetry or NoOpTelemetry()
 
     def run(
         self, feed: str | None = None, day: date | None = None, *, force: bool = False
     ) -> None:
-        if feed is not None and feed not in self.feeds_by_name:
-            raise ValueError(f"unknown feed: {feed}")
-        for feed_name, partition_day in self._discover(feed=feed, day=day):
-            self.rollup_one(feed_name, partition_day, force=force)
+        with self.telemetry.span("rollup.run"):
+            if feed is not None and feed not in self.feeds_by_name:
+                raise ValueError(f"unknown feed: {feed}")
+            for feed_name, partition_day in self._discover(feed=feed, day=day):
+                self.rollup_one(feed_name, partition_day, force=force)
 
     def rollup_one(self, feed_name: str, day: date, *, force: bool = False) -> None:
         feed = self.feeds_by_name.get(feed_name)
@@ -70,10 +74,16 @@ class Rollup:
             kind: path for kind, path in expected_outputs.items() if not path.exists()
         }
         if not force and not missing:
+            self.telemetry.incr("rollup.skipped", tags={"feed": feed_name})
             logger.info("skipping %s/%s — all outputs exist", feed_name, day)
             return
-        self._rollup_metadata(feed_name, day, force=force)
-        self._rollup_data(feed, day, force=force)
+        with self.telemetry.span(
+            "rollup.day",
+            resource=feed_name,
+            tags={"feed": feed_name, "day": day.isoformat()},
+        ):
+            self._rollup_metadata(feed_name, day, force=force)
+            self._rollup_data(feed, day, force=force)
 
     def _discover(
         self, feed: str | None = None, day: date | None = None

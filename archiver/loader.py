@@ -12,11 +12,13 @@ from archiver.config import (
     BearerAuthConfig,
     BasicAuthConfig,
     NoAuthConfig,
+    TelemetryConfig,
 )
 from archiver.decoder import Decoder
 from archiver.feed import Feed
 from archiver.parser import Parser
 from archiver.rollup import Rollup
+from archiver.telemetry import NoOpTelemetry, Telemetry
 from archiver.writer import LocalWriter
 
 
@@ -73,16 +75,36 @@ def build_feeds(config: ArchiverConfig) -> list[Feed]:
     return feeds
 
 
+def build_telemetry(config: TelemetryConfig) -> Telemetry:
+    if not config.enabled:
+        return NoOpTelemetry()
+
+    # Lazy import — datadog only loaded if actually enabled
+    from datadog.dogstatsd.base import DogStatsd
+    from archiver.telemetry_datadog import DatadogTelemetry
+
+    client = DogStatsd(host=config.agent_host, port=config.statsd_port)
+    default_tags = {
+        "service": config.service,
+        "env": config.env,
+        **config.tags,
+    }
+    return DatadogTelemetry(client, default_tags=default_tags)
+
+
 def build_archiver(config: ArchiverConfig) -> FeedArchiver:
     feeds = build_feeds(config)
     writer = LocalWriter(str(config.writer.landing_dir))
-    return FeedArchiver(feeds=feeds, writer=writer)
+    telemetry = build_telemetry(config.telemetry)
+    return FeedArchiver(feeds=feeds, writer=writer, telemetry=telemetry)
 
 
 def build_rollup(config: ArchiverConfig) -> Rollup:
     feeds = build_feeds(config)
+    telemetry = build_telemetry(config.telemetry)
     return Rollup(
         feeds=feeds,
         landing_dir=config.writer.landing_dir,
         curated_dir=config.writer.curated_dir,
+        telemetry=telemetry,
     )

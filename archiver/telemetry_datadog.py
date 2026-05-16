@@ -12,7 +12,8 @@ class _DatadogSpan:
     ) -> None:
         self.name = name
         self.tags = dict(initial_tags)
-        self.tags["resource"] = resource
+        if resource is not None:
+            self.tags["resource"] = resource
         self._start = monotonic()
 
     def set_tag(self, key: str, value) -> None:
@@ -54,18 +55,17 @@ class DatadogTelemetry:
 
     @contextmanager
     def span(self, name, *, resource=None, tags=None):
-        merged = {**self.default_tags, **(tags or {})}
-        span = _DatadogSpan(name, resource, merged)
+        span_obj = _DatadogSpan(name, resource, tags or {})
         try:
-            yield span
-        except Exception as exc:
-            span.set_error(exc)
+            yield span_obj
+        except BaseException as exc:
+            span_obj.set_error(exc)
             raise
         finally:
             self.client.timing(
                 f"{name}.duration",
-                span._duration_ms(),
-                tags=self._format_tags(span._final_tags()),
+                span_obj._duration_ms(),
+                tags=self._format_tags(span_obj._final_tags()),
             )
 
     def _format_tags(self, tags: dict[str, str] | None) -> list[str]:
