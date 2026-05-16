@@ -43,30 +43,58 @@ class Shipper:
         self._ship_cold(feed_name, day, force=force)
         self._ship_hot(feed_name, day, force=force)
 
-    def _ship_cold(self, feed_name: str, day: date, *, force: bool) -> None:
+    def _ship_cold(self, feed_name, day, *, force):
         key = self._cold_key(feed_name, day)
         if not force and self.uploader.exists(self.cold_bucket, key):
+            self.telemetry.incr("ship.cold.skipped", tags={"feed": feed_name})
             logger.debug("cold already exists, skipping: %s/%s", self.cold_bucket, key)
             return
-        with self._build_tarball(feed_name, day) as tar_path:
-            self.uploader.upload(
-                self.cold_bucket,
-                key,
-                tar_path,
-                storage_class=self._COLD_STORAGE_CLASS,
-            )
-        self.telemetry.incr("shipper.cold.uploaded")
 
-    def _ship_hot(self, feed_name: str, day: date, *, force: bool) -> None:
+        with self._build_tarball(feed_name, day) as tar_path:
+            with self.telemetry.span(
+                "ship.cold",
+                resource=feed_name,
+                tags={"feed": feed_name, "day": day.isoformat()},
+            ):
+                self.uploader.upload(
+                    self.cold_bucket,
+                    key,
+                    tar_path,
+                    storage_class=self._COLD_STORAGE_CLASS,
+                )
+            self.telemetry.histogram(
+                "ship.cold.bytes",
+                tar_path.stat().st_size,
+                tags={"feed": feed_name},
+            )
+
+    def _ship_hot(self, feed_name, day, *, force):
         for parquet in self._curated_parquets(feed_name, day):
+            kind = parquet.relative_to(self.curated_dir).parts[
+                0
+            ]  # first path segment is <kind>
             key = self._hot_key(parquet)
+
             if not force and self.uploader.exists(self.hot_bucket, key):
+                self.telemetry.incr(
+                    "ship.hot.skipped", tags={"feed": feed_name, "kind": kind}
+                )
                 logger.debug(
                     "hot already exists, skipping: %s/%s", self.hot_bucket, key
                 )
                 continue
-            self.uploader.upload(self.hot_bucket, key, parquet)
-            self.telemetry.incr("shipper.hot.uploaded")
+
+            with self.telemetry.span(
+                "ship.hot",
+                resource=feed_name,
+                tags={"feed": feed_name, "day": day.isoformat(), "kind": kind},
+            ):
+                self.uploader.upload(self.hot_bucket, key, parquet)
+            self.telemetry.histogram(
+                "ship.hot.bytes",
+                parquet.stat().st_size,
+                tags={"feed": feed_name, "kind": kind},
+            )
 
     @contextmanager
     def _build_tarball(self, feed_name: str, day: date):
