@@ -30,9 +30,9 @@ class MartaPredictionRow(Row):
     train_id: str
     waiting_seconds: int
     waiting_time: str
-    delay: int
-    latitude: float
-    longitude: float
+    delay: int | None
+    latitude: float | None
+    longitude: float | None
 
 
 @dataclass
@@ -338,13 +338,15 @@ class MartaJsonDecoder(Decoder):
                 train_id=r["TRAIN_ID"],
                 waiting_seconds=int(r["WAITING_SECONDS"]),
                 waiting_time=r["WAITING_TIME"],
-                delay=self._parse_delay(r["DELAY"]),
-                latitude=float(r["LATITUDE"]),
-                longitude=float(r["LONGITUDE"]),
+                delay=self._parse_delay(r.get("DELAY")),
+                latitude=float(r["LATITUDE"]) if "LATITUDE" in r else None,
+                longitude=float(r["LONGITUDE"]) if "LONGITUDE" in r else None,
             )
 
     @staticmethod
-    def _parse_delay(delay: str) -> int:
+    def _parse_delay(delay: str | None) -> int | None:
+        if delay is None:
+            return None
         return int(delay.removeprefix("T").removesuffix("S"))
 
     @staticmethod
