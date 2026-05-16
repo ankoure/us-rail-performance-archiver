@@ -105,10 +105,27 @@ class TelemetryConfig(BaseModel):
     tags: dict[str, str] = {}
 
 
+class S3Config(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    region: str = "us-east-1"
+    cold_bucket: str | None = None
+    hot_bucket: str | None = None
+    cold_prefix: str = ""
+    hot_prefix: str = ""
+
+    @model_validator(mode="after")
+    def buckets_required_when_enabled(self) -> "S3Config":
+        if self.enabled and not (self.cold_bucket and self.hot_bucket):
+            raise ValueError("cold_bucket and hot_bucket required when s3 enabled")
+        return self
+
+
 class ArchiverConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     writer: WriterConfig
     telemetry: TelemetryConfig = TelemetryConfig()
+    s3: S3Config = S3Config()
     agencies: list[AgencyConfig]
 
     @field_validator("agencies")

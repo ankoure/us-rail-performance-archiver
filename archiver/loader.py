@@ -12,13 +12,16 @@ from archiver.config import (
     BearerAuthConfig,
     BasicAuthConfig,
     NoAuthConfig,
+    S3Config,
     TelemetryConfig,
 )
 from archiver.decoder import Decoder
 from archiver.feed import Feed
 from archiver.parser import Parser
 from archiver.rollup import Rollup
+from archiver.shipper import Shipper
 from archiver.telemetry import NoOpTelemetry, Telemetry
+from archiver.uploader import Uploader
 from archiver.writer import LocalWriter
 
 
@@ -106,5 +109,32 @@ def build_rollup(config: ArchiverConfig) -> Rollup:
         feeds=feeds,
         landing_dir=config.writer.landing_dir,
         curated_dir=config.writer.curated_dir,
+        telemetry=telemetry,
+    )
+
+
+def build_uploader(config: S3Config) -> Uploader:
+    if not config.enabled:
+        raise RuntimeError("s3 is not enabled in config")
+
+    # Lazy import — boto3 only loaded if actually enabled
+    import boto3
+    from archiver.uploader import S3Uploader
+
+    client = boto3.client("s3", region_name=config.region)
+    return S3Uploader(client)
+
+
+def build_shipper(config: ArchiverConfig) -> Shipper:
+    uploader = build_uploader(config.s3)
+    telemetry = build_telemetry(config.telemetry)
+    return Shipper(
+        landing_dir=config.writer.landing_dir,
+        curated_dir=config.writer.curated_dir,
+        uploader=uploader,
+        cold_bucket=config.s3.cold_bucket,
+        hot_bucket=config.s3.hot_bucket,
+        cold_prefix=config.s3.cold_prefix,
+        hot_prefix=config.s3.hot_prefix,
         telemetry=telemetry,
     )
