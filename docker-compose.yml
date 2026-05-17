@@ -28,6 +28,7 @@ services:
     user: "1000:1000"
     environment:
     - PYTHONUNBUFFERED=1
+    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-4}
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive

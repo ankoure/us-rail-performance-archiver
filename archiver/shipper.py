@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from archiver.uploader import Uploader
 from archiver.telemetry import Telemetry, NoOpTelemetry
@@ -33,11 +34,20 @@ class Shipper:
         self.hot_prefix = hot_prefix
         self.telemetry = telemetry or NoOpTelemetry()
 
-    def run(
-        self, feed: str | None = None, day: date | None = None, *, force: bool = False
-    ) -> None:
-        for feed_name, partition_day in self._discover(feed, day):
-            self.ship_one(feed_name, partition_day, force=force)
+    def run(self, feed=None, day=None, *, force=False, workers=8):
+        pairs = list(self._discover(feed, day))
+        if not pairs:
+            return
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {
+                ex.submit(self.ship_one, fn, d, force=force): (fn, d) for fn, d in pairs
+            }
+            for fut in as_completed(futures):
+                fn, d = futures[fut]
+                try:
+                    fut.result()
+                except Exception:
+                    logger.exception("ship failed: %s/%s", fn, d)
 
     def ship_one(self, feed_name: str, day: date, *, force: bool = False) -> None:
         self._ship_cold(feed_name, day, force=force)
@@ -147,6 +157,3 @@ class Shipper:
             if day is not None and partition_day != day:
                 continue
             yield feed_name, partition_day
-
-            today = datetime.now(tz=timezone.utc).date()
-            feed_glob = feed if feed else "*"
