@@ -18,9 +18,7 @@ class FeedArchiver:
     def archive_once(self):
         for feed in self.feeds:
             try:
-                with self.telemetry.span(
-                    "feed.poll", resource=feed.name, tags={"feed": feed.name}
-                ):
+                with self.telemetry.span("feed.poll", tags={"feed": feed.name}):
                     response = parse_response(feed.client.get(feed.path), feed.parser)
             except requests.RequestException as e:
                 response = TransportErrorResponse(

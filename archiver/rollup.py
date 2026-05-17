@@ -2,13 +2,11 @@ from contextlib import ExitStack, contextmanager
 import dataclasses
 import typing
 from dataclasses import asdict
-from functools import reduce
-import operator
 from pathlib import Path
 from typing import Iterator
 import pyarrow as pa
+import pyarrow.json as paj
 import pyarrow.parquet as pq
-import pyarrow.dataset as ds
 from datetime import date, datetime, timezone
 from archiver.decoder import DecodeFailure
 from archiver.feed import Feed
@@ -61,7 +59,7 @@ class Rollup:
         with self.telemetry.span("rollup.run"):
             if feed is not None and feed not in self.feeds_by_name:
                 raise ValueError(f"unknown feed: {feed}")
-            for feed_name, partition_day in self._discover(feed=feed, day=day):
+            for feed_name, partition_day in self.discover(feed=feed, day=day):
                 self.rollup_one(feed_name, partition_day, force=force)
 
     def rollup_one(self, feed_name: str, day: date, *, force: bool = False) -> None:
@@ -77,15 +75,11 @@ class Rollup:
             self.telemetry.incr("rollup.skipped", tags={"feed": feed_name})
             logger.info("skipping %s/%s — all outputs exist", feed_name, day)
             return
-        with self.telemetry.span(
-            "rollup.day",
-            resource=feed_name,
-            tags={"feed": feed_name, "day": day.isoformat()},
-        ):
+        with self.telemetry.span("rollup.day", tags={"feed": feed_name}):
             self._rollup_metadata(feed_name, day, force=force)
             self._rollup_data(feed, day, force=force)
 
-    def _discover(
+    def discover(
         self, feed: str | None = None, day: date | None = None
     ) -> Iterator[tuple[str, date]]:
         """Yield (feed_name, day) for every metadata partition older than today UTC,
@@ -115,14 +109,18 @@ class Rollup:
     ) -> None:
 
         root = self.landing_dir / feed_name / self._METADATA_KIND
+        metadata_path = (
+            root
+            / f"year={day.year}"
+            / f"month={day.month}"
+            / f"day={day.day}"
+            / "data.jsonl"
+        )
         out_path = self._curated_path(self._METADATA_KIND, feed_name, day)
         if not force and out_path.exists():
             return
 
-        table = ds.dataset(root, format="json", partitioning="hive").to_table(
-            filter=_build_filter(day.year, day.month, day.day)
-        )
-        table = table.drop_columns(["year", "month", "day"])
+        table = paj.read_json(input_file=metadata_path)
         if table.num_rows > 0:
             self._write_parquet(table, out_path)
         else:
@@ -143,11 +141,13 @@ class Rollup:
             if not writers:
                 return
 
-            for bin_file in _iter_partition_files(
-                self.landing_dir / feed_name / "raw",
-                "*.bin",
-                _partition_filters(day.year, day.month, day.day),
-            ):
+            bin_files = (self.landing_dir / feed_name / "raw").glob(
+                f"year={day.year}/month={day.month}/day={day.day}/*.bin"
+            )
+
+            count = 0
+            for bin_file in bin_files:
+                count += 1
                 fetched_at = int(float(bin_file.stem))
                 try:
                     parsed = feed.parser.parse(bin_file.read_bytes())
@@ -164,6 +164,8 @@ class Rollup:
                     if append is None:
                         continue  # known type, but its output already exists
                     append(asdict(row))
+            if count == 0:
+                logger.warning("no .bin files for %s/%s", feed_name, day)
 
     def _expected_outputs(self, feed: Feed, day: date) -> dict[str, Path]:
         shape = {
@@ -227,37 +229,3 @@ class Rollup:
                     logger.error("writer was active but tmp file missing: %s", tmp)
             elif tmp.exists():
                 tmp.unlink()
-
-
-def _build_filter(year, month, day):
-    """Build a PyArrow filter expression from optional partition args."""
-    filters = []
-    if year is not None:
-        filters.append(ds.field("year") == year)
-    if month is not None:
-        filters.append(ds.field("month") == month)
-    if day is not None:
-        filters.append(ds.field("day") == day)
-
-    return reduce(operator.and_, filters) if filters else None
-
-
-def _partition_filters(year, month, day) -> dict:
-    """For manual path filtering when PyArrow can't handle the format."""
-    return {
-        k: v
-        for k, v in {"year": year, "month": month, "day": day}.items()
-        if v is not None
-    }
-
-
-def _iter_partition_files(root: Path, pattern: str, filters: dict):
-    """Walk hive partitions and yield files matching the filter criteria."""
-    for f in root.rglob(pattern):
-        partitions = {
-            part.split("=")[0]: int(part.split("=")[1])
-            for part in f.parts
-            if "=" in part
-        }
-        if all(partitions.get(k) == v for k, v in filters.items()):
-            yield f

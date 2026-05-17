@@ -51,11 +51,7 @@ class Shipper:
             return
 
         with self._build_tarball(feed_name, day) as tar_path:
-            with self.telemetry.span(
-                "ship.cold",
-                resource=feed_name,
-                tags={"feed": feed_name, "day": day.isoformat()},
-            ):
+            with self.telemetry.span("ship.cold", tags={"feed": feed_name}):
                 self.uploader.upload(
                     self.cold_bucket,
                     key,
@@ -85,9 +81,7 @@ class Shipper:
                 continue
 
             with self.telemetry.span(
-                "ship.hot",
-                resource=feed_name,
-                tags={"feed": feed_name, "day": day.isoformat(), "kind": kind},
+                "ship.hot", tags={"feed": feed_name, "kind": kind}
             ):
                 self.uploader.upload(self.hot_bucket, key, parquet)
             self.telemetry.histogram(

@@ -25,8 +25,7 @@ def parse_args():
 
 
 def main(args):
-    if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
 
     config = load_config("config/feeds.yaml")
     shipper = build_shipper(config)

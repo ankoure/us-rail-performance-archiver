@@ -1,8 +1,11 @@
+import os
+
 from dotenv import load_dotenv
 from archiver.loader import build_rollup, load_config
 from datetime import date
 import argparse
 import logging
+from archiver.parallel import run_parallel
 
 load_dotenv()
 
@@ -21,12 +24,19 @@ def parse_args():
 
 
 def main(args):
-    if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+    rollup_workers = int(os.environ.get("ROLLUP_WORKERS", os.cpu_count() or 1))
 
     config = load_config("config/feeds.yaml")
     rollup = build_rollup(config)
-    rollup.run(feed=args.feed, day=args.day, force=args.force)
+    run_parallel(
+        rollup=rollup,
+        config_path="config/feeds.yaml",
+        feed=args.feed,
+        day=args.day,
+        force=args.force,
+        workers=rollup_workers,
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 # data
 archive/
+curated/
 *.parquet
 *.jsonl
 *.bin

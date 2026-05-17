@@ -1,6 +1,19 @@
 writer:
   landing_dir: ./archive
   curated_dir: ./curated
+s3:
+  enabled: true
+  region: us-east-1
+  cold_bucket: rail-performance-archiver-cold
+  hot_bucket: rail-performance-archiver-hot
+  cold_prefix: "" # optional, prepended to S3 keys
+  hot_prefix: "" # optional
+
+telemetry:
+  enabled: true
+  service: rail-archiver
+  env: dev
+  agent_host: datadog-agent
 
 agencies:
   - agency_id: BART
@@ -279,137 +292,140 @@ agencies:
         expected_format: protobuf
         decoder: standard
 
-  - agency_id: SFMTA
-    name: San Francisco Municipal Transportation Agency (Muni Metro)
-    region: San Francisco Bay Area
-    base_url: https://api.511.org/transit
-    auth:
-      type: api_key
-      param: api_key
-      env: BAY_AREA_511_API_KEY
-    feeds:
-      - name: sfmta-vehicles
-        path: /vehiclepositions?agency=SF
-        expected_format: protobuf
-        decoder: standard
-      - name: sfmta-trips
-        path: /tripupdates?agency=SF
-        expected_format: protobuf
-        decoder: standard
-      - name: sfmta-alerts
-        path: /servicealerts?agency=SF
-        expected_format: protobuf
-        decoder: standard
+  # Disabled 2026-05-17: all 6 agencies below share BAY_AREA_511_API_KEY (60 req/hr).
+  # Re-enable once per-feed scheduling is in place, or after requesting a rate-limit
+  # increase from 511sfbaydeveloperresources@googlegroups.com.
+  # - agency_id: SFMTA
+  #   name: San Francisco Municipal Transportation Agency (Muni Metro)
+  #   region: San Francisco Bay Area
+  #   base_url: https://api.511.org/transit
+  #   auth:
+  #     type: api_key
+  #     param: api_key
+  #     env: BAY_AREA_511_API_KEY
+  #   feeds:
+  #     - name: sfmta-vehicles
+  #       path: /vehiclepositions?agency=SF
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: sfmta-trips
+  #       path: /tripupdates?agency=SF
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: sfmta-alerts
+  #       path: /servicealerts?agency=SF
+  #       expected_format: protobuf
+  #       decoder: standard
 
-  - agency_id: VTA
-    name: Santa Clara Valley Transportation Authority
-    region: San Jose
-    base_url: https://api.511.org/transit
-    auth:
-      type: api_key
-      param: api_key
-      env: BAY_AREA_511_API_KEY
-    feeds:
-      - name: vta-vehicles
-        path: /vehiclepositions?agency=SC
-        expected_format: protobuf
-        decoder: standard
-      - name: vta-trips
-        path: /tripupdates?agency=SC
-        expected_format: protobuf
-        decoder: standard
-      - name: vta-alerts
-        path: /servicealerts?agency=SC
-        expected_format: protobuf
-        decoder: standard
+  # - agency_id: VTA
+  #   name: Santa Clara Valley Transportation Authority
+  #   region: San Jose
+  #   base_url: https://api.511.org/transit
+  #   auth:
+  #     type: api_key
+  #     param: api_key
+  #     env: BAY_AREA_511_API_KEY
+  #   feeds:
+  #     - name: vta-vehicles
+  #       path: /vehiclepositions?agency=SC
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: vta-trips
+  #       path: /tripupdates?agency=SC
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: vta-alerts
+  #       path: /servicealerts?agency=SC
+  #       expected_format: protobuf
+  #       decoder: standard
 
-  - agency_id: CALTRAIN
-    name: Caltrain
-    region: San Francisco Bay Area
-    base_url: https://api.511.org/transit
-    auth:
-      type: api_key
-      param: api_key
-      env: BAY_AREA_511_API_KEY
-    feeds:
-      - name: caltrain-vehicles
-        path: /vehiclepositions?agency=CT
-        expected_format: protobuf
-        decoder: standard
-      - name: caltrain-trips
-        path: /tripupdates?agency=CT
-        expected_format: protobuf
-        decoder: standard
-      - name: caltrain-alerts
-        path: /servicealerts?agency=CT
-        expected_format: protobuf
-        decoder: standard
+  # - agency_id: CALTRAIN
+  #   name: Caltrain
+  #   region: San Francisco Bay Area
+  #   base_url: https://api.511.org/transit
+  #   auth:
+  #     type: api_key
+  #     param: api_key
+  #     env: BAY_AREA_511_API_KEY
+  #   feeds:
+  #     - name: caltrain-vehicles
+  #       path: /vehiclepositions?agency=CT
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: caltrain-trips
+  #       path: /tripupdates?agency=CT
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: caltrain-alerts
+  #       path: /servicealerts?agency=CT
+  #       expected_format: protobuf
+  #       decoder: standard
 
-  - agency_id: ACE
-    name: Altamont Corridor Express
-    region: San Francisco Bay Area
-    base_url: https://api.511.org/transit
-    auth:
-      type: api_key
-      param: api_key
-      env: BAY_AREA_511_API_KEY
-    feeds:
-      - name: ace-vehicles
-        path: /vehiclepositions?agency=CE
-        expected_format: protobuf
-        decoder: standard
-      - name: ace-trips
-        path: /tripupdates?agency=CE
-        expected_format: protobuf
-        decoder: standard
-      - name: ace-alerts
-        path: /servicealerts?agency=CE
-        expected_format: protobuf
-        decoder: standard
+  # - agency_id: ACE
+  #   name: Altamont Corridor Express
+  #   region: San Francisco Bay Area
+  #   base_url: https://api.511.org/transit
+  #   auth:
+  #     type: api_key
+  #     param: api_key
+  #     env: BAY_AREA_511_API_KEY
+  #   feeds:
+  #     - name: ace-vehicles
+  #       path: /vehiclepositions?agency=CE
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: ace-trips
+  #       path: /tripupdates?agency=CE
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: ace-alerts
+  #       path: /servicealerts?agency=CE
+  #       expected_format: protobuf
+  #       decoder: standard
 
-  - agency_id: CAPITOL_CORRIDOR
-    name: Capitol Corridor Joint Powers Authority
-    region: San Francisco Bay Area
-    base_url: https://api.511.org/transit
-    auth:
-      type: api_key
-      param: api_key
-      env: BAY_AREA_511_API_KEY
-    feeds:
-      - name: capcor-vehicles
-        path: /vehiclepositions?agency=AM
-        expected_format: protobuf
-        decoder: standard
-      - name: capcor-trips
-        path: /tripupdates?agency=AM
-        expected_format: protobuf
-        decoder: standard
-      - name: capcor-alerts
-        path: /servicealerts?agency=AM
-        expected_format: protobuf
-        decoder: standard
+  # - agency_id: CAPITOL_CORRIDOR
+  #   name: Capitol Corridor Joint Powers Authority
+  #   region: San Francisco Bay Area
+  #   base_url: https://api.511.org/transit
+  #   auth:
+  #     type: api_key
+  #     param: api_key
+  #     env: BAY_AREA_511_API_KEY
+  #   feeds:
+  #     - name: capcor-vehicles
+  #       path: /vehiclepositions?agency=AM
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: capcor-trips
+  #       path: /tripupdates?agency=AM
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: capcor-alerts
+  #       path: /servicealerts?agency=AM
+  #       expected_format: protobuf
+  #       decoder: standard
 
-  - agency_id: SMART
-    name: Sonoma-Marin Area Rail Transit
-    region: San Francisco Bay Area
-    base_url: https://api.511.org/transit
-    auth:
-      type: api_key
-      param: api_key
-      env: BAY_AREA_511_API_KEY
-    feeds:
-      - name: smart-vehicles
-        path: /vehiclepositions?agency=SA
-        expected_format: protobuf
-        decoder: standard
-      - name: smart-trips
-        path: /tripupdates?agency=SA
-        expected_format: protobuf
-        decoder: standard
-      - name: smart-alerts
-        path: /servicealerts?agency=SA
-        expected_format: protobuf
-        decoder: standard
+  # - agency_id: SMART
+  #   name: Sonoma-Marin Area Rail Transit
+  #   region: San Francisco Bay Area
+  #   base_url: https://api.511.org/transit
+  #   auth:
+  #     type: api_key
+  #     param: api_key
+  #     env: BAY_AREA_511_API_KEY
+  #   feeds:
+  #     - name: smart-vehicles
+  #       path: /vehiclepositions?agency=SA
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: smart-trips
+  #       path: /tripupdates?agency=SA
+  #       expected_format: protobuf
+  #       decoder: standard
+  #     - name: smart-alerts
+  #       path: /servicealerts?agency=SA
+  #       expected_format: protobuf
+  #       decoder: standard
 
   # - agency_id: MTS
   #   name: Metropolitan Transit System (San Diego Trolley)
