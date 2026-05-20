@@ -354,8 +354,6 @@ With telemetry disabled, the `NoOpTelemetry` implementation is a true no-op — 
 - **No schema-drift detection on JSON decoders.** A TODO in [decoder.py](archiver/decoder.py) calls out that a MARTA API change would currently silently break parsing.
 - **MTA NYCT decoder is a stub.** `MTADecoder` extends `StandardDecoder` but doesn't yet read the NYCT protobuf extensions.
 - **HRT and several other agencies are disabled.** See commented blocks in [feeds.yaml](config/feeds.yaml); some endpoints are unreachable, others were never enabled.
-- **`ship.py` discovery has dead code.** The trailing two lines of `Shipper._discover` are unreachable.
-- **Docker pins Python 3.12, pyproject pins 3.13.** Harmless today but worth aligning.
 - **Single-host poller.** Concurrency between feeds within a tick is sequential — fine for ~60 feeds at 60s, would need rethinking at higher fan-out.
 
 ---

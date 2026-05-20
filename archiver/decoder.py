@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar, Iterator
 from zoneinfo import ZoneInfo
+import pyarrow as pa
 from google.transit import gtfs_realtime_pb2 as gtfs
 
 
@@ -10,6 +11,12 @@ from google.transit import gtfs_realtime_pb2 as gtfs
 class TableSpec:
     name: str
     dedup_keys: tuple[str, ...] = ()
+    # Python dataclass field name -> parquet column name. Lets consumers (e.g. LAMP)
+    # see dotted names like "vehicle.vehicle.id" that aren't valid Python identifiers.
+    column_names: dict[str, str] = field(default_factory=dict)
+    # Schema-only columns the decoder never populates, written as all-null.
+    # Required when a downstream reader demands a column the upstream feed doesn't publish.
+    extra_columns: tuple[pa.Field, ...] = ()
 
 
 @dataclass
@@ -44,6 +51,7 @@ class VehicleRow(Row):
     route_id: str | None = None
     direction_id: int | None = None
     start_date: str | None = None
+    start_time: str | None = None
     schedule_relationship: str | None = None
     latitude: float | None = None
     longitude: float | None = None
@@ -60,6 +68,7 @@ class VehicleRow(Row):
 @dataclass
 class StopTimeUpdateRow(Row):
     feed_timestamp: int | None = None
+    trip_update_timestamp: int | None = None
     trip_id: str | None = None
     route_id: str | None = None
     direction_id: int | None = None
@@ -186,8 +195,48 @@ class GtfsRtDecoder(Decoder):
 @Decoder.register("standard")
 class StandardDecoder(GtfsRtDecoder):
     produces: ClassVar[dict[type[Row], TableSpec]] = {
-        VehicleRow: TableSpec("vehicles", ("vehicle_id", "vehicle_timestamp")),
-        StopTimeUpdateRow: TableSpec("trip_updates"),
+        VehicleRow: TableSpec(
+            "vehicles",
+            dedup_keys=("vehicle_id", "vehicle_timestamp"),
+            column_names={
+                "vehicle_timestamp": "vehicle.timestamp",
+                "current_status": "vehicle.current_status",
+                "current_stop_sequence": "vehicle.current_stop_sequence",
+                "stop_id": "vehicle.stop_id",
+                "direction_id": "vehicle.trip.direction_id",
+                "route_id": "vehicle.trip.route_id",
+                "start_date": "vehicle.trip.start_date",
+                "start_time": "vehicle.trip.start_time",
+                "trip_id": "vehicle.trip.trip_id",
+                "vehicle_id": "vehicle.vehicle.id",
+                "vehicle_label": "vehicle.vehicle.label",
+            },
+            extra_columns=(
+                pa.field("vehicle.trip.revenue", pa.bool_()),
+                pa.field(
+                    "vehicle.vehicle.consist",
+                    pa.list_(pa.struct([pa.field("label", pa.string())])),
+                ),
+                pa.field(
+                    "vehicle.multi_carriage_details",
+                    pa.list_(pa.struct([pa.field("label", pa.string())])),
+                ),
+            ),
+        ),
+        StopTimeUpdateRow: TableSpec(
+            "trip_updates",
+            column_names={
+                "trip_update_timestamp": "trip_update.timestamp",
+                "trip_id": "trip_update.trip.trip_id",
+                "route_id": "trip_update.trip.route_id",
+                "direction_id": "trip_update.trip.direction_id",
+                "start_date": "trip_update.trip.start_date",
+                "start_time": "trip_update.trip.start_time",
+                "vehicle_id": "trip_update.vehicle.id",
+                "stop_id": "trip_update.stop_time_update.stop_id",
+                "arrival_time": "trip_update.stop_time_update.arrival.time",
+            },
+        ),
         AlertRow: TableSpec("alerts"),
     }
 
@@ -200,6 +249,7 @@ class StandardDecoder(GtfsRtDecoder):
             route_id=self._opt(vp.trip, "route_id"),
             direction_id=self._opt(vp.trip, "direction_id"),
             start_date=self._opt(vp.trip, "start_date"),
+            start_time=self._opt(vp.trip, "start_time"),
             schedule_relationship=self._opt(
                 vp.trip,
                 "schedule_relationship",
@@ -224,6 +274,7 @@ class StandardDecoder(GtfsRtDecoder):
     def _decode_trip_update(
         self, tu, header, fetched_at: int | None = None
     ) -> Iterator[StopTimeUpdateRow]:
+        trip_update_timestamp = self._opt(tu, "timestamp")
         trip_id = self._opt(tu.trip, "trip_id")
         route_id = self._opt(tu.trip, "route_id")
         direction_id = self._opt(tu.trip, "direction_id")
@@ -240,6 +291,7 @@ class StandardDecoder(GtfsRtDecoder):
         for stu in tu.stop_time_update:
             yield StopTimeUpdateRow(
                 feed_timestamp=header.timestamp,
+                trip_update_timestamp=trip_update_timestamp,
                 trip_id=trip_id,
                 route_id=route_id,
                 direction_id=direction_id,

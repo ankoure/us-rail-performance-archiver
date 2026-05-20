@@ -8,7 +8,7 @@ import pyarrow as pa
 import pyarrow.json as paj
 import pyarrow.parquet as pq
 from datetime import date, datetime, timezone
-from archiver.decoder import DecodeFailure
+from archiver.decoder import DecodeFailure, TableSpec
 from archiver.feed import Feed
 from archiver.parser import ParseFailure
 from archiver.logger import logger
@@ -22,12 +22,22 @@ _PY_TO_ARROW = {
 }
 
 
-def _schema_from_dataclass(cls: type) -> pa.Schema:
+def _schema_for_spec(cls: type, spec: TableSpec) -> pa.Schema:
     hints = typing.get_type_hints(cls)
+    dataclass_fields = {f.name for f in dataclasses.fields(cls)}
+    unknown = set(spec.column_names) - dataclass_fields
+    if unknown:
+        raise ValueError(
+            f"{cls.__name__}.TableSpec column_names references unknown fields: "
+            f"{sorted(unknown)}"
+        )
     fields = []
     for f in dataclasses.fields(cls):
         py_type = _unwrap_optional(hints[f.name])
-        fields.append(pa.field(f.name, _PY_TO_ARROW[py_type], nullable=True))
+        parquet_name = spec.column_names.get(f.name, f.name)
+        fields.append(pa.field(parquet_name, _PY_TO_ARROW[py_type], nullable=True))
+    for extra in spec.extra_columns:
+        fields.append(extra.with_nullable(True))
     return pa.schema(fields)
 
 
@@ -134,9 +144,9 @@ class Rollup:
                 path = self._curated_path(spec.name, feed_name, day)
                 if not force and path.exists():
                     continue
-                schema = _schema_from_dataclass(row_class)
+                schema = _schema_for_spec(row_class, spec)
                 writers[row_class] = stack.enter_context(
-                    (self._streaming_writer(path, schema))
+                    self._streaming_writer(path, schema, column_names=spec.column_names)
                 )
             if not writers:
                 return
@@ -197,10 +207,16 @@ class Rollup:
 
     @staticmethod
     @contextmanager
-    def _streaming_writer(path: Path, schema: pa.Schema, batch_size: int = 10_000):
+    def _streaming_writer(
+        path: Path,
+        schema: pa.Schema,
+        column_names: dict[str, str] | None = None,
+        batch_size: int = 10_000,
+    ):
         tmp = path.with_suffix(".parquet.tmp")
         writer: pq.ParquetWriter | None = None
         buffer: list[dict] = []
+        rename = column_names or {}
 
         def flush():
             nonlocal writer
@@ -213,6 +229,8 @@ class Rollup:
             buffer.clear()
 
         def append(row: dict):
+            if rename:
+                row = {rename.get(k, k): v for k, v in row.items()}
             buffer.append(row)
             if len(buffer) >= batch_size:
                 flush()

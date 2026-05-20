@@ -146,6 +146,39 @@ def test_ship_one_force_bypasses_skip(dirs):
     assert len(hot) == 1
 
 
+def test_ship_one_hot_only_skips_cold(shipper):
+    shipper.ship_one(FEED, DAY, hot_only=True)
+    uploader = shipper.uploader
+
+    assert [u for u in uploader.uploads if u.bucket == "cold-bucket"] == []
+    hot = [u for u in uploader.uploads if u.bucket == "hot-bucket"]
+    assert len(hot) == 1
+
+
+def test_ship_one_hot_only_with_force_still_skips_cold(dirs):
+    uploader = FakeUploader()
+    shipper = Shipper(
+        landing_dir=dirs / "landing",
+        curated_dir=dirs / "curated",
+        uploader=uploader,
+        cold_bucket="cold-bucket",
+        hot_bucket="hot-bucket",
+        cold_prefix="archive/",
+        hot_prefix="curated/",
+    )
+    uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+    uploader.mark_existing(
+        "hot-bucket",
+        "curated/vehicles/feed=fake-feed/year=2026/month=5/day=1/data.parquet",
+    )
+
+    shipper.ship_one(FEED, DAY, force=True, hot_only=True)
+
+    assert [u for u in uploader.uploads if u.bucket == "cold-bucket"] == []
+    hot = [u for u in uploader.uploads if u.bucket == "hot-bucket"]
+    assert len(hot) == 1
+
+
 def test_discover_filters_today_and_future(tmp_path):
     today = datetime.now(tz=timezone.utc).date()
     for day in (date(2020, 1, 1), today):

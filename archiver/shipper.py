@@ -34,13 +34,14 @@ class Shipper:
         self.hot_prefix = hot_prefix
         self.telemetry = telemetry or NoOpTelemetry()
 
-    def run(self, feed=None, day=None, *, force=False, workers=8):
+    def run(self, feed=None, day=None, *, force=False, hot_only=False, workers=8):
         pairs = list(self._discover(feed, day))
         if not pairs:
             return
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = {
-                ex.submit(self.ship_one, fn, d, force=force): (fn, d) for fn, d in pairs
+                ex.submit(self.ship_one, fn, d, force=force, hot_only=hot_only): (fn, d)
+                for fn, d in pairs
             }
             for fut in as_completed(futures):
                 fn, d = futures[fut]
@@ -49,8 +50,16 @@ class Shipper:
                 except Exception:
                     logger.exception("ship failed: %s/%s", fn, d)
 
-    def ship_one(self, feed_name: str, day: date, *, force: bool = False) -> None:
-        self._ship_cold(feed_name, day, force=force)
+    def ship_one(
+        self,
+        feed_name: str,
+        day: date,
+        *,
+        force: bool = False,
+        hot_only: bool = False,
+    ) -> None:
+        if not hot_only:
+            self._ship_cold(feed_name, day, force=force)
         self._ship_hot(feed_name, day, force=force)
 
     def _ship_cold(self, feed_name, day, *, force):

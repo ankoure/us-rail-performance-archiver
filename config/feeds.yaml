@@ -427,23 +427,23 @@ agencies:
   #       expected_format: protobuf
   #       decoder: standard
 
-  # - agency_id: MTS
-  #   name: Metropolitan Transit System (San Diego Trolley)
-  #   region: San Diego
-  #   base_url: https://realtime.sdmts.com/api/api/gtfs_realtime/
-  #   auth:
-  #     type: api_key
-  #     param: key
-  #     env: SAN_DIEGO_MTS_API_KEY
-  #   feeds:
-  #     - name: mts-vehicles
-  #       path: /vehicle-positions-for-agency/MTS.pb
-  #       expected_format: protobuf
-  #       decoder: standard
-  #     - name: mts-trips
-  #       path: /trip-updates-for-agency/MTS.pb
-  #       expected_format: protobuf
-  #       decoder: standard
+  - agency_id: MTS
+    name: Metropolitan Transit System (San Diego Trolley)
+    region: San Diego
+    base_url: https://realtime.sdmts.com/api/api/gtfs_realtime/
+    auth:
+      type: api_key
+      param: key
+      env: SAN_DIEGO_MTS_API_KEY
+    feeds:
+      - name: mts-vehicles
+        path: /vehicle-positions-for-agency/MTS.pb
+        expected_format: protobuf
+        decoder: standard
+      - name: mts-trips
+        path: /trip-updates-for-agency/MTS.pb
+        expected_format: protobuf
+        decoder: standard
 
   - agency_id: SOUND_TRANSIT
     name: Sound Transit (Link)

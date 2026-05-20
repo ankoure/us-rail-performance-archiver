@@ -9,6 +9,7 @@ from archiver.decoder import (
     MartaJsonDecoder,
     MartaPredictionRow,
     StandardDecoder,
+    StopTimeUpdateRow,
     MTADecoder,
     VehicleRow,
 )
@@ -26,6 +27,7 @@ def make_feed(
     route_id: str = "route-A",
     direction_id: int = 0,
     start_date: str = "20240101",
+    start_time: str = "08:15:00",
     latitude: float = 40.7128,
     longitude: float = -74.0060,
     bearing: float = 90.0,
@@ -54,6 +56,7 @@ def make_feed(
     vp.trip.route_id = route_id
     vp.trip.direction_id = direction_id
     vp.trip.start_date = start_date
+    vp.trip.start_time = start_time
     vp.trip.schedule_relationship = schedule_relationship
 
     vp.position.latitude = latitude
@@ -125,6 +128,9 @@ class TestStandardDecoderFullEntity:
 
     def test_start_date(self, pos):
         assert pos.start_date == "20240101"
+
+    def test_start_time(self, pos):
+        assert pos.start_time == "08:15:00"
 
     def test_latitude(self, pos):
         assert pos.latitude == pytest.approx(40.7128)
@@ -205,6 +211,10 @@ class TestStandardDecoderOptionalFields:
     def test_missing_vehicle_timestamp_is_none(self):
         pos = self._decode_minimal()
         assert pos.vehicle_timestamp is None
+
+    def test_missing_start_time_is_none(self):
+        pos = self._decode_minimal()
+        assert pos.start_time is None
 
 
 # ---------------------------------------------------------------------------
@@ -396,3 +406,85 @@ def test_combine_date_and_time_midnight_rollover():
     assert result == datetime(
         2026, 5, 9, 4, 5, 0, tzinfo=timezone.utc
     )  # 12:05 AM EDT May 9
+
+
+# ---------------------------------------------------------------------------
+# StandardDecoder – trip updates (explode + field capture)
+# ---------------------------------------------------------------------------
+
+
+def _make_trip_update_feed(
+    feed_timestamp: int = 1_700_000_000,
+    trip_update_timestamp: int = 1_700_000_030,
+    trip_id: str = "trip-1",
+    route_id: str = "route-A",
+    direction_id: int = 0,
+    start_date: str = "20240101",
+    start_time: str = "08:15:00",
+    vehicle_id: str = "v1",
+    stop_time_updates: tuple[tuple[str, int], ...] = (
+        ("stop-1", 1_700_000_100),
+        ("stop-2", 1_700_000_200),
+        ("stop-3", 1_700_000_300),
+    ),
+) -> gtfs.FeedMessage:
+    """FeedMessage with a single trip_update entity containing multiple stop_time_updates."""
+    feed = gtfs.FeedMessage()
+    feed.header.gtfs_realtime_version = "2.0"
+    feed.header.timestamp = feed_timestamp
+
+    entity = feed.entity.add()
+    entity.id = "tu-1"
+    tu = entity.trip_update
+    tu.timestamp = trip_update_timestamp
+    tu.trip.trip_id = trip_id
+    tu.trip.route_id = route_id
+    tu.trip.direction_id = direction_id
+    tu.trip.start_date = start_date
+    tu.trip.start_time = start_time
+    tu.vehicle.id = vehicle_id
+
+    for stop_id, arrival_time in stop_time_updates:
+        stu = tu.stop_time_update.add()
+        stu.stop_id = stop_id
+        stu.arrival.time = arrival_time
+
+    return feed
+
+
+class TestStandardDecoderTripUpdates:
+    decoder = StandardDecoder()
+
+    def test_one_stop_time_update_per_row(self):
+        feed = _make_trip_update_feed()
+        rows = list(self.decoder.decode(feed))
+        assert len(rows) == 3
+        assert all(isinstance(r, StopTimeUpdateRow) for r in rows)
+        assert [r.stop_id for r in rows] == ["stop-1", "stop-2", "stop-3"]
+
+    def test_trip_level_fields_repeated_across_rows(self):
+        feed = _make_trip_update_feed()
+        rows = list(self.decoder.decode(feed))
+        assert {r.trip_id for r in rows} == {"trip-1"}
+        assert {r.route_id for r in rows} == {"route-A"}
+        assert {r.start_time for r in rows} == {"08:15:00"}
+
+    def test_trip_update_timestamp_captured(self):
+        feed = _make_trip_update_feed(trip_update_timestamp=1_700_000_030)
+        rows = list(self.decoder.decode(feed))
+        # All rows from the same TU share its timestamp
+        assert {r.trip_update_timestamp for r in rows} == {1_700_000_030}
+
+    def test_missing_trip_update_timestamp_is_none(self):
+        feed = gtfs.FeedMessage()
+        feed.header.gtfs_realtime_version = "2.0"
+        feed.header.timestamp = 1_700_000_000
+        entity = feed.entity.add()
+        entity.id = "tu-min"
+        tu = entity.trip_update
+        tu.trip.trip_id = "trip-min"
+        stu = tu.stop_time_update.add()
+        stu.stop_id = "stop-min"
+
+        rows = list(self.decoder.decode(feed))
+        assert rows[0].trip_update_timestamp is None

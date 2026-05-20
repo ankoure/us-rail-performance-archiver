@@ -4,8 +4,8 @@ from typing import Iterator
 from archiver.feed import Feed
 import pyarrow.parquet as pq
 import pyarrow as pa
-from archiver.decoder import VehicleRow
-from archiver.rollup import _schema_from_dataclass, Rollup
+from archiver.decoder import VehicleRow, StandardDecoder
+from archiver.rollup import _schema_for_spec, Rollup
 import pytest
 from archiver.decoder import Row, Decoder, TableSpec
 from archiver.parser import Parser
@@ -42,19 +42,36 @@ class FakeDecoder(Decoder):
 
 
 # tests/test_rollup.py
-def test_schema_from_dataclass_basic_types():
-    schema = _schema_from_dataclass(VehicleRow)
+def test_schema_for_spec_renames_and_extras():
+    spec = StandardDecoder.produces[VehicleRow]
+    schema = _schema_for_spec(VehicleRow, spec)
     field_types = {f.name: f.type for f in schema}
-    assert field_types["vehicle_id"] == pa.string()
+    # renamed fields use LAMP's dotted names
+    assert field_types["vehicle.vehicle.id"] == pa.string()
+    assert field_types["vehicle.timestamp"] == pa.int64()
+    assert field_types["vehicle.trip.direction_id"] == pa.int64()
+    # un-renamed fields keep their original names
     assert field_types["latitude"] == pa.float64()
-    assert field_types["direction_id"] == pa.int64()
+    # null-pad extras present with expected types
+    assert field_types["vehicle.trip.start_time"] == pa.string()
+    assert field_types["vehicle.trip.revenue"] == pa.bool_()
+    assert "vehicle.vehicle.consist" in field_types
+    # original Python identifiers are gone
+    assert "vehicle_id" not in field_types
+    assert "vehicle_timestamp" not in field_types
     # all fields nullable
     assert all(f.nullable for f in schema)
 
 
+def test_schema_for_spec_drift_check_fails_loudly():
+    bad_spec = TableSpec("bad", column_names={"not_a_real_field": "x.y"})
+    with pytest.raises(ValueError, match="not_a_real_field"):
+        _schema_for_spec(VehicleRow, bad_spec)
+
+
 def test_streaming_writer_empty_writes_nothing(tmp_path):
     out = tmp_path / "data.parquet"
-    schema = _schema_from_dataclass(VehicleRow)
+    schema = _schema_for_spec(FakeRow, TableSpec("fakes"))
     with Rollup._streaming_writer(out, schema):
         pass
     assert not out.exists()
@@ -63,22 +80,24 @@ def test_streaming_writer_empty_writes_nothing(tmp_path):
 
 def test_streaming_writer_one_batch(tmp_path):
     out = tmp_path / "data.parquet"
-    schema = _schema_from_dataclass(VehicleRow)
+    schema = _schema_for_spec(FakeRow, TableSpec("fakes"))
     with Rollup._streaming_writer(out, schema) as append:
-        append(asdict(VehicleRow(vehicle_id="v1")))
-        append(asdict(VehicleRow(vehicle_id="v2")))
+        append(asdict(FakeRow(feed_timestamp=1, destination="A", direction="W")))
+        append(asdict(FakeRow(feed_timestamp=2, destination="B", direction="E")))
 
     table = pq.ParquetFile(out).read()
     assert table.num_rows == 2
-    assert table.column("vehicle_id").to_pylist() == ["v1", "v2"]
+    assert table.column("destination").to_pylist() == ["A", "B"]
 
 
 def test_streaming_writer_multiple_batches(tmp_path):
     out = tmp_path / "data.parquet"
-    schema = _schema_from_dataclass(VehicleRow)
+    schema = _schema_for_spec(FakeRow, TableSpec("fakes"))
     with Rollup._streaming_writer(out, schema, batch_size=3) as append:
         for i in range(7):  # forces 2 flushes + final
-            append(asdict(VehicleRow(vehicle_id=f"v{i}")))
+            append(
+                asdict(FakeRow(feed_timestamp=i, destination=f"d{i}", direction="W"))
+            )
 
     table = pq.ParquetFile(out).read()
     assert table.num_rows == 7
@@ -86,16 +105,33 @@ def test_streaming_writer_multiple_batches(tmp_path):
 
 def test_streaming_writer_exception_no_orphan(tmp_path):
     out = tmp_path / "data.parquet"
-    schema = _schema_from_dataclass(VehicleRow)
+    schema = _schema_for_spec(FakeRow, TableSpec("fakes"))
     with pytest.raises(RuntimeError):
         with Rollup._streaming_writer(out, schema) as append:
-            append(asdict(VehicleRow(vehicle_id="v1")))
+            append(asdict(FakeRow(feed_timestamp=1, destination="A", direction="W")))
             raise RuntimeError("boom")
 
     # final parquet shouldn't exist (atomic rename never happened)
     assert not out.exists()
     # tmp shouldn't be left behind either
     assert not out.with_suffix(".parquet.tmp").exists()
+
+
+def test_streaming_writer_applies_column_renames(tmp_path):
+    out = tmp_path / "data.parquet"
+    spec = StandardDecoder.produces[VehicleRow]
+    schema = _schema_for_spec(VehicleRow, spec)
+    with Rollup._streaming_writer(
+        out, schema, column_names=spec.column_names
+    ) as append:
+        append(asdict(VehicleRow(vehicle_id="v1", vehicle_timestamp=1700000000)))
+        append(asdict(VehicleRow(vehicle_id="v2", vehicle_timestamp=1700000001)))
+
+    table = pq.ParquetFile(out).read()
+    assert table.column("vehicle.vehicle.id").to_pylist() == ["v1", "v2"]
+    assert table.column("vehicle.timestamp").to_pylist() == [1700000000, 1700000001]
+    # null-pad extras come through as all-null
+    assert table.column("vehicle.trip.revenue").to_pylist() == [None, None]
 
 
 def test_rollup_routes_unknwon_decoder_to_its_own_table(tmp_path):
