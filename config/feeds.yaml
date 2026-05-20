@@ -27,10 +27,12 @@ agencies:
         path: /tripupdate.aspx
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: bart-alerts
         path: /alerts.aspx
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: METRO_STL
     name: MetroLink (St. Louis)
@@ -43,14 +45,17 @@ agencies:
         path: /StlRealTimeVehicles.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: metrostl-trips
         path: /StlRealTimeTrips.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: metrostl-alerts
         path: /StlRealTimeAlerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: CATS
     name: Charlotte Area Transit System
@@ -63,14 +68,17 @@ agencies:
         path: /Vehicle/VehiclePositions.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: cats-trips
         path: /TripUpdate/Tripupdates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: cats-alerts
         path: /Alerts/Alerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: GCRTA
     name: Greater Cleveland Regional Transit Authority
@@ -83,14 +91,17 @@ agencies:
         path: /Vehicle/VehiclePositions.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: gcrta-trips
         path: /TripUpdate/TripUpdates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: gcrta-alerts
         path: /Alert/Alerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   # Disabled 2026-05-11: gtfs.gohrt.com TCP/443 unreachable (DNS resolves to 72.52.161.174, connections time out).
   # Check HRT developer docs for current endpoint before re-enabling.
@@ -123,14 +134,17 @@ agencies:
         path: /positions
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: metra-trips
         path: /tripupdates
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: metra-alerts
         path: /alerts
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: METRO_MN
     name: Metro Transit (Twin Cities)
@@ -143,14 +157,17 @@ agencies:
         path: /vehiclepositions.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: metromn-trips
         path: /tripupdates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: metromn-alerts
         path: /alerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
   - agency_id: MTA
     name: MTA New York City Transit
     region: New York City
@@ -163,34 +180,42 @@ agencies:
         path: "nyct%2Fgtfs-si"
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: nyct-1234567s
         path: "nyct%2Fgtfs"
         expected_format: protobuf
         decoder: mta_nyct
+        poll_interval_seconds: 15
       - name: nyct-nqrw
         path: "nyct%2Fgtfs-nqrw"
         expected_format: protobuf
         decoder: mta_nyct
+        poll_interval_seconds: 15
       - name: nyct-g
         path: "nyct%2Fgtfs-g"
         expected_format: protobuf
         decoder: mta_nyct
+        poll_interval_seconds: 15
       - name: nyct-acesr
         path: "nyct%2Fgtfs-ace"
         expected_format: protobuf
         decoder: mta_nyct
+        poll_interval_seconds: 15
       - name: nyct-bdfmsf
         path: "nyct%2Fgtfs-bdfm"
         expected_format: protobuf
         decoder: mta_nyct
+        poll_interval_seconds: 15
       - name: nyct-jz
         path: "nyct%2Fgtfs-jz"
         expected_format: protobuf
         decoder: mta_nyct
+        poll_interval_seconds: 15
       - name: nyct-l
         path: "nyct%2Fgtfs-l"
         expected_format: protobuf
         decoder: mta_nyct
+        poll_interval_seconds: 15
 
   - agency_id: PRT
     name: Pittsburgh Regional Transit
@@ -203,14 +228,17 @@ agencies:
         path: /vehicles
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: prt-trips
         path: /trips
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: prt-alerts
         path: /alerts
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: RTD
     name: Denver Regional Transportation District
@@ -223,14 +251,17 @@ agencies:
         path: /VehiclePosition.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: rtd-trips
         path: /TripUpdate.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: rtd-alerts
         path: /Alerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: SACRT
     name: Sacramento Regional Transit
@@ -243,14 +274,17 @@ agencies:
         path: /vehicles
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: sacrt-trips
         path: /trips
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: sacrt-alerts
         path: /alerts
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: SEPTA_RAIL
     name: Southeastern Pennsylvania Transportation Authority (Rail)
@@ -263,14 +297,17 @@ agencies:
         path: /Vehicle/rtVehiclePosition.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: septa-rail-trips
         path: /Trip/rtTripUpdates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: septa-rail-alerts
         path: /Service/rtServiceAlerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: SEPTA_BUS
     name: Southeastern Pennsylvania Transportation Authority (Bus/Trolley)
@@ -283,14 +320,17 @@ agencies:
         path: /Vehicle/rtVehiclePosition.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: septa-bus-trips
         path: /Trip/rtTripUpdates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: septa-bus-alerts
         path: /Service/rtServiceAlerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   # Disabled 2026-05-17: all 6 agencies below share BAY_AREA_511_API_KEY (60 req/hr).
   # Re-enable once per-feed scheduling is in place, or after requesting a rate-limit
@@ -440,10 +480,12 @@ agencies:
         path: /vehicle-positions-for-agency/MTS.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: mts-trips
         path: /trip-updates-for-agency/MTS.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
 
   - agency_id: SOUND_TRANSIT
     name: Sound Transit (Link)
@@ -458,14 +500,17 @@ agencies:
         path: /vehicle-positions-for-agency/40.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: st-trips
         path: /trip-updates-for-agency/40.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: st-alerts
         path: /alerts-for-agency/40.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: TRIMET
     name: TriMet (MAX Light Rail)
@@ -480,14 +525,17 @@ agencies:
         path: /VehiclePositions
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: trimet-trips
         path: /TripUpdate
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: trimet-alerts
         path: /FeedSpecAlerts
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: UTA
     name: Utah Transit Authority (TRAX)
@@ -500,14 +548,17 @@ agencies:
         path: /Vehicle
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: uta-trips
         path: /TripUpdate
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: uta-alerts
         path: /Alert
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: VALLEY_METRO
     name: Valley Metro Rail & Streetcar
@@ -522,14 +573,17 @@ agencies:
         path: /vehicles/valleymetro
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: valleymetro-trips
         path: /realtime/valleymetro
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: valleymetro-alerts
         path: /alerts/valleymetro
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: WMATA
     name: Washington Metropolitan Area Transit Authority
@@ -544,14 +598,17 @@ agencies:
         path: /rail-gtfsrt-vehiclepositions.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: wmata-trips
         path: /rail-gtfsrt-tripupdates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: wmata-alerts
         path: /rail-gtfsrt-alerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   - agency_id: TRI_RAIL
     name: Tri-Rail (South Florida)
@@ -564,14 +621,17 @@ agencies:
         path: /download.aspx?file=position_updates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: trirail-trips
         path: /download.aspx?file=trip_updates.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: trirail-alerts
         path: /download.aspx?file=alerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   # MARTA exposes a REST/JSON arrivals API rather than GTFS-RT protobuf.
   # Requires a non-standard decoder (see MartaJsonDecoder) and JSON response handling.
@@ -588,6 +648,7 @@ agencies:
         path: /railrealtimearrivals/developerservices/traindata
         expected_format: json
         decoder: marta_json
+        poll_interval_seconds: 15
 
   - agency_id: METRO_HOUSTON
     name: Houston METRO (METRORail)
@@ -602,10 +663,12 @@ agencies:
         path: /GtfsRealtime/TripUpdates
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 15
       - name: metro-houston-alerts
         path: /v2alertspb/alerts.pb
         expected_format: protobuf
         decoder: standard
+        poll_interval_seconds: 60
 
   # The following agencies have developer portals or use third-party providers
   # but lack direct GTFS-RT feed URLs in the source data.
