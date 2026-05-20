@@ -670,6 +670,31 @@ agencies:
         decoder: standard
         poll_interval_seconds: 60
 
+  # - agency_id: LACMTA
+  #   name: Los Angeles County Metropolitan Transportation Authority
+  #   region: Los Angeles
+  #   base_url: https://api.goswift.ly/real-time/lametro-rail
+  #   auth:
+  #     type: api_key
+  #     header: Authorization
+  #     env: SWIFTLY_API_KEY
+  #   feeds:
+  #     - name: lacmta-vehicles
+  #       path: /gtfs-rt-vehicle-positions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 15
+  #     - name: lacmta-trips
+  #       path: /gtfs-rt-trip-updates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 15
+  #     - name: lacmta-alerts
+  #       path: /gtfs-rt-alerts/v2
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
+
   # The following agencies have developer portals or use third-party providers
   # but lack direct GTFS-RT feed URLs in the source data.
   # Feed URLs must be retrieved from their respective portals.
@@ -684,11 +709,6 @@ agencies:
   #   name: Dallas Area Rapid Transit
   #   region: Dallas
   #   developer_portal: https://developer.dart.org
-
-  # - agency_id: LACMTA
-  #   name: Los Angeles County Metropolitan Transportation Authority
-  #   region: Los Angeles
-  #   notes: Uses Swiftly. Obtain feeds from Metro Open Data portal.
 
   # - agency_id: MBTA
   #   name: Massachusetts Bay Transportation Authority
