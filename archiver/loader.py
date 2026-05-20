@@ -73,6 +73,7 @@ def build_feeds(config: ArchiverConfig) -> list[Feed]:
                     client=client,
                     parser=Parser.from_name(feed_cfg.expected_format),
                     decoder=Decoder.from_name(feed_cfg.decoder),
+                    poll_interval_seconds=feed_cfg.poll_interval_seconds,
                 )
             )
     return feeds

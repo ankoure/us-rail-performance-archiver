@@ -87,6 +87,82 @@ agencies:
 """
 
 
+mock_yaml_content_poll_interval_is_zero = """
+writer:
+  landing_dir: ./archive
+  curated_dir: ./curated
+
+agencies:
+  - agency_id: BART
+    name: Bay Area Rapid Transit
+    region: San Francisco Bay Area
+    base_url: https://api.bart.gov/gtfsrt
+    auth:
+      type: none
+    feeds:
+      - name: bart-trips
+        path: /tripupdate.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 0
+      - name: bart-alerts
+        path: /alerts.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 0
+"""
+
+mock_yaml_content_poll_interval_is_neg_1 = """
+writer:
+  landing_dir: ./archive
+  curated_dir: ./curated
+
+agencies:
+  - agency_id: BART
+    name: Bay Area Rapid Transit
+    region: San Francisco Bay Area
+    base_url: https://api.bart.gov/gtfsrt
+    auth:
+      type: none
+    feeds:
+      - name: bart-trips
+        path: /tripupdate.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: -1
+      - name: bart-alerts
+        path: /alerts.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: -1
+"""
+
+mock_yaml_content_poll_interval_is_30 = """
+writer:
+  landing_dir: ./archive
+  curated_dir: ./curated
+
+agencies:
+  - agency_id: BART
+    name: Bay Area Rapid Transit
+    region: San Francisco Bay Area
+    base_url: https://api.bart.gov/gtfsrt
+    auth:
+      type: none
+    feeds:
+      - name: bart-trips
+        path: /tripupdate.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: bart-alerts
+        path: /alerts.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+"""
+
+
 def _mock_load_config(mock_yaml_content: str):
     with patch("builtins.open", mock_open(read_data=mock_yaml_content)):
         with open("fake_config.yaml", "r") as f:
@@ -110,3 +186,23 @@ def test_explicit_telemetry_values_pass_through():
     assert config.telemetry.service == "my-test-service"
     assert config.telemetry.env == "ci"
     assert config.telemetry.tags == {"region": "us-west"}
+
+
+def test_poll_interval_omitted_defaults_to_none():
+    config = _mock_load_config(mock_yaml_content)
+    assert config.agencies[0].feeds[0].poll_interval_seconds is None
+
+
+def test_poll_interval_set_correctly():
+    config = _mock_load_config(mock_yaml_content_poll_interval_is_30)
+    assert config.agencies[0].feeds[0].poll_interval_seconds == 30
+
+
+def test_poll_interval_rejects_negative():
+    with pytest.raises(ValidationError):
+        _mock_load_config(mock_yaml_content_poll_interval_is_neg_1)
+
+
+def test_poll_interval_rejects_zero():
+    with pytest.raises(ValidationError):
+        _mock_load_config(mock_yaml_content_poll_interval_is_zero)

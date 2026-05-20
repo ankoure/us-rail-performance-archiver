@@ -1,3 +1,5 @@
+from archiver.logger import logger
+from archiver.scheduler import Scheduler
 from dotenv import load_dotenv
 from archiver.loader import build_archiver, load_config
 import argparse
@@ -33,14 +35,29 @@ def main(args):
 
     config = load_config("config/feeds.yaml")
     archiver = build_archiver(config)
+    scheduler = Scheduler(archiver.feeds, default_interval=args.frequency)
 
     polls = 0
     while args.polls is None or polls < args.polls:
-        archiver.archive_once()
-        polls += 1
-        if args.polls is None or polls < args.polls:
-            time.sleep(args.frequency)
+        due_at, feed = scheduler.next_due()
+        now = time.monotonic()
+        if due_at > now:
+            time.sleep(due_at - now)
+        poll_start = time.monotonic()
+        archiver.archive_one(feed)
+        poll_duration = time.monotonic() - poll_start
+        interval = feed.poll_interval_seconds or args.frequency
 
+        if poll_duration > interval:
+            logger.warning(
+                "Poll for %s took %.2fs, exceeds configured interval %ds",
+                feed.name,
+                poll_duration,
+                interval,
+            )
+
+        scheduler.mark_polled(feed)
+        polls += 1
 
 if __name__ == "__main__":
     args = parse_args()

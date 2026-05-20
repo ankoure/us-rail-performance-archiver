@@ -11,3 +11,4 @@ class Feed:
     client: APIClient  # which transport to use (shared across feeds with same auth)
     parser: Parser  # resolved at config-load from expected_format
     decoder: Decoder  # resolved at config-load from decoder name
+    poll_interval_seconds: int | None = None

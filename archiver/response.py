@@ -102,7 +102,7 @@ class ErrorResponse(FeedResponse):
         return None
 
     def _extra_metadata(self) -> dict:
-        return super()._extra_metadata() | {"error_body": self._http.text[:500]}
+        return super()._extra_metadata() | {"error_body": self._http.text[:2000]}
 
 
 class UnknownResponse(FeedResponse):

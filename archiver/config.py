@@ -72,6 +72,7 @@ class FeedConfig(BaseModel):
     path: str
     expected_format: Literal["protobuf", "json", "auto"] = "protobuf"
     decoder: Literal["standard", "mta_nyct", "marta_json"] = "standard"
+    poll_interval_seconds: int | None = Field(default=None, gt=0)
 
 
 class AgencyConfig(BaseModel):

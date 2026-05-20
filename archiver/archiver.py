@@ -15,19 +15,18 @@ class FeedArchiver:
         self.writer = writer
         self.telemetry = telemetry or NoOpTelemetry()
 
-    def archive_once(self):
-        for feed in self.feeds:
-            try:
-                with self.telemetry.span("feed.poll", tags={"feed": feed.name}):
-                    response = parse_response(feed.client.get(feed.path), feed.parser)
-            except requests.RequestException as e:
-                response = TransportErrorResponse(
-                    error_type=type(e).__name__, error_message=str(e)
-                )
-                logger.warning(
-                    "Transport error on feed %s: %s: %s",
-                    feed.name,
-                    type(e).__name__,
-                    e,
-                )
-            self.writer.write(feed.name, response)
+    def archive_one(self, feed: Feed):
+        try:
+            with self.telemetry.span("feed.poll", tags={"feed": feed.name}):
+                response = parse_response(feed.client.get(feed.path), feed.parser)
+        except requests.RequestException as e:
+            response = TransportErrorResponse(
+                error_type=type(e).__name__, error_message=str(e)
+            )
+            logger.warning(
+                "Transport error on feed %s: %s: %s",
+                feed.name,
+                type(e).__name__,
+                e,
+            )
+        self.writer.write(feed.name, response)
