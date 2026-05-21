@@ -1,3 +1,5 @@
+import time
+
 from archiver.response import TransportErrorResponse
 from archiver.parser import parse_response
 from archiver.feed import Feed
@@ -18,7 +20,18 @@ class FeedArchiver:
     def archive_one(self, feed: Feed):
         try:
             with self.telemetry.span("feed.poll", tags={"feed": feed.name}):
+                start = time.monotonic()
                 response = parse_response(feed.client.get(feed.path), feed.parser)
+                poll_duration = time.monotonic() - start
+
+            if feed.poll_interval_seconds:
+                if poll_duration > feed.poll_interval_seconds:
+                    logger.warning(
+                        "Poll for %s took %.2fs, exceeds configured interval %ds",
+                        feed.name,
+                        poll_duration,
+                        feed.poll_interval_seconds,
+                    )
         except requests.RequestException as e:
             response = TransportErrorResponse(
                 error_type=type(e).__name__, error_message=str(e)

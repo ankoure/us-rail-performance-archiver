@@ -47,7 +47,7 @@ class APIClient:
         self,
         base_url: str,
         auth: Optional[AuthBase] = None,
-        timeout: int = 30,
+        timeout: int = 10,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout

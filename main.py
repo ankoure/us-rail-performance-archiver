@@ -1,4 +1,6 @@
-from archiver.logger import logger
+from concurrent.futures import ThreadPoolExecutor
+
+from archiver.dispatcher import Dispatcher
 from archiver.scheduler import Scheduler
 from dotenv import load_dotenv
 from archiver.loader import build_archiver, load_config
@@ -25,39 +27,40 @@ def parse_args():
         default=60,
         help="Seconds between polls (default: 60)",
     )
+    parser.add_argument(
+        "-w",
+        "--workers",
+        type=int,
+        default=10,
+        help="Determines how many threads to be spawned",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
 
 
 def main(args):
     if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s [%(threadName)s] %(name)s %(levelname)s: %(message)s",
+        )
 
     config = load_config("config/feeds.yaml")
     archiver = build_archiver(config)
     scheduler = Scheduler(archiver.feeds, default_interval=args.frequency)
 
     polls = 0
-    while args.polls is None or polls < args.polls:
-        due_at, feed = scheduler.next_due()
-        now = time.monotonic()
-        if due_at > now:
-            time.sleep(due_at - now)
-        poll_start = time.monotonic()
-        archiver.archive_one(feed)
-        poll_duration = time.monotonic() - poll_start
-        interval = feed.poll_interval_seconds or args.frequency
+    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        dispatcher = Dispatcher(scheduler, archiver, ex, telemetry=archiver.telemetry)
+        while args.polls is None or polls < args.polls:
+            due_at, feed = scheduler.next_due()
+            now = time.monotonic()
 
-        if poll_duration > interval:
-            logger.warning(
-                "Poll for %s took %.2fs, exceeds configured interval %ds",
-                feed.name,
-                poll_duration,
-                interval,
-            )
+            if due_at > now:
+                time.sleep(due_at - now)
+            dispatcher.submit(feed)
+            polls += 1
 
-        scheduler.mark_polled(feed)
-        polls += 1
 
 if __name__ == "__main__":
     args = parse_args()
