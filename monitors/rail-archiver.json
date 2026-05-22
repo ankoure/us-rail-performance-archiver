@@ -1,0 +1,44 @@
+[
+  {
+    "name": "[rail-archiver] Feed went dark",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:feed.poll.duration.count{env:dev, service:rail-archiver} by {feed}.as_count() < 1",
+    "message": "Feed `{{feed.name}}` has not polled in the last 15+ minutes.\n\nMost common causes:\n- Upstream URL changed (check agency dev portal)\n- API key expired (check `.env`)\n- DNS / network issue\n\nInvestigate:\n```\ndocker compose logs app --since 30m | grep {{feed.name}}\n```\n\n@<your-notification-target>",
+    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "options": {
+      "notify_no_data": true,
+      "no_data_timeframe": 30,
+      "renotify_interval": 60,
+      "thresholds": { "critical": 1 },
+      "include_tags": true,
+      "new_group_delay": 300
+    }
+  },
+  {
+    "name": "[rail-archiver] Batch step errored in last 24h",
+    "type": "metric alert",
+    "query": "sum(last_1d):sum:rollup.day.duration.count{env:dev, service:rail-archiver, status:error}.as_count() + sum:ship.cold.duration.count{env:dev, service:rail-archiver, status:error}.as_count() + sum:ship.hot.duration.count{env:dev, service:rail-archiver, status:error}.as_count() > 0",
+    "message": "One or more batch operations (rollup or ship) failed in the last 24h.\n\nTotal errors across rollup.day + ship.cold + ship.hot: {{value}}\n\nInvestigate:\n```\ndocker compose logs batch --since 24h | grep -i 'error\\|traceback'\n```\n\nThis is a once-a-day batch — a single failure can lose a day's worth of S3 uploads if not retried.\n\n@<your-notification-target>",
+    "tags": ["service:rail-archiver", "env:dev", "layer:batch"],
+    "options": {
+      "notify_no_data": false,
+      "renotify_interval": 0,
+      "thresholds": { "critical": 0 },
+      "include_tags": true
+    }
+  },
+  {
+    "name": "[rail-archiver] Poll error rate elevated",
+    "type": "metric alert",
+    "query": "avg(last_30m):( sum:feed.poll.duration.count{env:dev, service:rail-archiver, status:error}.as_count() / sum:feed.poll.duration.count{env:dev, service:rail-archiver}.as_count() ) * 100 > 5",
+    "message": "Poll error rate is {{value}}% across all feeds over the last 30 minutes.\n\nIf only one feed is failing, you'll also see a `Feed went dark` alert. If this fires alone, suspect a systemic issue:\n- Outbound network from the container\n- DNS resolver\n- Auth refresh logic\n- Or a transient where many agencies' feeds are down at once (not unusual on weekends)\n\nDrill in:\n- Dashboard \"Rail Archiver — Pipeline Health\" → row 2 → \"Poll errors by feed and error_type\"\n\n@<your-notification-target>",
+    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "options": {
+      "notify_no_data": false,
+      "renotify_interval": 120,
+      "thresholds": { "critical": 5, "warning": 2 },
+      "include_tags": true,
+      "require_full_window": false
+    }
+  }
+]

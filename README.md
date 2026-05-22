@@ -346,6 +346,18 @@ If `telemetry.enabled: true`, the archiver, rollup, and shipper emit StatsD metr
 
 With telemetry disabled, the `NoOpTelemetry` implementation is a true no-op — no agent required.
 
+### Monitors and dashboard
+
+Datadog definitions live in the repo so they can be reproduced from a clone:
+
+- [monitors/rail-archiver.json](monitors/rail-archiver.json) — three metric alerts: feed-went-dark, batch-step-errored, poll-error-rate-elevated
+- [dashboards/rail-archiver.json](dashboards/rail-archiver.json) — pipeline-health dashboard (templated on `env` and `feed`)
+
+Import via [`datadog-ci`](https://github.com/DataDog/datadog-ci) or the Datadog UI (`Monitors → New → Import`, `Dashboards → New → Import JSON`). Before importing into a non-dev environment:
+
+- Replace `env:dev` in the monitor queries with your env tag (it's hardcoded, not templated).
+- Replace `@<your-notification-target>` in each monitor `message` with a real handle.
+
 ---
 
 ## Roadmap / known gaps

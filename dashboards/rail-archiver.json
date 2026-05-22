@@ -1,0 +1,364 @@
+{
+  "title": "Rail Archiver — Pipeline Health",
+  "description": "Polling, rollup, and shipping for GTFS-RT feeds. Imported from dashboards/rail-archiver.json.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": [],
+      "default": "dev"
+    },
+    {
+      "name": "feed",
+      "prefix": "feed",
+      "available_values": [],
+      "default": "*"
+    }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Pipeline health (glance)",
+        "widgets": [
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Successful polls / min",
+              "precision": 1,
+              "autoscale": true,
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "polls_ok",
+                      "data_source": "metrics",
+                      "query": "sum:feed.poll.duration.count{$env, service:rail-archiver, status:ok, $feed}.as_rate()",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [{ "formula": "polls_ok * 60" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Poll error rate (%)",
+              "precision": 2,
+              "autoscale": false,
+              "custom_unit": "%",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "errors",
+                      "data_source": "metrics",
+                      "query": "sum:feed.poll.duration.count{$env, service:rail-archiver, status:error, $feed}.as_count()",
+                      "aggregator": "sum"
+                    },
+                    {
+                      "name": "total",
+                      "data_source": "metrics",
+                      "query": "sum:feed.poll.duration.count{$env, service:rail-archiver, $feed}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [{ "formula": "(errors / total) * 100" }],
+                  "conditional_formats": [
+                    { "comparator": "<", "value": 1, "palette": "white_on_green" },
+                    { "comparator": "<", "value": 5, "palette": "white_on_yellow" },
+                    { "comparator": ">=", "value": 5, "palette": "white_on_red" }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "toplist",
+              "title": "Quietest feeds (last 15m — investigate any at 0)",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "by_feed",
+                      "data_source": "metrics",
+                      "query": "sum:feed.poll.duration.count{$env, service:rail-archiver, $feed} by {feed}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "by_feed", "limit": { "count": 10, "order": "asc" } }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Feed polling",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Poll latency p95 by feed",
+              "show_legend": true,
+              "legend_layout": "auto",
+              "yaxis": { "scale": "linear", "include_zero": true, "label": "ms" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "queries": [
+                    {
+                      "name": "p95",
+                      "data_source": "metrics",
+                      "query": "avg:feed.poll.duration.95percentile{$env, service:rail-archiver, $feed} by {feed}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "p95" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Poll errors by feed and error_type",
+              "show_legend": true,
+              "legend_layout": "auto",
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "errs",
+                      "data_source": "metrics",
+                      "query": "sum:feed.poll.duration.count{$env, service:rail-archiver, status:error, $feed} by {feed,error_type}.as_count()"
+                    }
+                  ],
+                  "formulas": [{ "formula": "errs" }],
+                  "style": { "palette": "warm" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Rollup (landing → curated parquet)",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "rollup.day latency p95 by feed",
+              "show_legend": true,
+              "yaxis": { "label": "ms" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "queries": [
+                    {
+                      "name": "p95",
+                      "data_source": "metrics",
+                      "query": "avg:rollup.day.duration.95percentile{$env, service:rail-archiver, $feed} by {feed}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "p95" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Rollup skipped (idempotency hits) by feed",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "skip",
+                      "data_source": "metrics",
+                      "query": "sum:rollup.skipped{$env, service:rail-archiver, $feed} by {feed}.as_count()"
+                    }
+                  ],
+                  "formulas": [{ "formula": "skip" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "rollup.run errors (whole-run wrapper)",
+              "show_legend": false,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "run_err",
+                      "data_source": "metrics",
+                      "query": "sum:rollup.run.duration.count{$env, service:rail-archiver, status:error}.as_count()"
+                    }
+                  ],
+                  "formulas": [{ "formula": "run_err" }],
+                  "style": { "palette": "warm" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Shipping to S3",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "ship.cold latency p95 by feed",
+              "show_legend": true,
+              "yaxis": { "label": "ms" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "queries": [
+                    {
+                      "name": "p95",
+                      "data_source": "metrics",
+                      "query": "avg:ship.cold.duration.95percentile{$env, service:rail-archiver, $feed} by {feed}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "p95" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "ship.cold typical tarball size by feed (avg bytes)",
+              "show_legend": true,
+              "yaxis": { "label": "bytes" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "area",
+                  "queries": [
+                    {
+                      "name": "size",
+                      "data_source": "metrics",
+                      "query": "avg:ship.cold.bytes.avg{$env, service:rail-archiver, $feed} by {feed}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "size" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "ship.hot latency p95 by feed & kind",
+              "show_legend": true,
+              "yaxis": { "label": "ms" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "queries": [
+                    {
+                      "name": "p95",
+                      "data_source": "metrics",
+                      "query": "avg:ship.hot.duration.95percentile{$env, service:rail-archiver, $feed} by {feed,kind}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "p95" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "ship.hot typical parquet size by kind (avg bytes)",
+              "show_legend": true,
+              "yaxis": { "label": "bytes" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "area",
+                  "queries": [
+                    {
+                      "name": "size",
+                      "data_source": "metrics",
+                      "query": "avg:ship.hot.bytes.avg{$env, service:rail-archiver, $feed} by {kind}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "size" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Skips (already-shipped) — cold vs hot",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "cold",
+                      "data_source": "metrics",
+                      "query": "sum:ship.cold.skipped{$env, service:rail-archiver, $feed}.as_count()"
+                    },
+                    {
+                      "name": "hot",
+                      "data_source": "metrics",
+                      "query": "sum:ship.hot.skipped{$env, service:rail-archiver, $feed}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "cold", "alias": "cold (tarballs)" },
+                    { "formula": "hot", "alias": "hot (parquet)" }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
