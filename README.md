@@ -247,7 +247,7 @@ s3://<hot_bucket>/<hot_prefix><kind>/feed=…/year=…/month=…/day=…/data.pa
 | `timestamp` | double | epoch seconds, UTC, when the poll was received |
 | `content_type` | string | HTTP `Content-Type` header |
 | `status_code` | int | HTTP status |
-| `response_type` | string | `ProtobufResponse` / `JsonResponse` / `ErrorResponse` / `UnknownResponse` / `TransportErrorResponse` |
+| `response_type` | string | `ProtobufResponse` / `JsonResponse` / `ErrorResponse` / `UnknownResponse` / `TransportErrorResponse` / `DecodeFailureResponse` |
 | `vehicle_count` | int | populated only for `ProtobufResponse` |
 | `trip_update_count` | int | populated only for `ProtobufResponse` |
 | `alert_count` | int | populated only for `ProtobufResponse` |
@@ -363,7 +363,6 @@ Import via [`datadog-ci`](https://github.com/DataDog/datadog-ci) or the Datadog 
 ## Roadmap / known gaps
 
 - **No retries on transport errors.** A single failed poll is logged + recorded as a `TransportErrorResponse` metadata row, and the next tick tries again. There's no backoff or per-feed circuit breaker yet.
-- **No schema-drift detection on JSON decoders.** A TODO in [decoder.py](archiver/decoder.py) calls out that a MARTA API change would currently silently break parsing.
 - **MTA NYCT decoder is a stub.** `MTADecoder` extends `StandardDecoder` but doesn't yet read the NYCT protobuf extensions.
 - **HRT and several other agencies are disabled.** See commented blocks in [feeds.yaml](config/feeds.yaml); some endpoints are unreachable, others were never enabled.
 - **Single-host poller.** Concurrency between feeds within a tick is sequential — fine for ~60 feeds at 60s, would need rethinking at higher fan-out.

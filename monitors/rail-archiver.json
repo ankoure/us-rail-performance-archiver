@@ -28,6 +28,19 @@
     }
   },
   {
+    "name": "[rail-archiver] Schema drift detected",
+    "type": "metric alert",
+    "query": "sum(last_1h):sum:decoder.schema_drift{env:dev, service:rail-archiver} by {feed}.as_count() > 0",
+    "message": "Decoder schema drift detected on feed `{{feed.name}}` — the incoming payload is missing required keys, so its records are being dropped from the rollup.\n\nMost common causes:\n- Upstream agency renamed or removed a JSON key\n- The decoder's `required_input_keys` is out of date relative to the live API\n\nInvestigate:\n```\ngrep drift_missing_required archive/{{feed.name}}/metadata/year=*/month=*/day=*/data.jsonl | tail\n```\n\n@<your-notification-target>",
+    "tags": ["service:rail-archiver", "env:dev", "layer:decode"],
+    "options": {
+      "notify_no_data": false,
+      "renotify_interval": 60,
+      "thresholds": { "critical": 0 },
+      "include_tags": true
+    }
+  },
+  {
     "name": "[rail-archiver] Poll error rate elevated",
     "type": "metric alert",
     "query": "avg(last_30m):( sum:feed.poll.duration.count{env:dev, service:rail-archiver, status:error}.as_count() / sum:feed.poll.duration.count{env:dev, service:rail-archiver}.as_count() ) * 100 > 5",
