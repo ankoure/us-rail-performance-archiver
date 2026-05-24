@@ -19,3 +19,4 @@ wheels/
 # Runtime output
 archive/
 curated/
+static_gtfs/
