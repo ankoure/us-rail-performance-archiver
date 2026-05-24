@@ -26,9 +26,7 @@ class FeedArchiver:
                 )
                 poll_duration = time.monotonic() - start
             if isinstance(response, DecodeFailureResponse):
-                self.telemetry.incr(
-                    "decoder.schema_drift", tags={"feed": feed.name}
-                )
+                self.telemetry.incr("decoder.schema_drift", tags={"feed": feed.name})
 
             if feed.poll_interval_seconds:
                 if poll_duration > feed.poll_interval_seconds:

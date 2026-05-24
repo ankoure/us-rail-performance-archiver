@@ -33,7 +33,9 @@ from analysis.gtfs_fetcher import DEFAULT_API_URL, DEFAULT_CACHE_DIR  # noqa: E4
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--feed", required=True, help="Feed name, e.g. wmata-vehicles")
     p.add_argument(
         "--tz",
@@ -46,8 +48,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=dt.date.fromisoformat,
         help="One or more YYYY-MM-DD dates",
     )
-    p.add_argument("--start", type=dt.date.fromisoformat, help="Inclusive range start (YYYY-MM-DD)")
-    p.add_argument("--end", type=dt.date.fromisoformat, help="Inclusive range end (YYYY-MM-DD)")
+    p.add_argument(
+        "--start", type=dt.date.fromisoformat, help="Inclusive range start (YYYY-MM-DD)"
+    )
+    p.add_argument(
+        "--end", type=dt.date.fromisoformat, help="Inclusive range end (YYYY-MM-DD)"
+    )
     p.add_argument(
         "--curated-dir",
         type=Path,
@@ -94,7 +100,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = p.parse_args(argv)
 
     if not args.date and not (args.start and args.end):
-        p.error("provide --date YYYY-MM-DD [...] or --start YYYY-MM-DD --end YYYY-MM-DD")
+        p.error(
+            "provide --date YYYY-MM-DD [...] or --start YYYY-MM-DD --end YYYY-MM-DD"
+        )
     if (args.start and not args.end) or (args.end and not args.start):
         p.error("--start and --end must be given together")
     if args.gtfs and args.mdb_feed_id:
@@ -149,7 +157,11 @@ def main(argv: list[str] | None = None) -> int:
                 base_dir=args.curated_dir,
                 merge_gap_seconds=args.merge_gap_seconds,
             )
-            gtfs_for_day = static_gtfs if static_gtfs else (resolver.for_date(d) if resolver else None)
+            gtfs_for_day = (
+                static_gtfs
+                if static_gtfs
+                else (resolver.for_date(d) if resolver else None)
+            )
             rows, files = export_events_csv(
                 day, tz, base_dir=args.curated_dir, gtfs=gtfs_for_day
             )

@@ -286,9 +286,11 @@ class VehicleDay:
         )
 
         present = [c for c in _COLUMN_MAP if c in table.column_names]
-        df = table.select(present).rename_columns(
-            [_COLUMN_MAP[c] for c in present]
-        ).to_pylist()
+        df = (
+            table.select(present)
+            .rename_columns([_COLUMN_MAP[c] for c in present])
+            .to_pylist()
+        )
 
         grouped: dict[str, list[dict]] = defaultdict(list)
         for r in df:

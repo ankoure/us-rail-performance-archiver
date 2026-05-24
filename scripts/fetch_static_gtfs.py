@@ -28,10 +28,21 @@ from analysis.gtfs_fetcher import (  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--feed-id", required=True, help="MobilityDatabase feed ID, e.g. mdb-1847")
-    p.add_argument("--agency", required=True, help="Short agency slug for cache path, e.g. wmata")
-    p.add_argument("--date", required=True, type=dt.date.fromisoformat, help="Target service date YYYY-MM-DD")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--feed-id", required=True, help="MobilityDatabase feed ID, e.g. mdb-1847"
+    )
+    p.add_argument(
+        "--agency", required=True, help="Short agency slug for cache path, e.g. wmata"
+    )
+    p.add_argument(
+        "--date",
+        required=True,
+        type=dt.date.fromisoformat,
+        help="Target service date YYYY-MM-DD",
+    )
     p.add_argument(
         "--cache-dir",
         type=Path,

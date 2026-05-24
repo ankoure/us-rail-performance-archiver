@@ -1,8 +1,12 @@
 from analysis.vehicle_day import Vehicle, Visit, merge_close_visits
 
 
-def _visit(stop_id: str, arrival: int, departure: int, ping_count: int = 1, **kwargs) -> Visit:
-    defaults = dict(vehicle_id="V1", route_id="R1", trip_id="T1", direction_id=0, stop_sequence=5)
+def _visit(
+    stop_id: str, arrival: int, departure: int, ping_count: int = 1, **kwargs
+) -> Visit:
+    defaults = dict(
+        vehicle_id="V1", route_id="R1", trip_id="T1", direction_id=0, stop_sequence=5
+    )
     defaults.update(kwargs)
     return Visit(
         stop_id=stop_id,
@@ -71,10 +75,18 @@ class TestMergeCloseVisits:
 class TestVehicleDwells:
     def test_simple_dwell_with_no_flicker(self):
         rows = [
-            {"vehicle_timestamp": 100, "current_status": "IN_TRANSIT_TO", "stop_id": "A"},
+            {
+                "vehicle_timestamp": 100,
+                "current_status": "IN_TRANSIT_TO",
+                "stop_id": "A",
+            },
             {"vehicle_timestamp": 115, "current_status": "STOPPED_AT", "stop_id": "A"},
             {"vehicle_timestamp": 130, "current_status": "STOPPED_AT", "stop_id": "A"},
-            {"vehicle_timestamp": 145, "current_status": "IN_TRANSIT_TO", "stop_id": "B"},
+            {
+                "vehicle_timestamp": 145,
+                "current_status": "IN_TRANSIT_TO",
+                "stop_id": "B",
+            },
         ]
         v = Vehicle("V1", rows)
         assert len(v.dwells) == 1
@@ -87,7 +99,11 @@ class TestVehicleDwells:
         rows = [
             {"vehicle_timestamp": 100, "current_status": "STOPPED_AT", "stop_id": "A"},
             {"vehicle_timestamp": 115, "current_status": "STOPPED_AT", "stop_id": "A"},
-            {"vehicle_timestamp": 130, "current_status": "IN_TRANSIT_TO", "stop_id": "A"},
+            {
+                "vehicle_timestamp": 130,
+                "current_status": "IN_TRANSIT_TO",
+                "stop_id": "A",
+            },
             {"vehicle_timestamp": 145, "current_status": "STOPPED_AT", "stop_id": "A"},
             {"vehicle_timestamp": 160, "current_status": "STOPPED_AT", "stop_id": "A"},
         ]
@@ -99,7 +115,11 @@ class TestVehicleDwells:
     def test_flicker_not_collapsed_when_gap_disabled(self):
         rows = [
             {"vehicle_timestamp": 100, "current_status": "STOPPED_AT", "stop_id": "A"},
-            {"vehicle_timestamp": 115, "current_status": "IN_TRANSIT_TO", "stop_id": "A"},
+            {
+                "vehicle_timestamp": 115,
+                "current_status": "IN_TRANSIT_TO",
+                "stop_id": "A",
+            },
             {"vehicle_timestamp": 130, "current_status": "STOPPED_AT", "stop_id": "A"},
         ]
         v = Vehicle("V1", rows, merge_gap_seconds=0)
@@ -108,9 +128,23 @@ class TestVehicleDwells:
     def test_long_layover_at_same_stop_not_merged(self):
         # Two real visits to the same terminal, separated by 5 min — different trips
         rows = [
-            {"vehicle_timestamp": 100, "current_status": "STOPPED_AT", "stop_id": "TERMINAL", "trip_id": "T1"},
-            {"vehicle_timestamp": 115, "current_status": "IN_TRANSIT_TO", "stop_id": "X"},
-            {"vehicle_timestamp": 415, "current_status": "STOPPED_AT", "stop_id": "TERMINAL", "trip_id": "T2"},
+            {
+                "vehicle_timestamp": 100,
+                "current_status": "STOPPED_AT",
+                "stop_id": "TERMINAL",
+                "trip_id": "T1",
+            },
+            {
+                "vehicle_timestamp": 115,
+                "current_status": "IN_TRANSIT_TO",
+                "stop_id": "X",
+            },
+            {
+                "vehicle_timestamp": 415,
+                "current_status": "STOPPED_AT",
+                "stop_id": "TERMINAL",
+                "trip_id": "T2",
+            },
         ]
         v = Vehicle("V1", rows)  # default 60s gap
         # 300s gap exceeds threshold, kept separate

@@ -30,7 +30,15 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 # GTFS calendar.txt has one column per weekday, named lower-case English.
-_WEEKDAY_COLS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+_WEEKDAY_COLS = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+]
 _RTE_DIR_STOP = ["route_id", "direction_id", "stop_id"]
 
 
@@ -52,7 +60,9 @@ class StaticGtfs:
     def trips(self) -> pd.DataFrame:
         return self._read(
             "trips.txt",
-            usecols=lambda c: c in {"trip_id", "route_id", "service_id", "direction_id"},
+            usecols=lambda c: (
+                c in {"trip_id", "route_id", "service_id", "direction_id"}
+            ),
             dtype={"trip_id": str, "route_id": str, "service_id": str},
         )
 
@@ -60,8 +70,16 @@ class StaticGtfs:
     def stop_times(self) -> pd.DataFrame:
         df = self._read(
             "stop_times.txt",
-            usecols=lambda c: c
-            in {"trip_id", "stop_sequence", "stop_id", "arrival_time", "departure_time"},
+            usecols=lambda c: (
+                c
+                in {
+                    "trip_id",
+                    "stop_sequence",
+                    "stop_id",
+                    "arrival_time",
+                    "departure_time",
+                }
+            ),
             dtype={"trip_id": str, "stop_id": str},
         )
         # GTFS allows times like "25:30:00" (next-day continuation). Convert to seconds-since-noon-of-service-date
@@ -81,7 +99,9 @@ class StaticGtfs:
                 date_format="%Y%m%d",
             )
         except KeyError:
-            return pd.DataFrame(columns=["service_id", *_WEEKDAY_COLS, "start_date", "end_date"])
+            return pd.DataFrame(
+                columns=["service_id", *_WEEKDAY_COLS, "start_date", "end_date"]
+            )
         return df
 
     @cached_property
@@ -123,26 +143,40 @@ class StaticGtfs:
     def scheduled_stops(self, service_date: dt.date) -> pd.DataFrame:
         """Joined stop_times × trips for one service day, with scheduled_tt and scheduled_headway."""
         empty_cols = [
-            "trip_id", "stop_sequence", "stop_id", "arrival_time", "departure_time",
-            "arrival_seconds", "departure_seconds", "route_id", "direction_id",
-            "scheduled_tt", "scheduled_headway",
+            "trip_id",
+            "stop_sequence",
+            "stop_id",
+            "arrival_time",
+            "departure_time",
+            "arrival_seconds",
+            "departure_seconds",
+            "route_id",
+            "direction_id",
+            "scheduled_tt",
+            "scheduled_headway",
         ]
         services = self.active_service_ids(service_date)
         if not services:
             return pd.DataFrame(columns=empty_cols)
         trips_today = self.trips[self.trips["service_id"].isin(services)]
         joined = self.stop_times.merge(
-            trips_today[["trip_id", "route_id", "direction_id"]], on="trip_id", how="inner"
+            trips_today[["trip_id", "route_id", "direction_id"]],
+            on="trip_id",
+            how="inner",
         )
         if joined.empty:
             return pd.DataFrame(columns=empty_cols)
 
         # scheduled_tt: arrival_seconds minus the trip's first-stop arrival_seconds.
         first_arrival = joined.groupby("trip_id")["arrival_seconds"].transform("min")
-        joined["scheduled_tt"] = (joined["arrival_seconds"] - first_arrival).astype("Int64")
+        joined["scheduled_tt"] = (joined["arrival_seconds"] - first_arrival).astype(
+            "Int64"
+        )
 
         # scheduled_headway: per (route, dir, stop), diff between consecutive scheduled arrivals.
-        joined = joined.sort_values(_RTE_DIR_STOP + ["arrival_seconds"]).reset_index(drop=True)
+        joined = joined.sort_values(_RTE_DIR_STOP + ["arrival_seconds"]).reset_index(
+            drop=True
+        )
         joined["scheduled_headway"] = (
             joined.groupby(_RTE_DIR_STOP)["arrival_seconds"].diff().astype("Int64")
         )
@@ -180,14 +214,14 @@ class StaticGtfs:
                 }
             )
         # merge_asof requires both sides globally sorted by the `on` key.
-        ev_df = (
-            pd.DataFrame(rows).sort_values("event_seconds").reset_index(drop=True)
-        )
+        ev_df = pd.DataFrame(rows).sort_values("event_seconds").reset_index(drop=True)
 
         # Backward asof on event_seconds within (route, dir, stop): the prior scheduled arrival's
         # headway is what this event "should have" experienced.
         sched_for_join = (
-            sched[_RTE_DIR_STOP + ["arrival_seconds", "scheduled_headway", "scheduled_tt"]]
+            sched[
+                _RTE_DIR_STOP + ["arrival_seconds", "scheduled_headway", "scheduled_tt"]
+            ]
             .rename(columns={"arrival_seconds": "event_seconds"})
             .sort_values("event_seconds")
             .reset_index(drop=True)

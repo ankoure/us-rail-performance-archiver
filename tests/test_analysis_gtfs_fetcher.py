@@ -6,7 +6,6 @@ import datetime as dt
 import io
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -122,7 +121,9 @@ class TestEnsureLocalZip:
             z.writestr("trips.txt", "trip_id\nT1\n")
         return buf.getvalue()
 
-    def test_downloads_when_missing(self, monkeypatch, tmp_path, snapshot, fake_zip_bytes):
+    def test_downloads_when_missing(
+        self, monkeypatch, tmp_path, snapshot, fake_zip_bytes
+    ):
         def fake_get(url, stream=False, timeout=None):
             assert url == snapshot.archive_url
             return FakeResponse(content=fake_zip_bytes)

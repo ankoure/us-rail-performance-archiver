@@ -69,9 +69,7 @@ class DriftReport:
         return bool(self.missing_required)
 
 
-def validate_record_keys(
-    record: dict, row_class: type[Row]
-) -> DriftReport | None:
+def validate_record_keys(record: dict, row_class: type[Row]) -> DriftReport | None:
     keys = set(record.keys())
     missing = row_class.required_input_keys - keys
     extras = keys - row_class.required_input_keys - row_class.optional_input_keys

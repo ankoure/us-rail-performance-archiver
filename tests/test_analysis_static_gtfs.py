@@ -6,7 +6,6 @@ Builds tiny in-memory GTFS zips covering exactly the cases each test exercises.
 from __future__ import annotations
 
 import datetime as dt
-import io
 import zipfile
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -132,7 +131,9 @@ class TestScheduledStops:
             "T3,06:32:00,06:32:30,C,3\n"
         )
         return StaticGtfs(
-            build_gtfs_zip(tmp_path, calendar=calendar, trips=trips, stop_times=stop_times)
+            build_gtfs_zip(
+                tmp_path, calendar=calendar, trips=trips, stop_times=stop_times
+            )
         )
 
     def test_scheduled_tt_is_cumulative_from_trip_start(self, simple_gtfs):
@@ -160,10 +161,7 @@ class TestEnrichEvents:
             "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
             "WD,1,1,1,1,1,0,0,20260501,20260531\n"
         )
-        trips = (
-            "route_id,service_id,trip_id,direction_id\n"
-            "R,WD,T1,0\nR,WD,T2,0\n"
-        )
+        trips = "route_id,service_id,trip_id,direction_id\nR,WD,T1,0\nR,WD,T2,0\n"
         stop_times = (
             "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
             "T1,06:00:00,06:00:30,A,1\n"
@@ -172,7 +170,9 @@ class TestEnrichEvents:
             "T2,06:15:00,06:15:30,B,2\n"
         )
         return StaticGtfs(
-            build_gtfs_zip(tmp_path, calendar=calendar, trips=trips, stop_times=stop_times)
+            build_gtfs_zip(
+                tmp_path, calendar=calendar, trips=trips, stop_times=stop_times
+            )
         )
 
     def test_populates_headway_and_tt(self, gtfs_with_schedule):

@@ -77,9 +77,7 @@ class JsonParser(Parser):
         return payload
 
 
-def parse_response(
-    http_response, parser: Parser, decoder: Decoder
-) -> FeedResponse:
+def parse_response(http_response, parser: Parser, decoder: Decoder) -> FeedResponse:
     if http_response.status_code >= 400:
         return ErrorResponse(http_response)
     try:
