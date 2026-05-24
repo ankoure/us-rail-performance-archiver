@@ -1,6 +1,6 @@
 import time
 
-from archiver.response import TransportErrorResponse
+from archiver.response import DecodeFailureResponse, TransportErrorResponse
 from archiver.parser import parse_response
 from archiver.feed import Feed
 from archiver.writer import LocalWriter
@@ -21,8 +21,14 @@ class FeedArchiver:
         try:
             with self.telemetry.span("feed.poll", tags={"feed": feed.name}):
                 start = time.monotonic()
-                response = parse_response(feed.client.get(feed.path), feed.parser)
+                response = parse_response(
+                    feed.client.get(feed.path), feed.parser, feed.decoder
+                )
                 poll_duration = time.monotonic() - start
+            if isinstance(response, DecodeFailureResponse):
+                self.telemetry.incr(
+                    "decoder.schema_drift", tags={"feed": feed.name}
+                )
 
             if feed.poll_interval_seconds:
                 if poll_duration > feed.poll_interval_seconds:

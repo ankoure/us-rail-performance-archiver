@@ -107,3 +107,18 @@ class ErrorResponse(FeedResponse):
 
 class UnknownResponse(FeedResponse):
     pass
+
+
+class DecodeFailureResponse(FeedResponse):
+    def __init__(self, http_response, drift) -> None:
+        super().__init__(http_response)
+        self._drift = drift
+
+    def raw_payload(self) -> bytes:
+        return self._http.content
+
+    def _extra_metadata(self) -> dict:
+        return super()._extra_metadata() | {
+            "drift_missing_required": sorted(self._drift.missing_required),
+            "drift_extras": sorted(self._drift.extras),
+        }

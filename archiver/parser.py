@@ -2,7 +2,10 @@ from abc import ABC, abstractmethod
 import json
 from typing import Any, ClassVar
 from google.protobuf.message import DecodeError
+from archiver.decoder import Decoder
+from archiver.logger import logger
 from archiver.response import (
+    DecodeFailureResponse,
     ErrorResponse,
     FeedResponse,
     JsonResponse,
@@ -74,11 +77,22 @@ class JsonParser(Parser):
         return payload
 
 
-def parse_response(http_response, parser: Parser) -> FeedResponse:
+def parse_response(
+    http_response, parser: Parser, decoder: Decoder
+) -> FeedResponse:
     if http_response.status_code >= 400:
         return ErrorResponse(http_response)
     try:
         parsed = parser.parse(http_response.content)
     except ParseFailure:
         return UnknownResponse(http_response)
+    drift = decoder.validate(parsed)
+    if drift is not None and drift.has_missing_required:
+        return DecodeFailureResponse(http_response, drift)
+    if drift is not None and drift.extras:
+        logger.warning(
+            "schema drift (extras only) for %s: %s",
+            type(decoder).__name__,
+            sorted(drift.extras),
+        )
     return parser.response_cls(http_response, parsed=parsed)

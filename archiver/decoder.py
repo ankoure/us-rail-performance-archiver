@@ -26,6 +26,23 @@ class Row:
 
 @dataclass
 class MartaPredictionRow(Row):
+    required_input_keys: ClassVar[frozenset[str]] = frozenset(
+        {
+            "EVENT_TIME",
+            "DESTINATION",
+            "DIRECTION",
+            "IS_REALTIME",
+            "LINE",
+            "NEXT_ARR",
+            "STATION",
+            "TRAIN_ID",
+            "WAITING_SECONDS",
+            "WAITING_TIME",
+        }
+    )
+    optional_input_keys: ClassVar[frozenset[str]] = frozenset(
+        {"DELAY", "LATITUDE", "LONGITUDE"}
+    )
     feed_timestamp: int
     destination: str
     direction: str
@@ -40,6 +57,29 @@ class MartaPredictionRow(Row):
     delay: int | None
     latitude: float | None
     longitude: float | None
+
+
+@dataclass(frozen=True)
+class DriftReport:
+    missing_required: frozenset[str] = frozenset()
+    extras: frozenset[str] = frozenset()
+
+    @property
+    def has_missing_required(self) -> bool:
+        return bool(self.missing_required)
+
+
+def validate_record_keys(
+    record: dict, row_class: type[Row]
+) -> DriftReport | None:
+    keys = set(record.keys())
+    missing = row_class.required_input_keys - keys
+    extras = keys - row_class.required_input_keys - row_class.optional_input_keys
+    if missing or extras:
+        return DriftReport(
+            missing_required=frozenset(missing), extras=frozenset(extras)
+        )
+    return None
 
 
 @dataclass
@@ -147,6 +187,9 @@ class Decoder(ABC):
     @abstractmethod
     def decode(self, parsed: Any, *, fetched_at: int | None = None) -> Iterator[Row]:
         raise NotImplementedError
+
+    def validate(self, parsed: Any) -> DriftReport | None:
+        return None
 
 
 class GtfsRtDecoder(Decoder):
@@ -361,20 +404,24 @@ class MTADecoder(StandardDecoder):
         return base
 
 
-# TODO: schema-drift detection — compare incoming r.keys() against the expected
-# set derived from MartaPredictionRow's dataclass fields. Log loudly (or raise) on
-# unknown keys or missing required keys, so MARTA changing their API doesn't
-# silently break the parse.
 @Decoder.register("marta_json")
 class MartaJsonDecoder(Decoder):
     produces: ClassVar[dict[type[Row], TableSpec]] = {
         MartaPredictionRow: TableSpec("marta_predictions")
     }
 
+    def validate(self, parsed: list) -> DriftReport | None:
+        if not parsed:
+            return None
+        return validate_record_keys(parsed[0], MartaPredictionRow)
+
     def decode(self, parsed: list, *, fetched_at: int | None = None) -> Iterator[Row]:
         if fetched_at is None:
             raise ValueError("MartaJsonDecoder requires fetched_at")
         for r in parsed:
+            drift = validate_record_keys(r, MartaPredictionRow)
+            if drift and drift.has_missing_required:
+                continue
             event_dt = self._parse_event_time(r["EVENT_TIME"])  # → UTC datetime
             yield MartaPredictionRow(
                 feed_timestamp=fetched_at,
