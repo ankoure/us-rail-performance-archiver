@@ -12,6 +12,7 @@ from archiver.decoder import (
     StopTimeUpdateRow,
     MTADecoder,
     VehicleRow,
+    validate_record_keys,
 )
 
 # ---------------------------------------------------------------------------
@@ -383,6 +384,87 @@ def test_marta_decode_smoke():
     assert (
         row.next_arr >= row.event_time
     )  # predicted arrival is at or after observation
+
+
+_MARTA_BASELINE = {
+    "EVENT_TIME": "05/08/2026 4:35:20 PM",
+    "DESTINATION": "Airport",
+    "DIRECTION": "S",
+    "IS_REALTIME": "true",
+    "LINE": "RED",
+    "NEXT_ARR": "04:36:34 PM",
+    "STATION": "DUNWOODY STATION",
+    "TRAIN_ID": "411",
+    "WAITING_SECONDS": "64",
+    "WAITING_TIME": "1 min",
+}
+
+
+class TestValidateRecordKeys:
+    def test_baseline_returns_none(self):
+        assert validate_record_keys(_MARTA_BASELINE, MartaPredictionRow) is None
+
+    def test_optional_keys_present_returns_none(self):
+        record = {**_MARTA_BASELINE, "DELAY": "T197S", "LATITUDE": "33.91"}
+        assert validate_record_keys(record, MartaPredictionRow) is None
+
+    def test_extra_key_reported(self):
+        record = {**_MARTA_BASELINE, "NEW_FIELD": "x"}
+        report = validate_record_keys(record, MartaPredictionRow)
+        assert report is not None
+        assert report.extras == frozenset({"NEW_FIELD"})
+        assert report.missing_required == frozenset()
+        assert not report.has_missing_required
+
+    def test_missing_required_reported(self):
+        record = {k: v for k, v in _MARTA_BASELINE.items() if k != "STATION"}
+        report = validate_record_keys(record, MartaPredictionRow)
+        assert report is not None
+        assert report.missing_required == frozenset({"STATION"})
+        assert report.has_missing_required
+
+    def test_missing_optional_returns_none(self):
+        assert validate_record_keys(_MARTA_BASELINE, MartaPredictionRow) is None
+
+    def test_rename_reported_as_both(self):
+        record = {k: v for k, v in _MARTA_BASELINE.items() if k != "EVENT_TIME"}
+        record["EVT_TIME"] = "x"
+        report = validate_record_keys(record, MartaPredictionRow)
+        assert report is not None
+        assert report.missing_required == frozenset({"EVENT_TIME"})
+        assert report.extras == frozenset({"EVT_TIME"})
+
+
+class TestMartaJsonDecoderValidate:
+    decoder = MartaJsonDecoder()
+
+    def test_empty_payload(self):
+        assert self.decoder.validate([]) is None
+
+    def test_valid_payload(self):
+        assert self.decoder.validate([_MARTA_BASELINE]) is None
+
+    def test_drifted_first_record(self):
+        record = {k: v for k, v in _MARTA_BASELINE.items() if k != "LINE"}
+        report = self.decoder.validate([record])
+        assert report is not None
+        assert report.missing_required == frozenset({"LINE"})
+
+
+class TestMartaJsonDecoderSkipsDriftedRecords:
+    decoder = MartaJsonDecoder()
+
+    def test_drifted_record_skipped(self):
+        broken = {k: v for k, v in _MARTA_BASELINE.items() if k != "STATION"}
+        ts = int(datetime.now(timezone.utc).timestamp())
+        rows = list(self.decoder.decode([broken, _MARTA_BASELINE], fetched_at=ts))
+        assert len(rows) == 1
+        assert rows[0].station == "DUNWOODY STATION"
+
+    def test_all_drifted_yields_nothing(self):
+        broken = {k: v for k, v in _MARTA_BASELINE.items() if k != "EVENT_TIME"}
+        ts = int(datetime.now(timezone.utc).timestamp())
+        assert list(self.decoder.decode([broken, broken], fetched_at=ts)) == []
 
 
 def test_parse_event_time_dst():
