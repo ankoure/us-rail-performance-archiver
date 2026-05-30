@@ -1414,7 +1414,7 @@ wheels = [
 ]
 
 [[package]]
-name = "us-rail-peformance-archiver"
+name = "us-rail-performance-archiver"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

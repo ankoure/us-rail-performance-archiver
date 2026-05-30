@@ -39,7 +39,7 @@ class APIKeyQueryAuth(AuthBase):
 class APIClient:
     DEFAULT_USER_AGENT = (
         "us-rail-archiver/0.1 "
-        "(+https://github.com/ankoure/us-rail-peformance-archiver; "
+        "(+https://github.com/ankoure/us-rail-performance-archiver; "
         "contact: andkoure2@gmail.com)"
     )
 
