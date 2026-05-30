@@ -149,3 +149,58 @@ class TestVehicleDwells:
         v = Vehicle("V1", rows)  # default 60s gap
         # 300s gap exceeds threshold, kept separate
         assert len(v.dwells) == 2
+
+
+class TestVehicleDwellsPositionBased:
+    """Feeds like septa-rail / metra / uta publish stop_id but never set
+    current_status. Dwell detection falls back to same-stop_id runs."""
+
+    def test_consecutive_same_stop_pings_become_one_visit(self):
+        rows = [
+            {"vehicle_timestamp": 100, "current_status": None, "stop_id": "A"},
+            {"vehicle_timestamp": 115, "current_status": None, "stop_id": "A"},
+            {"vehicle_timestamp": 130, "current_status": None, "stop_id": "A"},
+            {"vehicle_timestamp": 145, "current_status": None, "stop_id": "B"},
+            {"vehicle_timestamp": 160, "current_status": None, "stop_id": "B"},
+        ]
+        v = Vehicle("V1", rows, merge_gap_seconds=0)
+        assert len(v.dwells) == 2
+        assert v.dwells[0].stop_id == "A"
+        assert v.dwells[0].arrival_ts == 100
+        assert v.dwells[0].departure_ts == 130
+        assert v.dwells[0].ping_count == 3
+        assert v.dwells[1].stop_id == "B"
+        assert v.dwells[1].arrival_ts == 145
+        assert v.dwells[1].departure_ts == 160
+
+    def test_null_stop_id_breaks_the_run(self):
+        rows = [
+            {"vehicle_timestamp": 100, "current_status": None, "stop_id": "A"},
+            {"vehicle_timestamp": 115, "current_status": None, "stop_id": None},
+            {"vehicle_timestamp": 130, "current_status": None, "stop_id": "A"},
+        ]
+        v = Vehicle("V1", rows, merge_gap_seconds=0)
+        assert len(v.dwells) == 2
+        assert all(d.stop_id == "A" for d in v.dwells)
+
+    def test_returns_to_status_mode_when_any_ping_has_status(self):
+        # Even one STOPPED_AT ping flips this vehicle into status-based mode,
+        # so the same-stop_id IN_TRANSIT_TO pings are ignored.
+        rows = [
+            {
+                "vehicle_timestamp": 100,
+                "current_status": "IN_TRANSIT_TO",
+                "stop_id": "A",
+            },
+            {"vehicle_timestamp": 115, "current_status": "STOPPED_AT", "stop_id": "A"},
+            {
+                "vehicle_timestamp": 130,
+                "current_status": "IN_TRANSIT_TO",
+                "stop_id": "A",
+            },
+        ]
+        v = Vehicle("V1", rows, merge_gap_seconds=0)
+        # Only the single STOPPED_AT ping becomes a visit.
+        assert len(v.dwells) == 1
+        assert v.dwells[0].ping_count == 1
+        assert v.dwells[0].arrival_ts == 115
