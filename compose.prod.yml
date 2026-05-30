@@ -1,0 +1,40 @@
+services:
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7
+    restart: unless-stopped
+    environment:
+      - DD_API_KEY=${DD_API_KEY}
+      - DD_SITE=${DD_SITE:-datadoghq.com}
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+      - DD_HOSTNAME=rail-archiver
+    expose:
+      - "8125/udp"
+
+  app:
+    image: ghcr.io/ankoure/us-rail-performance-archiver:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./archive:/app/archive
+    env_file:
+      - .env
+    depends_on:
+      - datadog-agent
+
+  batch:
+    image: ghcr.io/ankoure/us-rail-performance-archiver:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+    - PYTHONUNBUFFERED=1
+    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-4}
+    volumes:
+      - ./config:/app/config:ro
+      - ./archive:/app/archive
+      - ./curated:/app/curated
+    env_file:
+      - .env
+    depends_on:
+      - datadog-agent
+    command: sh -c "while true; do DAY=$$(date -u -d yesterday +%F); python rollup.py --day $$DAY && python ship.py --day $$DAY; sleep 86400; done"
