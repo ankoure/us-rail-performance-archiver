@@ -37,8 +37,8 @@ _COLUMN_MAP = {
     "vehicle.current_stop_sequence": "stop_sequence",
     "vehicle.timestamp": "vehicle_timestamp",
     "feed_timestamp": "feed_timestamp",
-    "latitude": "latitude",
-    "longitude": "longitude",
+    "vehicle.position.latitude": "latitude",
+    "vehicle.position.longitude": "longitude",
 }
 
 
@@ -122,11 +122,36 @@ class Vehicle:
 
     @cached_property
     def _raw_dwells(self) -> list[Visit]:
-        """Detect STOPPED_AT runs and emit one Visit per run, no merging.
+        """Detect dwell visits, no merging.
 
-        A run is consecutive pings (in vehicle_timestamp order) where
-        current_status == 'STOPPED_AT' AND stop_id is the same. Any change in
-        status or stop_id closes the current run.
+        Chooses an algorithm based on what this vehicle's feed publishes:
+
+          - **status-based**: when any ping carries `current_status`, a run is
+            consecutive pings where `current_status == 'STOPPED_AT'` AND
+            stop_id is the same. Any change in status or stop_id closes it.
+
+          - **position-based**: when no ping carries `current_status`, a run is
+            simply consecutive pings sharing the same non-null stop_id. Used
+            for feeds (e.g. septa-rail, metra, uta) that publish stop_id but
+            omit the status enum. The resulting visit's arrival_ts marks when
+            the vehicle first reported that stop — which may include approach
+            time, not just dwell — so timing is coarser than status-based.
+        """
+        if any(r.get("current_status") for r in self._rows):
+            return self._status_based_dwells()
+        return self._position_based_dwells()
+
+    def _status_based_dwells(self) -> list[Visit]:
+        return self._dwells_by(lambda r: r.get("current_status") == "STOPPED_AT")
+
+    def _position_based_dwells(self) -> list[Visit]:
+        return self._dwells_by(lambda r: True)
+
+    def _dwells_by(self, is_dwelling) -> list[Visit]:
+        """Group consecutive same-stop pings into Visits.
+
+        `is_dwelling(row)` gates whether a row can extend or open a run. A row
+        with no stop_id, or where `is_dwelling` is False, closes the current run.
         """
         visits: list[Visit] = []
         run: list[dict] = []
@@ -150,9 +175,8 @@ class Vehicle:
             )
 
         for row in self._rows:
-            stopped = row.get("current_status") == "STOPPED_AT"
             stop_id = row.get("stop_id")
-            if stopped and stop_id is not None:
+            if is_dwelling(row) and stop_id is not None:
                 if run and run[-1]["stop_id"] == stop_id:
                     run.append(row)
                 else:
@@ -270,7 +294,15 @@ class VehicleDay:
         """Load parquet, normalize column names, group rows by vehicle_id.
 
         Each group is sorted ascending by vehicle_timestamp so Vehicle can rely
-        on ordering. Rows with no vehicle_id or no vehicle_timestamp are dropped.
+        on ordering. Rows with no usable identifier or no vehicle_timestamp
+        are dropped.
+
+        When `vehicle.vehicle.id` is null (common on NYCT subway feeds, which
+        identify trains by trip rather than rolling stock) the row's `trip_id`
+        is used as the grouping key. The same physical train serving two
+        consecutive trips will then split into two Vehicles — that's fine for
+        per-trip dwell detection, since each trip's ping sequence is
+        self-contained.
         """
         path = self.partition_path
         if not path.exists():
@@ -294,7 +326,7 @@ class VehicleDay:
 
         grouped: dict[str, list[dict]] = defaultdict(list)
         for r in df:
-            vid = r.get("vehicle_id")
+            vid = r.get("vehicle_id") or r.get("trip_id")
             ts = r.get("vehicle_timestamp")
             if vid is None or ts is None:
                 continue

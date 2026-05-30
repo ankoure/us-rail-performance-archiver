@@ -46,19 +46,23 @@ def test_schema_for_spec_renames_and_extras():
     spec = StandardDecoder.produces[VehicleRow]
     schema = _schema_for_spec(VehicleRow, spec)
     field_types = {f.name: f.type for f in schema}
-    # renamed fields use LAMP's dotted names
+    # All proto-derived fields use LAMP's dotted names
     assert field_types["vehicle.vehicle.id"] == pa.string()
     assert field_types["vehicle.timestamp"] == pa.int64()
     assert field_types["vehicle.trip.direction_id"] == pa.int64()
-    # un-renamed fields keep their original names
-    assert field_types["latitude"] == pa.float64()
+    assert field_types["vehicle.position.latitude"] == pa.float64()
+    assert field_types["vehicle.position.speed"] == pa.float64()
+    assert field_types["vehicle.occupancy_status"] == pa.string()
     # null-pad extras present with expected types
     assert field_types["vehicle.trip.start_time"] == pa.string()
     assert field_types["vehicle.trip.revenue"] == pa.bool_()
     assert "vehicle.vehicle.consist" in field_types
+    # feed_timestamp is added by the rollup, not from the proto — stays flat
+    assert field_types["feed_timestamp"] == pa.int64()
     # original Python identifiers are gone
     assert "vehicle_id" not in field_types
     assert "vehicle_timestamp" not in field_types
+    assert "latitude" not in field_types
     # all fields nullable
     assert all(f.nullable for f in schema)
 
