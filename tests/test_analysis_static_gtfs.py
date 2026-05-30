@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from analysis.static_gtfs import StaticGtfs, _hms_to_seconds
+from analysis.static_gtfs import StaticGtfs, _categorize_route_type, _hms_to_seconds
 
 
 def build_gtfs_zip(
@@ -21,6 +21,7 @@ def build_gtfs_zip(
     calendar_dates: str | None = None,
     trips: str | None = None,
     stop_times: str | None = None,
+    routes: str | None = None,
 ) -> Path:
     """Write a minimal GTFS zip with whatever tables the caller cares to specify."""
     zip_path = tmp_path / "feed.zip"
@@ -33,6 +34,8 @@ def build_gtfs_zip(
             z.writestr("trips.txt", trips)
         if stop_times is not None:
             z.writestr("stop_times.txt", stop_times)
+        if routes is not None:
+            z.writestr("routes.txt", routes)
     return zip_path
 
 
@@ -176,41 +179,151 @@ class TestEnrichEvents:
         )
 
     def test_populates_headway_and_tt(self, gtfs_with_schedule):
-        # Real event at stop B at 06:16 local (a bit after T2's scheduled 06:15 arrival)
+        # T2 at stop B: scheduled tt = 5 min = 300s; headway from T1 = 10 min = 600s
         events = [
             {
-                "route_id": "R",
-                "direction_id": 0,
+                "trip_id": "T2",
                 "stop_id": "B",
-                "event_time": "2026-05-20 06:16:00-04:00",
                 "scheduled_headway": "",
                 "scheduled_tt": "",
             }
         ]
-        gtfs_with_schedule.enrich_events(events, dt.date(2026, 5, 20), EASTERN)
-        # Backward asof picks T2's scheduled arrival (06:15) at stop B
-        # T2 at stop B: tt = 5 min = 300s; headway = T2 - T1 at stop B = 10 min = 600s
+        gtfs_with_schedule.enrich_events(events, dt.date(2026, 5, 20))
         assert events[0]["scheduled_tt"] == 300
         assert events[0]["scheduled_headway"] == 600
 
-    def test_event_before_any_scheduled_arrival_gets_empty(self, gtfs_with_schedule):
+    def test_early_arrival_still_populates_from_trip_id(self, gtfs_with_schedule):
+        # Vehicle ran ahead of schedule — asof on event time would miss, but
+        # (trip_id, stop_id) lookup is independent of actual arrival time.
         events = [
             {
-                "route_id": "R",
-                "direction_id": 0,
+                "trip_id": "T1",
                 "stop_id": "B",
-                "event_time": "2026-05-20 05:00:00-04:00",  # before any scheduled
                 "scheduled_headway": "",
                 "scheduled_tt": "",
             }
         ]
-        gtfs_with_schedule.enrich_events(events, dt.date(2026, 5, 20), EASTERN)
+        gtfs_with_schedule.enrich_events(events, dt.date(2026, 5, 20))
+        # T1 is the first trip at B, so headway is undefined (empty);
+        # tt is 5 min from T1's start.
+        assert events[0]["scheduled_tt"] == 300
+        assert events[0]["scheduled_headway"] == ""
+
+    def test_unknown_trip_id_leaves_fields_empty(self, gtfs_with_schedule):
+        events = [
+            {
+                "trip_id": "T_NOT_IN_GTFS",
+                "stop_id": "B",
+                "scheduled_headway": "",
+                "scheduled_tt": "",
+            }
+        ]
+        gtfs_with_schedule.enrich_events(events, dt.date(2026, 5, 20))
         assert events[0]["scheduled_headway"] == ""
         assert events[0]["scheduled_tt"] == ""
 
     def test_empty_input_is_a_noop(self, gtfs_with_schedule):
         # Just shouldn't raise
-        gtfs_with_schedule.enrich_events([], dt.date(2026, 5, 20), EASTERN)
+        gtfs_with_schedule.enrich_events([], dt.date(2026, 5, 20))
+
+
+class TestTripDirections:
+    """trip_directions powers direction_id backfill for realtime feeds that
+    publish trip_id but omit direction_id (NYCT subway, TriMet, etc.)."""
+
+    def test_basic_mapping(self, tmp_path):
+        trips = (
+            "trip_id,route_id,service_id,direction_id\n"
+            "T1,R,WEEKDAY,0\n"
+            "T2,R,WEEKDAY,1\n"
+            "T3,R,WEEKDAY,0\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
+        assert gtfs.trip_directions == {
+            "T1": ("R", 0),
+            "T2": ("R", 1),
+            "T3": ("R", 0),
+        }
+
+    def test_missing_direction_id_column_yields_none(self, tmp_path):
+        # GTFS spec allows direction_id to be absent entirely.
+        trips = "trip_id,route_id,service_id\nT1,R,WEEKDAY\n"
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
+        assert gtfs.trip_directions == {"T1": ("R", None)}
+
+    def test_blank_direction_id_yields_none(self, tmp_path):
+        # Per-row blank direction_id stays None, not 0.
+        trips = (
+            "trip_id,route_id,service_id,direction_id\nT1,R,WEEKDAY,0\nT2,R,WEEKDAY,\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
+        assert gtfs.trip_directions == {
+            "T1": ("R", 0),
+            "T2": ("R", None),
+        }
+
+
+class TestCategorizeRouteType:
+    @pytest.mark.parametrize(
+        "rt, expected",
+        [
+            (0, "rapid"),
+            (1, "rapid"),
+            (5, "rapid"),
+            (12, "rapid"),
+            (2, "cr"),
+            (3, "bus"),
+            (11, "bus"),
+            (100, "cr"),
+            (117, "cr"),
+            (300, "cr"),
+            (307, "cr"),
+            (200, "bus"),
+            (700, "bus"),
+            (716, "bus"),
+            (800, "bus"),
+            (400, "rapid"),
+            (405, "rapid"),
+            (900, "rapid"),
+            (906, "rapid"),
+            (4, "other"),  # ferry
+            (1300, "other"),  # aerial lift
+            (None, "other"),
+        ],
+    )
+    def test_known_route_types(self, rt, expected):
+        assert _categorize_route_type(rt) == expected
+
+
+class TestRouteModes:
+    def test_mixed_modes_in_one_feed(self, tmp_path):
+        # An agency like Metro Transit MN ships rail (light rail) + bus in the
+        # same GTFS — route_modes must classify each route independently.
+        routes = (
+            "route_id,route_type\n"
+            "LRT_BLUE,0\n"
+            "BUS_5,3\n"
+            "CR_NORTHSTAR,2\n"
+            "FERRY_X,4\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, routes=routes))
+        assert gtfs.route_modes == {
+            "LRT_BLUE": "rapid",
+            "BUS_5": "bus",
+            "CR_NORTHSTAR": "cr",
+            "FERRY_X": "other",
+        }
+
+    def test_missing_routes_file_yields_empty(self, tmp_path):
+        # Some agency snapshots in the wild ship without routes.txt; the lookup
+        # should just degrade to "no info", not raise.
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))
+        assert gtfs.route_modes == {}
+
+    def test_blank_route_type_falls_through_to_other(self, tmp_path):
+        routes = "route_id,route_type\nR_OK,1\nR_BLANK,\n"
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, routes=routes))
+        assert gtfs.route_modes == {"R_OK": "rapid", "R_BLANK": "other"}
 
 
 # pandas import used by TestScheduledStops.test_scheduled_headway_is_per_route_dir_stop

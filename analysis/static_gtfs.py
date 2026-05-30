@@ -25,7 +25,6 @@ import datetime as dt
 import zipfile
 from functools import cached_property, lru_cache
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -52,6 +51,10 @@ class StaticGtfs:
         return f"StaticGtfs({self.zip_path})"
 
     def _read(self, name: str, **read_csv_kwargs) -> pd.DataFrame:
+        # skipinitialspace handles agencies (e.g. Metra) whose CSV headers
+        # have a space after each delimiter — without it, columns end up
+        # named " trip_id" instead of "trip_id".
+        read_csv_kwargs.setdefault("skipinitialspace", True)
         with zipfile.ZipFile(self.zip_path) as z:
             with z.open(name) as f:
                 return pd.read_csv(f, **read_csv_kwargs)
@@ -65,6 +68,75 @@ class StaticGtfs:
             ),
             dtype={"trip_id": str, "route_id": str, "service_id": str},
         )
+
+    @cached_property
+    def routes(self) -> pd.DataFrame:
+        try:
+            return self._read(
+                "routes.txt",
+                usecols=lambda c: c in {"route_id", "route_type"},
+                dtype={"route_id": str},
+            )
+        except KeyError:
+            return pd.DataFrame(columns=["route_id", "route_type"])
+
+    @cached_property
+    def route_modes(self) -> dict[str, str]:
+        """Map route_id → mode bucket: 'rapid', 'bus', 'cr', or 'other'.
+
+        Reads route_type from routes.txt and applies [[_categorize_route_type]],
+        which accepts both the base GTFS values (0..12) and Google's extended
+        Hierarchical Vehicle Types (100..1799). Used by the event exporter to
+        partition output folders by mode without the caller having to know any
+        GTFS route_type values.
+        """
+        df = self.routes
+        if "route_id" not in df.columns or "route_type" not in df.columns:
+            return {}
+        out: dict[str, str] = {}
+        for row in df.itertuples(index=False):
+            rid = getattr(row, "route_id", None)
+            if not isinstance(rid, str):
+                continue
+            raw = getattr(row, "route_type", None)
+            try:
+                rt: int | None = int(raw) if pd.notna(raw) else None
+            except (TypeError, ValueError):
+                rt = None
+            out[rid] = _categorize_route_type(rt)
+        return out
+
+    @cached_property
+    def trip_directions(self) -> dict[str, tuple[str | None, int | None]]:
+        """Map trip_id → (route_id, direction_id) from trips.txt.
+
+        Used to backfill the trip descriptor for GTFS-rt feeds (NYCT subway,
+        TriMet, several CARTA/UTA/PRT feeds) that publish trip_id but omit
+        direction_id — and sometimes route_id — in their realtime payload.
+
+        Returns an empty map when the static feed's trips.txt is missing
+        trip_id (some agencies publish a schema that drops required columns,
+        or wraps headers in whitespace/BOM that breaks the column name).
+        """
+        if "trip_id" not in self.trips.columns:
+            return {}
+        out: dict[str, tuple[str | None, int | None]] = {}
+        has_dir = "direction_id" in self.trips.columns
+        has_route = "route_id" in self.trips.columns
+        for row in self.trips.itertuples(index=False):
+            trip_id = getattr(row, "trip_id", None)
+            if not isinstance(trip_id, str):
+                continue
+            route_id = getattr(row, "route_id", None) if has_route else None
+            if not isinstance(route_id, str):
+                route_id = None
+            direction_id: int | None = None
+            if has_dir:
+                raw = getattr(row, "direction_id", None)
+                if pd.notna(raw):
+                    direction_id = int(raw)
+            out[trip_id] = (route_id, direction_id)
+        return out
 
     @cached_property
     def stop_times(self) -> pd.DataFrame:
@@ -186,13 +258,14 @@ class StaticGtfs:
         self,
         events: list[dict],
         service_date: dt.date,
-        local_tz: ZoneInfo,
     ) -> None:
         """Populate `scheduled_headway` and `scheduled_tt` on each event dict in-place.
 
         `events` must all share the same service_date (caller buckets first).
-        Each event dict must have at minimum: route_id, direction_id, stop_id,
-        event_time (str ending in '±HH:MM' local time as produced by event_export).
+        Each event dict must have at minimum: trip_id, stop_id. Both fields are
+        properties of the scheduled trip at that stop, so the lookup is a direct
+        merge on (trip_id, stop_id) — using the actual event time would attribute
+        a neighboring trip's values whenever the vehicle ran early or late.
         """
         if not events:
             return
@@ -200,46 +273,60 @@ class StaticGtfs:
         if sched.empty:
             return
 
-        midnight = dt.datetime.combine(service_date, dt.time(), tzinfo=local_tz)
-        rows = []
-        for idx, ev in enumerate(events):
-            t = dt.datetime.fromisoformat(ev["event_time"])
-            rows.append(
-                {
-                    "_idx": idx,
-                    "route_id": ev["route_id"],
-                    "direction_id": ev["direction_id"],
-                    "stop_id": ev["stop_id"],
-                    "event_seconds": int((t - midnight).total_seconds()),
-                }
-            )
-        # merge_asof requires both sides globally sorted by the `on` key.
-        ev_df = pd.DataFrame(rows).sort_values("event_seconds").reset_index(drop=True)
-
-        # Backward asof on event_seconds within (route, dir, stop): the prior scheduled arrival's
-        # headway is what this event "should have" experienced.
-        sched_for_join = (
-            sched[
-                _RTE_DIR_STOP + ["arrival_seconds", "scheduled_headway", "scheduled_tt"]
-            ]
-            .rename(columns={"arrival_seconds": "event_seconds"})
-            .sort_values("event_seconds")
-            .reset_index(drop=True)
+        lookup = (
+            sched[["trip_id", "stop_id", "scheduled_tt", "scheduled_headway"]]
+            .drop_duplicates(["trip_id", "stop_id"], keep="first")
+            .set_index(["trip_id", "stop_id"])
+            .to_dict("index")
         )
-        merged = pd.merge_asof(
-            ev_df,
-            sched_for_join,
-            on="event_seconds",
-            by=_RTE_DIR_STOP,
-            direction="backward",
-        )
-
-        for _, row in merged.iterrows():
-            ev = events[row["_idx"]]
-            hw = row["scheduled_headway"]
+        for ev in events:
+            row = lookup.get((ev.get("trip_id"), ev.get("stop_id")))
+            if row is None:
+                continue
             tt = row["scheduled_tt"]
-            ev["scheduled_headway"] = "" if pd.isna(hw) else int(hw)
+            hw = row["scheduled_headway"]
             ev["scheduled_tt"] = "" if pd.isna(tt) else int(tt)
+            ev["scheduled_headway"] = "" if pd.isna(hw) else int(hw)
+
+
+_BASE_ROUTE_TYPES: dict[int, str] = {
+    0: "rapid",  # Tram, Streetcar, Light rail
+    1: "rapid",  # Subway, Metro
+    2: "cr",  # Rail (intercity / commuter)
+    3: "bus",
+    5: "rapid",  # Cable tram
+    11: "bus",  # Trolleybus
+    12: "rapid",  # Monorail
+}
+
+
+def _categorize_route_type(rt: int | None) -> str:
+    """Bucket a GTFS route_type into 'rapid', 'bus', 'cr', or 'other'.
+
+    Recognizes both base GTFS route_types and Google's extended Hierarchical
+    Vehicle Type ranges (RouteType reference at
+    developers.google.com/transit/gtfs/reference/extended-route-types):
+      100..117  Railway service (intercity / regional) → cr
+      200..209  Coach service                          → bus
+      300..307  Suburban Railway                       → cr
+      400..405  Urban Railway / Metro                  → rapid
+      700..716  Bus service                            → bus
+      800       Trolleybus                             → bus
+      900..906  Tram service                           → rapid
+    Anything else (ferry, aerial lift, taxi, ...) falls into 'other'.
+    """
+    if rt is None:
+        return "other"
+    base = _BASE_ROUTE_TYPES.get(rt)
+    if base is not None:
+        return base
+    if 100 <= rt <= 117 or 300 <= rt <= 307:
+        return "cr"
+    if 200 <= rt <= 209 or 700 <= rt <= 716 or rt == 800:
+        return "bus"
+    if 400 <= rt <= 405 or 900 <= rt <= 906:
+        return "rapid"
+    return "other"
 
 
 def _hms_to_seconds(s: str) -> int:
