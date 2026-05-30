@@ -238,6 +238,77 @@ s3://<hot_bucket>/<hot_prefix><kind>/feed=…/year=…/month=…/day=…/data.pa
 
 ---
 
+## Storage cost model
+
+Cost is dominated by S3 storage. Local disk is sunk if you own the box; egress only matters if you query.
+
+### Measured rate (sample: May 19–24, 2026, 6 full days at steady state)
+
+| Bucket | Mean GB/day | Storage class |
+|---|---|---|
+| Cold tarball (raw `.bin` + metadata jsonl, gzipped) | 5.7 | `DEEP_ARCHIVE` |
+| Hot parquet (curated) | 5.85 | `STANDARD` |
+
+Cold is derived as `raw landing × tar.gz ratio`. Sampled compression ratios on real day-22 data: 0.226 (nyct-1234567s), 0.238 (metrostl-trips), 0.316 (metromn-trips), 0.071 (bart-alerts). Volume-weighted ≈ **0.25**; raw landing averaged 22.7 GB/day, so 22.7 × 0.25 ≈ 5.7 GB/day shipped cold.
+
+### Formula
+
+Let:
+- `D_cold` = 5.7 GB/day shipped to cold
+- `D_hot`  = 5.85 GB/day shipped to hot
+- `p_cold` = $0.00099 / GB-month (Deep Archive, us-east-1)
+- `p_hot`  = storage-class price per GB-month
+- `n`      = month index (starting at 1)
+
+Storage is cumulative (no lifecycle deletion assumed). Bill in month `n` uses the average GB-months stored across that month:
+
+```
+month_n_cost = D_cold · 30 · (n − 0.5) · p_cold
+            + D_hot  · 30 · (n − 0.5) · p_hot
+```
+
+Cumulative cost through month N (arithmetic series):
+
+```
+total(N) = 30 · (N² / 2) · (D_cold · p_cold + D_hot · p_hot)
+```
+
+PUT requests and Deep Archive's 40 KB-per-object Standard overhead are <$0.20/month at ~88 feeds/day — drop them.
+
+### Projection — month 60 (5 years), by hot tier
+
+| Hot tier | `p_hot` ($/GB-mo) | Month-60 bill | 5-yr cumulative |
+|---|---|---|---|
+| Standard | 0.023 | $250/mo | $7,570 |
+| Standard-IA | 0.0125 | $141/mo | $4,254 |
+| Glacier Instant Retrieval | 0.004 | $52/mo | $1,568 |
+
+Cold Deep Archive at year 5 is ~$10/mo — rounding error. The bill is the hot bucket.
+
+### Projection — Glacier Instant Retrieval timeline
+
+Same formula with `p_hot = $0.004/GB-mo`. Marginal is the bill for that specific month; cumulative is the total spent from month 1 through that month.
+
+| End of… | Cold stored (GB) | Hot stored (GB) | Marginal $/mo | Cumulative $ |
+|---|---|---|---|---|
+| Month 1  | 171    | 176    | $0.44  | $0.44   |
+| Month 6  | 1,026  | 1,053  | $4.79  | $15.68  |
+| Month 12 | 2,053  | 2,106  | $10.02 | $62.73  |
+| Month 24 | 4,106  | 4,212  | $20.47 | $251    |
+| Month 60 | 10,264 | 10,530 | $51.84 | $1,568  |
+
+For ~$1.5K over 5 years you keep every payload from every configured agency, queryable in milliseconds. The catch is the $0.01/GB retrieval fee and 90-day minimum — fine for the typical "load a partition into a notebook" workflow, painful only if you regularly scan years of data at once.
+
+### Caveats and unmodeled items
+
+- **Volume is steady-state.** Adding more agencies (or re-enabling the commented-out feeds) scales the rate linearly with that feed's poll volume.
+- **Local disk is not auto-pruned.** At 22.7 GB raw/day, 1 TB fills in ~44 days. The shipper does not delete after a successful upload — wire that up before this model holds.
+- **Deep Archive has a 180-day minimum** (early-deletion fee). Use `ship.py --hot-only` for parquet re-rolls so re-shipping curated outputs doesn't re-charge the tarballs.
+- **Egress for queries** is $0.09/GB outbound; pulling a full year of hot parquet ≈ $190 one-time.
+- **Glacier Instant Retrieval** reads in milliseconds with a $0.01/GB retrieval fee and a 90-day minimum — likely the right fit for parquet queried occasionally from notebooks. A lifecycle rule `STANDARD → GIR at 30d` keeps recent partitions cheap to read while collapsing long-term storage cost.
+
+---
+
 ## Output schemas
 
 ### `metadata` (one row per poll)
