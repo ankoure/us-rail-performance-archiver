@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Literal, Annotated, Protocol
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -80,14 +82,25 @@ class AgencyConfig(BaseModel):
     agency_id: str
     name: str
     region: str
+    timezone: str
     base_url: HttpUrl
     auth: AuthConfig
     feeds: list[FeedConfig]
+    mdb_feed_id: str | None = None
 
     @field_validator("feeds")
     @classmethod
     def validate_feeds(cls, v: list[FeedConfig]) -> list[FeedConfig]:
         return names_must_be_unique(v, "feed")
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except ZoneInfoNotFoundError:
+            raise ValueError(f"Unknown IANA timezone: {v!r}")
+        return v
 
 
 class WriterConfig(BaseModel):

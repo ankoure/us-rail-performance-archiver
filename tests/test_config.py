@@ -14,6 +14,7 @@ agencies:
   - agency_id: BART
     name: Bay Area Rapid Transit
     region: San Francisco Bay Area
+    timezone: America/Los_Angeles
     base_url: https://api.bart.gov/gtfsrt
     auth:
       type: none
@@ -40,6 +41,7 @@ agencies:
   - agency_id: BART
     name: Bay Area Rapid Transit
     region: San Francisco Bay Area
+    timezone: America/Los_Angeles
     base_url: https://api.bart.gov/gtfsrt
     auth:
       type: none
@@ -70,6 +72,7 @@ agencies:
   - agency_id: BART
     name: Bay Area Rapid Transit
     region: San Francisco Bay Area
+    timezone: America/Los_Angeles
     base_url: https://api.bart.gov/gtfsrt
     auth:
       type: none
@@ -96,6 +99,7 @@ agencies:
   - agency_id: BART
     name: Bay Area Rapid Transit
     region: San Francisco Bay Area
+    timezone: America/Los_Angeles
     base_url: https://api.bart.gov/gtfsrt
     auth:
       type: none
@@ -121,6 +125,7 @@ agencies:
   - agency_id: BART
     name: Bay Area Rapid Transit
     region: San Francisco Bay Area
+    timezone: America/Los_Angeles
     base_url: https://api.bart.gov/gtfsrt
     auth:
       type: none
@@ -146,6 +151,7 @@ agencies:
   - agency_id: BART
     name: Bay Area Rapid Transit
     region: San Francisco Bay Area
+    timezone: America/Los_Angeles
     base_url: https://api.bart.gov/gtfsrt
     auth:
       type: none
@@ -206,3 +212,33 @@ def test_poll_interval_rejects_negative():
 def test_poll_interval_rejects_zero():
     with pytest.raises(ValidationError):
         _mock_load_config(mock_yaml_content_poll_interval_is_zero)
+
+
+mock_yaml_content_with_mdb_feed_id = """
+writer:
+  landing_dir: ./archive
+  curated_dir: ./curated
+
+agencies:
+  - agency_id: BART
+    name: Bay Area Rapid Transit
+    region: San Francisco Bay Area
+    timezone: America/Los_Angeles
+    base_url: https://api.bart.gov/gtfsrt
+    auth:
+      type: none
+    mdb_feed_id: mdb-1234
+    feeds:
+      - name: bart-trips
+        path: /tripupdate.aspx
+"""
+
+
+def test_mdb_feed_id_defaults_to_none():
+    config = _mock_load_config(mock_yaml_content)
+    assert config.agencies[0].mdb_feed_id is None
+
+
+def test_mdb_feed_id_set_correctly():
+    config = _mock_load_config(mock_yaml_content_with_mdb_feed_id)
+    assert config.agencies[0].mdb_feed_id == "mdb-1234"

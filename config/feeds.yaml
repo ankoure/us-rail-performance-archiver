@@ -19,7 +19,9 @@ agencies:
   - agency_id: BART
     name: Bay Area Rapid Transit
     region: San Francisco Bay Area
+    timezone: America/Los_Angeles
     base_url: https://api.bart.gov/gtfsrt
+    mdb_feed_id: mdb-53
     auth:
       type: none
     feeds:
@@ -37,7 +39,9 @@ agencies:
   - agency_id: METRO_STL
     name: MetroLink (St. Louis)
     region: St. Louis
+    timezone: America/Chicago
     base_url: https://www.metrostlouis.org/RealTimeData
+    mdb_feed_id: mdb-190
     auth:
       type: none
     feeds:
@@ -60,7 +64,9 @@ agencies:
   - agency_id: CATS
     name: Charlotte Area Transit System
     region: Charlotte
+    timezone: America/New_York
     base_url: https://gtfsrealtime.ridetransit.org/GTFSRealTime
+    mdb_feed_id: mdb-2265
     auth:
       type: none
     feeds:
@@ -83,7 +89,9 @@ agencies:
   - agency_id: GCRTA
     name: Greater Cleveland Regional Transit Authority
     region: Cleveland
+    timezone: America/New_York
     base_url: https://gtfs-rt.gcrta.vontascloud.com/TMGTFSRealTimeWebService
+    mdb_feed_id: mdb-406
     auth:
       type: none
     feeds:
@@ -124,7 +132,9 @@ agencies:
   - agency_id: METRA
     name: Metra (Chicago Commuter Rail)
     region: Chicago
+    timezone: America/Chicago
     base_url: https://gtfspublic.metrarr.com/gtfs/public
+    mdb_feed_id: mdb-2854
     auth:
       type: api_key
       param: api_token
@@ -149,7 +159,9 @@ agencies:
   - agency_id: METRO_MN
     name: Metro Transit (Twin Cities)
     region: Minneapolis-Saint Paul
+    timezone: America/Chicago
     base_url: https://svc.metrotransit.org/mtgtfs
+    mdb_feed_id: mdb-205
     auth:
       type: none
     feeds:
@@ -171,7 +183,9 @@ agencies:
   - agency_id: MTA
     name: MTA New York City Transit
     region: New York City
+    timezone: America/New_York
     base_url: https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/
+    mdb_feed_id: mdb-516
     auth:
       type: none
     feeds:
@@ -220,7 +234,9 @@ agencies:
   - agency_id: PRT
     name: Pittsburgh Regional Transit
     region: Pittsburgh
+    timezone: America/New_York
     base_url: https://truetime.portauthority.org/gtfsrt-train
+    mdb_feed_id: mdb-409
     auth:
       type: none
     feeds:
@@ -243,7 +259,9 @@ agencies:
   - agency_id: RTD
     name: Denver Regional Transportation District
     region: Denver
+    timezone: America/Denver
     base_url: https://open-data.rtd-denver.com/files/gtfs-rt/rtd
+    mdb_feed_id: mdb-178
     auth:
       type: none
     feeds:
@@ -266,7 +284,9 @@ agencies:
   - agency_id: SACRT
     name: Sacramento Regional Transit
     region: Sacramento
+    timezone: America/Los_Angeles
     base_url: https://bustime.sacrt.com/gtfsrt
+    mdb_feed_id: mdb-2137
     auth:
       type: none
     feeds:
@@ -289,7 +309,9 @@ agencies:
   - agency_id: SEPTA_RAIL
     name: Southeastern Pennsylvania Transportation Authority (Rail)
     region: Philadelphia
+    timezone: America/New_York
     base_url: https://www3.septa.org/gtfsrt/septarail-pa-us
+    mdb_feed_id: mdb-503
     auth:
       type: none
     feeds:
@@ -312,7 +334,9 @@ agencies:
   - agency_id: SEPTA_BUS
     name: Southeastern Pennsylvania Transportation Authority (Bus/Trolley)
     region: Philadelphia
+    timezone: America/New_York
     base_url: https://www3.septa.org/gtfsrt/septa-pa-us
+    mdb_feed_id: mdb-502
     auth:
       type: none
     feeds:
@@ -470,7 +494,9 @@ agencies:
   - agency_id: MTS
     name: Metropolitan Transit System (San Diego Trolley)
     region: San Diego
+    timezone: America/Los_Angeles
     base_url: https://realtime.sdmts.com/api/api/gtfs_realtime/
+    mdb_feed_id: mdb-13
     auth:
       type: api_key
       param: key
@@ -490,7 +516,9 @@ agencies:
   - agency_id: SOUND_TRANSIT
     name: Sound Transit (Link)
     region: Seattle
+    timezone: America/Los_Angeles
     base_url: https://api.pugetsound.onebusaway.org/api/gtfs_realtime
+    mdb_feed_id: mdb-268
     auth:
       type: api_key
       param: key
@@ -515,7 +543,9 @@ agencies:
   - agency_id: TRIMET
     name: TriMet (MAX Light Rail)
     region: Portland
+    timezone: America/Los_Angeles
     base_url: https://developer.trimet.org/ws/V1
+    mdb_feed_id: mdb-247
     auth:
       type: api_key
       param: appID
@@ -540,7 +570,9 @@ agencies:
   - agency_id: UTA
     name: Utah Transit Authority (TRAX)
     region: Salt Lake City
+    timezone: America/Denver
     base_url: https://apps.rideuta.com/tms/gtfs
+    mdb_feed_id: mdb-170
     auth:
       type: none
     feeds:
@@ -563,7 +595,9 @@ agencies:
   - agency_id: VALLEY_METRO
     name: Valley Metro Rail & Streetcar
     region: Phoenix
+    timezone: America/Phoenix
     base_url: https://mna.mecatran.com/utw/ws/gtfsfeed
+    mdb_feed_id: mdb-147
     auth:
       type: api_key
       param: apiKey
@@ -588,7 +622,9 @@ agencies:
   - agency_id: WMATA
     name: Washington Metropolitan Area Transit Authority
     region: Washington DC
+    timezone: America/New_York
     base_url: https://api.wmata.com/gtfs
+    mdb_feed_id: mdb-1847
     auth:
       type: api_key
       header: api_key
@@ -613,7 +649,9 @@ agencies:
   - agency_id: TRI_RAIL
     name: Tri-Rail (South Florida)
     region: South Florida
+    timezone: America/New_York
     base_url: https://gtfsr.tri-rail.com
+    mdb_feed_id: mdb-333
     auth:
       type: none
     feeds:
@@ -638,7 +676,9 @@ agencies:
   - agency_id: MARTA
     name: Metropolitan Atlanta Rapid Transit Authority
     region: Atlanta
+    timezone: America/New_York
     base_url: https://developerservices.itsmarta.com:18096/itsmarta
+    mdb_feed_id: mdb-368
     auth:
       type: api_key
       param: apiKey
@@ -653,7 +693,9 @@ agencies:
   - agency_id: METRO_HOUSTON
     name: Houston METRO (METRORail)
     region: Houston
+    timezone: America/Chicago
     base_url: https://api.ridemetro.org
+    mdb_feed_id: mdb-2060
     auth:
       type: api_key
       header: Ocp-Apim-Subscription-Key
@@ -673,7 +715,9 @@ agencies:
   - agency_id: LACMTA
     name: Los Angeles County Metropolitan Transportation Authority
     region: Los Angeles
+    timezone: America/Los_Angeles
     base_url: https://api.goswift.ly/real-time/lametro-rail
+    mdb_feed_id: mdb-96
     auth:
       type: api_key
       header: Authorization
