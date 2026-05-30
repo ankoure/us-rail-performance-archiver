@@ -4,7 +4,11 @@ Each Visit becomes two rows: one ARR at arrival_ts, one DEP at departure_ts.
 Rows are grouped by (route_id, direction_id, stop_id, local-service-date)
 and written to:
 
-    {base_dir}/events/feed={feed}/{route}-{dir}-{stop}/Year=YYYY/Month=M/Day=D/events.csv
+    {base_dir}/events/feed={feed}/daily-{mode}-data/{route}-{dir}-{stop}/Year=YYYY/Month=M/Day=D/events.csv
+
+where `mode` is one of 'rapid', 'bus', 'cr', or 'other', derived from each
+route's GTFS route_type. When no GTFS is supplied (so route_type is unknown),
+everything lands under 'daily-other-data'.
 
 Schema matches gobble's CSV_FIELDS exactly. Fields we can't fill from realtime
 alone (scheduled_headway, scheduled_tt) are emitted as empty cells. Existing
@@ -15,6 +19,7 @@ complete-day parquet, not the streaming-append model gobble uses.
 from __future__ import annotations
 
 import csv
+import dataclasses
 import datetime as dt
 from collections import defaultdict
 from pathlib import Path
@@ -57,6 +62,8 @@ def export_events_csv(
     event-time-of-day, matching gobble's semantics.
     """
     base = Path(base_dir)
+    trip_lookup = gtfs.trip_directions if gtfs is not None else {}
+    route_modes = gtfs.route_modes if gtfs is not None else {}
 
     # Bucket events by (route_id, direction_id, stop_id, local_service_date).
     # Skip visits without enough identity to group on.
@@ -64,9 +71,10 @@ def export_events_csv(
 
     for vehicle in day.vehicles:
         for visit in vehicle.dwells:
-            if not visit.route_id or visit.direction_id is None:
+            resolved = _backfill_visit(visit, trip_lookup)
+            if resolved is None:
                 continue
-            for event in _visit_to_events(visit, local_tz):
+            for event in _visit_to_events(resolved, local_tz):
                 key = (
                     event["route_id"],
                     event["direction_id"],
@@ -83,16 +91,18 @@ def export_events_csv(
             for ev in events:
                 by_date[ev["_service_date"]].append(ev)
         for sd, evs in by_date.items():
-            gtfs.enrich_events(evs, sd, local_tz)
+            gtfs.enrich_events(evs, sd)
 
     rows_written = 0
     files_written = 0
     for (route_id, direction_id, stop_id, service_date), events in buckets.items():
         events.sort(key=lambda e: e["event_time"])
+        mode = route_modes.get(route_id, "other")
         path = (
             base
             / "events"
             / f"feed={day.feed}"
+            / f"daily-{mode}-data"
             / f"{route_id}-{direction_id}-{stop_id}"
             / f"Year={service_date.year}"
             / f"Month={service_date.month}"
@@ -109,6 +119,37 @@ def export_events_csv(
         files_written += 1
 
     return rows_written, files_written
+
+
+def _backfill_visit(
+    visit: Visit,
+    trip_lookup: dict[str, tuple[str | None, int | None]],
+) -> Visit | None:
+    """Fill in route_id / direction_id from GTFS static trips.txt when missing.
+
+    Many realtime feeds (NYCT subway, TriMet, MetroSTL, UTA, PRT, ...) publish
+    trip_id but omit direction_id from the realtime trip descriptor. The trip
+    descriptor in trips.txt is authoritative; we use it to recover the missing
+    fields so the visit can be bucketed by (route, dir, stop).
+
+    Returns the visit (possibly with replaced identity) or None if it still
+    lacks route_id or direction_id after backfill.
+    """
+    route_id = visit.route_id
+    direction_id = visit.direction_id
+    if (not route_id or direction_id is None) and visit.trip_id is not None:
+        lookup = trip_lookup.get(visit.trip_id)
+        if lookup is not None:
+            r, d = lookup
+            if not route_id:
+                route_id = r
+            if direction_id is None:
+                direction_id = d
+    if not route_id or direction_id is None:
+        return None
+    if route_id == visit.route_id and direction_id == visit.direction_id:
+        return visit
+    return dataclasses.replace(visit, route_id=route_id, direction_id=direction_id)
 
 
 def _visit_to_events(visit: Visit, local_tz: ZoneInfo) -> list[dict]:
