@@ -1,0 +1,38 @@
+name: datadog-sync
+
+# Pushes monitors/ and dashboards/ JSON to Datadog via its management API.
+# Unlike deploy.yml this needs no AWS/OIDC — it talks straight to Datadog.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "monitors/**"
+      - "dashboards/**"
+      - "scripts/sync_datadog.py"
+      - ".github/workflows/datadog.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: datadog-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Sync monitors and dashboards
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+          DD_SITE: ${{ vars.DD_SITE || 'datadoghq.com' }}
+          DD_NOTIFY_TARGET: ${{ vars.DD_NOTIFY_TARGET }}
+        run: python scripts/sync_datadog.py
