@@ -253,7 +253,9 @@ def explicit_dates(args: argparse.Namespace) -> list[dt.date]:
 _SOURCE_SUBDIR = {"vehicles": "vehicles", "trip-updates": "trip_updates"}
 
 
-def discover_dates(feed: str, curated_dir: Path, source: str = "vehicles") -> list[dt.date]:
+def discover_dates(
+    feed: str, curated_dir: Path, source: str = "vehicles"
+) -> list[dt.date]:
     """Every service_date that has a partition for `feed` under curated_dir.
 
     `source` selects which curated dataset to scan: 'vehicles' (default) or
@@ -287,9 +289,7 @@ def resolve_dates_for_feed(
 ) -> list[dt.date]:
     if not args.all_days:
         return base
-    return sorted(
-        set(base) | set(discover_dates(feed, args.curated_dir, args.source))
-    )
+    return sorted(set(base) | set(discover_dates(feed, args.curated_dir, args.source)))
 
 
 def main(argv: list[str] | None = None) -> int:
