@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 from zoneinfo import ZoneInfo
-from unittest.mock import PropertyMock, patch
 
 import pandas as pd
 import pytest
 
 from analysis.marta_day import (
-    DIRECTION_MAP,
     MartaArrival,
     MartaDay,
     MartaTrip,
@@ -46,7 +44,9 @@ def ping(
         "train_id": train_id,
         "station": station,
         "waiting_seconds": waiting_seconds,
-        "next_arr": next_arr if next_arr is not None else feed_timestamp + waiting_seconds,
+        "next_arr": next_arr
+        if next_arr is not None
+        else feed_timestamp + waiting_seconds,
         "line": line,
         "destination": destination,
         "direction": direction,
@@ -149,7 +149,14 @@ class TestTrips:
             ping(1000, "308", "MIDTOWN", 5, next_arr=1005, destination="Airport"),
             ping(1200, "308", "AIRPORT", 5, next_arr=1205, destination="Airport"),
             ping(1400, "308", "MIDTOWN", 5, next_arr=1405, destination="North Springs"),
-            ping(1600, "308", "NORTH_SPRINGS", 5, next_arr=1605, destination="North Springs"),
+            ping(
+                1600,
+                "308",
+                "NORTH_SPRINGS",
+                5,
+                next_arr=1605,
+                destination="North Springs",
+            ),
             ping(3000, "308", "MIDTOWN", 5, next_arr=3005, destination="Airport"),
         ]
         day = make_day(rows)
@@ -175,15 +182,25 @@ class TestDirectionMapping:
     @pytest.mark.parametrize("d,expected", [("N", 0), ("S", 1), ("E", 0), ("W", 1)])
     def test_maps_cardinal_to_int(self, d, expected):
         a = MartaArrival(
-            train_id="T", station="S", line="RED", destination="D",
-            direction=d, arrival_ts=0, last_waiting_seconds=0,
+            train_id="T",
+            station="S",
+            line="RED",
+            destination="D",
+            direction=d,
+            arrival_ts=0,
+            last_waiting_seconds=0,
         )
         assert a.direction_id == expected
 
     def test_unknown_direction_returns_none(self):
         a = MartaArrival(
-            train_id="T", station="S", line="RED", destination="D",
-            direction="?", arrival_ts=0, last_waiting_seconds=0,
+            train_id="T",
+            station="S",
+            line="RED",
+            destination="D",
+            direction="?",
+            arrival_ts=0,
+            last_waiting_seconds=0,
         )
         assert a.direction_id is None
 
@@ -210,7 +227,9 @@ class TestExportMartaEventsCsv:
         assert n_files == 0
 
     def test_uses_daily_rapid_data_layout(self, tmp_path):
-        rows = [ping(1100, "308", "AIRPORT", 5, next_arr=1105, line="GOLD", direction="S")]
+        rows = [
+            ping(1100, "308", "AIRPORT", 5, next_arr=1105, line="GOLD", direction="S")
+        ]
         day = make_day(rows)
         export_marta_events_csv(day, EASTERN, base_dir=tmp_path)
         # Path should be: events/feed=marta-traindata/daily-rapid-data/GOLD-1-AIRPORT/Year=.../Month=.../Day=.../events.csv

@@ -53,9 +53,7 @@ def build_alert_snapshot(feed: Feed, day: date, landing_dir: Path) -> dict:
             if not entity.HasField("alert"):
                 continue
             alert_id = entity.id
-            alert_dict = MessageToDict(
-                entity.alert, preserving_proto_field_name=True
-            )
+            alert_dict = MessageToDict(entity.alert, preserving_proto_field_name=True)
             existing = alerts.get(alert_id)
             if existing is None:
                 alerts[alert_id] = {

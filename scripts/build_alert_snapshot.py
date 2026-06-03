@@ -47,15 +47,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--start", type=dt.date.fromisoformat, help="Inclusive range start")
     p.add_argument("--end", type=dt.date.fromisoformat, help="Inclusive range end")
     p.add_argument(
-        "--config", type=Path, default=Path("config/feeds.yaml"),
+        "--config",
+        type=Path,
+        default=Path("config/feeds.yaml"),
         help="Path to feeds.yaml (default: ./config/feeds.yaml)",
     )
     p.add_argument(
-        "--landing-dir", type=Path, default=Path("archive"),
+        "--landing-dir",
+        type=Path,
+        default=Path("archive"),
         help="Where to read raw .bin files (default: ./archive)",
     )
     p.add_argument(
-        "--analysis-dir", type=Path, default=Path("analysis"),
+        "--analysis-dir",
+        type=Path,
+        default=Path("analysis"),
         help="Where to write snapshots/ under (default: ./analysis)",
     )
     args = p.parse_args(argv)
@@ -85,9 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(str(args.config))
     feeds = {f.name: f for f in build_feeds(config)}
     if args.feed not in feeds:
-        raise SystemExit(
-            f"Unknown feed: {args.feed!r}. Known: {sorted(feeds)}"
-        )
+        raise SystemExit(f"Unknown feed: {args.feed!r}. Known: {sorted(feeds)}")
     feed = feeds[args.feed]
 
     for d in resolve_dates(args):

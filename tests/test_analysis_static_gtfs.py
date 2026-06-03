@@ -299,13 +299,7 @@ class TestRouteModes:
     def test_mixed_modes_in_one_feed(self, tmp_path):
         # An agency like Metro Transit MN ships rail (light rail) + bus in the
         # same GTFS — route_modes must classify each route independently.
-        routes = (
-            "route_id,route_type\n"
-            "LRT_BLUE,0\n"
-            "BUS_5,3\n"
-            "CR_NORTHSTAR,2\n"
-            "FERRY_X,4\n"
-        )
+        routes = "route_id,route_type\nLRT_BLUE,0\nBUS_5,3\nCR_NORTHSTAR,2\nFERRY_X,4\n"
         gtfs = StaticGtfs(build_gtfs_zip(tmp_path, routes=routes))
         assert gtfs.route_modes == {
             "LRT_BLUE": "rapid",

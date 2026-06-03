@@ -33,13 +33,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--feed", default="marta-traindata", help="Feed name (default: marta-traindata)")
+    p.add_argument(
+        "--feed", default="marta-traindata", help="Feed name (default: marta-traindata)"
+    )
     p.add_argument(
         "--tz",
         default=DEFAULT_TZ,
         help=f"IANA timezone for local service date (default: {DEFAULT_TZ})",
     )
-    p.add_argument("--date", nargs="+", type=dt.date.fromisoformat, help="One or more YYYY-MM-DD dates")
+    p.add_argument(
+        "--date",
+        nargs="+",
+        type=dt.date.fromisoformat,
+        help="One or more YYYY-MM-DD dates",
+    )
     p.add_argument("--start", type=dt.date.fromisoformat, help="Inclusive range start")
     p.add_argument("--end", type=dt.date.fromisoformat, help="Inclusive range end")
     p.add_argument("--curated-dir", type=Path, default=Path("curated"))
@@ -58,7 +65,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     args = p.parse_args(argv)
     if not args.date and not (args.start and args.end):
-        p.error("provide --date YYYY-MM-DD [...] or --start YYYY-MM-DD --end YYYY-MM-DD")
+        p.error(
+            "provide --date YYYY-MM-DD [...] or --start YYYY-MM-DD --end YYYY-MM-DD"
+        )
     if (args.start and not args.end) or (args.end and not args.start):
         p.error("--start and --end must be given together")
     return args

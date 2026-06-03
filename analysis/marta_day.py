@@ -150,7 +150,10 @@ class MartaDay:
         # a while and reappeared."
         starts = [0]
         for i in range(1, len(next_arrs)):
-            if abs(int(next_arrs[i]) - int(next_arrs[i - 1])) > self.approach_split_gap_s:
+            if (
+                abs(int(next_arrs[i]) - int(next_arrs[i - 1]))
+                > self.approach_split_gap_s
+            ):
                 starts.append(i)
         ends = starts[1:] + [len(next_arrs)]
 
@@ -189,13 +192,17 @@ class MartaDay:
             trip_idx = 0
             for a in train_arrivals:
                 if a.destination != current_dest and current:
-                    trips.append(MartaTrip(train_id, trip_idx, current_dest, tuple(current)))
+                    trips.append(
+                        MartaTrip(train_id, trip_idx, current_dest, tuple(current))
+                    )
                     trip_idx += 1
                     current = []
                 current.append(a)
                 current_dest = a.destination
             if current:
-                trips.append(MartaTrip(train_id, trip_idx, current_dest, tuple(current)))
+                trips.append(
+                    MartaTrip(train_id, trip_idx, current_dest, tuple(current))
+                )
         return trips
 
 
@@ -252,7 +259,12 @@ def export_marta_events_csv(
                 "occupancy_status": "",
                 "occupancy_percentage": "",
             }
-            key = (event["route_id"], event["direction_id"], event["stop_id"], service_date)
+            key = (
+                event["route_id"],
+                event["direction_id"],
+                event["stop_id"],
+                service_date,
+            )
             buckets[key].append(event)
 
     rows_written = 0

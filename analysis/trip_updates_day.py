@@ -50,6 +50,7 @@ _TU_COLUMN_MAP = {
     "feed_timestamp": "feed_timestamp",
 }
 
+
 @dataclass(slots=True)
 class _StubVehicle:
     """Stand-in for [[Vehicle]] when visits come from trip_updates.
@@ -84,9 +85,7 @@ class TripUpdatesDay:
         self.merge_gap_seconds = merge_gap_seconds
 
     def __repr__(self) -> str:
-        return (
-            f"TripUpdatesDay(feed={self.feed!r}, date={self.date.isoformat()})"
-        )
+        return f"TripUpdatesDay(feed={self.feed!r}, date={self.date.isoformat()})"
 
     @property
     def partition_path(self) -> Path:
@@ -234,9 +233,9 @@ def _dedupe_latest_per_key(table: pa.Table) -> pa.Table:
     val_cols = [c for c in sorted_tbl.column_names if c not in _KEY_COLS]
     # use_threads=False is required: pyarrow 24's group_by with 'first' is an
     # ordered aggregator and refuses to run multi-threaded.
-    deduped = sorted_tbl.group_by(
-        list(_KEY_COLS), use_threads=False
-    ).aggregate([(c, "first") for c in val_cols])
+    deduped = sorted_tbl.group_by(list(_KEY_COLS), use_threads=False).aggregate(
+        [(c, "first") for c in val_cols]
+    )
     # 'first' aggregation suffixes value columns with '_first' — strip it back.
     new_names = [
         c if c in _KEY_COLS else c[: -len("_first")] for c in deduped.column_names
