@@ -1,6 +1,7 @@
 writer:
   landing_dir: ./archive
   curated_dir: ./curated
+  poll_state_dir: ./poll_state
 s3:
   enabled: true
   region: us-east-1
