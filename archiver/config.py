@@ -107,6 +107,7 @@ class WriterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     landing_dir: Path
     curated_dir: Path
+    poll_state_dir: Path = Path("./poll_state")
 
 
 class TelemetryConfig(BaseModel):

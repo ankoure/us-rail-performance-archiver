@@ -18,6 +18,7 @@ class _FakeResponse:
     status_code: int
     headers: dict[str, str] = field(default_factory=dict)
     content: bytes = b""
+    text: str = ""  # optional, for error responses that include text
 
 
 def create_trip_updates(count: int, feed: FeedMessage) -> FeedMessage:

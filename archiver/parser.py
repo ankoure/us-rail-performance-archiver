@@ -78,6 +78,8 @@ class JsonParser(Parser):
 
 
 def parse_response(http_response, parser: Parser, decoder: Decoder) -> FeedResponse:
+    # 304/dedup are NOT detected here: both need the prior PollState, which lives in
+    # archive_one. parse_response stays pure (bytes -> typed response).
     if http_response.status_code >= 400:
         return ErrorResponse(http_response)
     try:

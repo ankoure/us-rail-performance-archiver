@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from abc import ABC
+import hashlib
 from archiver.summary import summarize_feed
 from google.transit.gtfs_realtime_pb2 import FeedMessage
 from dataclasses import asdict
@@ -49,6 +50,9 @@ class FeedResponse(ArchivableEvent):
     def raw_payload(self) -> bytes:
         return self._http.content
 
+    def content_digest(self) -> str:
+        return hashlib.sha256(self._http.content).hexdigest()
+
     def _extra_metadata(self) -> dict:
         """Subclasses override to add extra fields. Default none
 
@@ -59,6 +63,7 @@ class FeedResponse(ArchivableEvent):
             "content_type": self.content_type,
             "status_code": self.status_code,
             "response_type": type(self).__name__,
+            "digest": self.content_digest(),
         }
 
 
@@ -103,6 +108,26 @@ class ErrorResponse(FeedResponse):
 
     def _extra_metadata(self) -> dict:
         return super()._extra_metadata() | {"error_body": self._http.text[:2000]}
+
+
+class DuplicateResponse(FeedResponse):
+    def raw_payload(self) -> None:
+        return None
+
+    def _extra_metadata(self) -> dict:
+        return super()._extra_metadata()
+
+
+class NotModifiedResponse(FeedResponse):
+    def __init__(self, http_response, prior_digest):
+        super().__init__(http_response)
+        self._prior_digest = prior_digest
+
+    def raw_payload(self) -> None:
+        return None
+
+    def _extra_metadata(self) -> dict:
+        return super()._extra_metadata() | {"digest": self._prior_digest}
 
 
 class UnknownResponse(FeedResponse):

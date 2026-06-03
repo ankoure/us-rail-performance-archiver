@@ -18,6 +18,7 @@ from archiver.config import (
 from archiver.decoder import Decoder
 from archiver.feed import Feed
 from archiver.parser import Parser
+from archiver.poll_state import PollStateStore
 from archiver.rollup import Rollup
 from archiver.shipper import Shipper
 from archiver.telemetry import NoOpTelemetry, Telemetry
@@ -100,7 +101,8 @@ def build_archiver(config: ArchiverConfig) -> FeedArchiver:
     feeds = build_feeds(config)
     writer = LocalWriter(str(config.writer.landing_dir))
     telemetry = build_telemetry(config.telemetry)
-    return FeedArchiver(feeds=feeds, writer=writer, telemetry=telemetry)
+    store = PollStateStore(str(config.writer.poll_state_dir))
+    return FeedArchiver(feeds=feeds, writer=writer, telemetry=telemetry, store=store)
 
 
 def build_rollup(config: ArchiverConfig) -> Rollup:
