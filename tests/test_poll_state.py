@@ -14,7 +14,7 @@ def test_state_survives_restart_with_unsafe_name(tmp_path):
         str(tmp_path / "poll_state")
     )  # "restart": fresh store, same dir
     assert store2.get(name) == state
-    assert list((tmp_path/"poll_state").glob("*.tmp")) == [] 
+    assert list((tmp_path / "poll_state").glob("*.tmp")) == []
 
 
 def test_unknown_feed_returns_null_object(tmp_path):
@@ -33,4 +33,3 @@ def test_in_memory_mode_works():
     store = PollStateStore()
     store.set(name, state)
     assert store.get(name) == state
-
