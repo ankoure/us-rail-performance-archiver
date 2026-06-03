@@ -15,11 +15,13 @@ Environment:
   DD_APP_KEY        (required)  Datadog *Application* key — the management API
                                 needs this in addition to the API key
   DD_SITE           (optional)  default "datadoghq.com" (e.g. "datadoghq.eu")
-  DD_NOTIFY_TARGET  (optional)  replaces the "@<your-notification-target>"
-                                placeholder in monitor messages, e.g.
-                                "@you@example.com". A leading "@" is added if
-                                missing. If unset, the placeholder is left as-is
-                                and a warning is printed.
+  DD_NOTIFY_TARGET  (required if any monitor still contains the
+                                "@<your-notification-target>" placeholder)
+                                replaces that placeholder in monitor messages,
+                                e.g. "@you@example.com". A leading "@" is added
+                                if missing. If a monitor still has the
+                                placeholder and this is unset, the sync fails
+                                rather than deploy a monitor that pages nobody.
 
 Usage:
   python scripts/sync_datadog.py [--dry-run] [--monitors-only] [--dashboards-only]
@@ -30,7 +32,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -61,17 +62,22 @@ def _api_request(method: str, path: str, body: dict | None = None) -> dict | lis
 
 
 def _apply_notify_target(monitor: dict, target: str | None) -> dict:
-    """Substitute the notify placeholder in a monitor's message."""
+    """Substitute the notify placeholder in a monitor's message.
+
+    Fails closed: a monitor that still contains the placeholder with no
+    DD_NOTIFY_TARGET set would deploy but page nobody — worse than not
+    deploying at all (an 18 h outage once went unalerted this way). So we
+    refuse to sync rather than ship a monitor that notifies no one.
+    """
     message = monitor.get("message", "")
     if NOTIFY_PLACEHOLDER not in message:
         return monitor
     if not target:
-        print(
-            f"  ! '{monitor['name']}' still contains {NOTIFY_PLACEHOLDER} "
-            "(DD_NOTIFY_TARGET unset) — it will not page anyone",
-            file=sys.stderr,
+        raise SystemExit(
+            f"  ✗ '{monitor['name']}' still contains {NOTIFY_PLACEHOLDER} and "
+            "DD_NOTIFY_TARGET is unset — it would page nobody. Set "
+            "DD_NOTIFY_TARGET (e.g. '@you@example.com') and re-run."
         )
-        return monitor
     monitor = dict(monitor)
     monitor["message"] = message.replace(NOTIFY_PLACEHOLDER, target)
     return monitor

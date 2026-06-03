@@ -41,6 +41,20 @@
     }
   },
   {
+    "name": "[rail-archiver] Poller heartbeat absent",
+    "type": "metric alert",
+    "query": "avg(last_5m):avg:poller.heartbeat{env:dev, service:rail-archiver} < 1",
+    "message": "The poller has emitted no `poller.heartbeat` in the last 5 minutes — the process is down or hung.\n\nUnlike `Feed went dark` (which is per-feed), this is the single unambiguous \"the archiver is not running\" alert. An 18h outage once went unnoticed because nothing watched for this.\n\nMost common causes:\n- Poller container crashed and is crash-looping (check `restart` count)\n- Poller hung mid-request (autoheal should have restarted it — check why it didn't)\n- datadog-agent down, so the heartbeat never reached Datadog\n\nInvestigate:\n```\ndocker compose ps\ndocker compose logs app --since 15m\n```\n\n@<your-notification-target>",
+    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "options": {
+      "notify_no_data": true,
+      "no_data_timeframe": 5,
+      "renotify_interval": 30,
+      "thresholds": { "critical": 1 },
+      "include_tags": true
+    }
+  },
+  {
     "name": "[rail-archiver] Poll error rate elevated",
     "type": "metric alert",
     "query": "avg(last_30m):( sum:feed.poll.duration.count{env:dev, service:rail-archiver, status:error}.as_count() / sum:feed.poll.duration.count{env:dev, service:rail-archiver}.as_count() ) * 100 > 5",

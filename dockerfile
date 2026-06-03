@@ -47,5 +47,12 @@ USER nonroot
 # Use `/app` as the working directory
 WORKDIR /app
 
+# Liveness: the poll loop refreshes poll_state/.heartbeat every tick. If it
+# hasn't been touched in the last 2 minutes the loop is hung or dead, so report
+# unhealthy and let an external supervisor (autoheal) restart the container.
+# start-period covers startup before the first tick writes the file.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD find /app/poll_state/.heartbeat -mmin -2 2>/dev/null | grep -q . || exit 1
+
 # Run the application by default
 CMD ["python", "main.py", "--frequency", "15"]

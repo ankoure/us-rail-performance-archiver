@@ -49,6 +49,12 @@ def main(args):
     archiver = build_archiver(config)
     scheduler = Scheduler(archiver.feeds, default_interval=args.frequency)
 
+    # Liveness signal: a metric for alerting (no data => process down/hung) and
+    # a local file the container HEALTHCHECK can stat for freshness. Refreshed
+    # every loop tick, after the sleep, so it reflects an actively-running loop.
+    heartbeat_path = config.writer.poll_state_dir / ".heartbeat"
+    heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+
     polls = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         dispatcher = Dispatcher(scheduler, archiver, ex, telemetry=archiver.telemetry)
@@ -58,6 +64,8 @@ def main(args):
 
             if due_at > now:
                 time.sleep(due_at - now)
+            archiver.telemetry.gauge("poller.heartbeat", 1)
+            heartbeat_path.touch()
             dispatcher.submit(feed)
             polls += 1
 
