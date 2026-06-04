@@ -14,6 +14,7 @@ from archiver.config import (
     NoAuthConfig,
     S3Config,
     TelemetryConfig,
+    WriterConfig,
 )
 from archiver.decoder import Decoder
 from archiver.feed import Feed
@@ -23,7 +24,7 @@ from archiver.rollup import Rollup
 from archiver.shipper import Shipper
 from archiver.telemetry import NoOpTelemetry, Telemetry
 from archiver.uploader import Uploader
-from archiver.writer import LocalWriter
+from archiver.writer import BaseWriter, BatchingWriter, LocalWriter
 
 
 def _read_env(name: str) -> str:
@@ -97,9 +98,21 @@ def build_telemetry(config: TelemetryConfig) -> Telemetry:
     return DatadogTelemetry(client, default_tags=default_tags)
 
 
+def build_writer(config: WriterConfig) -> BaseWriter:
+    match config.writer_type:
+        case "local":
+            return LocalWriter(config.landing_dir)
+        case "batch":
+            return BatchingWriter(
+                config.landing_dir, window_seconds=config.window_seconds
+            )
+        case other:
+            raise ValueError(f"Unsupported writer_type: {other}")
+
+
 def build_archiver(config: ArchiverConfig) -> FeedArchiver:
     feeds = build_feeds(config)
-    writer = LocalWriter(str(config.writer.landing_dir))
+    writer = build_writer(config.writer)
     telemetry = build_telemetry(config.telemetry)
     store = PollStateStore(str(config.writer.poll_state_dir))
     return FeedArchiver(feeds=feeds, writer=writer, telemetry=telemetry, store=store)

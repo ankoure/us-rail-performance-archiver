@@ -1,7 +1,9 @@
 writer:
+  writer_type: batch
   landing_dir: ./archive
   curated_dir: ./curated
   poll_state_dir: ./poll_state
+  window_seconds: 300 # 5 minute windows for batching writes; ignored by LocalWriter
 s3:
   enabled: true
   region: us-east-1

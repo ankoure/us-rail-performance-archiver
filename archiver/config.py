@@ -105,6 +105,8 @@ class AgencyConfig(BaseModel):
 
 class WriterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    writer_type: Literal["local", "batch"] = "local"
+    window_seconds: int = 300
     landing_dir: Path
     curated_dir: Path
     poll_state_dir: Path = Path("./poll_state")
