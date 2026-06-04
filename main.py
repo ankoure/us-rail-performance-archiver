@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 from archiver.dispatcher import Dispatcher
 from archiver.scheduler import Scheduler
@@ -57,11 +58,10 @@ def main(args):
     heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
 
     polls = 0
-    shutting_down = False
+    stop = threading.Event()
 
     def _stop(signum, frame):
-        nonlocal shutting_down
-        shutting_down = True
+        stop.set()
 
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
@@ -71,12 +71,12 @@ def main(args):
             dispatcher = Dispatcher(
                 scheduler, archiver, ex, telemetry=archiver.telemetry
             )
-            while not shutting_down and (args.polls is None or polls < args.polls):
+            while not stop.is_set() and (args.polls is None or polls < args.polls):
                 due_at, feed = scheduler.next_due()
                 now = time.monotonic()
 
                 if due_at > now:
-                    time.sleep(due_at - now)
+                    stop.wait(due_at - now)
                 archiver.telemetry.gauge("poller.heartbeat", 1)
                 heartbeat_path.touch()
                 dispatcher.submit(feed)
