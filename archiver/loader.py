@@ -12,10 +12,12 @@ from archiver.config import (
     BearerAuthConfig,
     BasicAuthConfig,
     NoAuthConfig,
+    RateLimitConfig,
     S3Config,
     TelemetryConfig,
     WriterConfig,
 )
+from archiver.rate_limit import NullRateLimiter, RateLimiter, TokenBucket
 from archiver.decoder import Decoder
 from archiver.feed import Feed
 from archiver.parser import Parser
@@ -39,27 +41,38 @@ def load_config(path: str) -> ArchiverConfig:
         return ArchiverConfig.model_validate(yaml.safe_load(f))
 
 
+def build_limiter(cfg: RateLimitConfig | None) -> RateLimiter:
+    if cfg is None:
+        return NullRateLimiter()
+    capacity = cfg.burst if cfg.burst is not None else cfg.requests
+    return TokenBucket(capacity=capacity, refill_rate=cfg.requests / cfg.per_seconds)
+
+
 def build_client(agency: AgencyConfig) -> APIClient:
     base_url = str(agency.base_url)
+    limiter = build_limiter(agency.rate_limit)
     match agency.auth:
         case NoAuthConfig():
-            return APIClient(base_url)
+            return APIClient(base_url, limiter=limiter)
         case APIKeyAuthConfig() as a:
             if a.header is not None:
                 return APIClient.with_api_key(
-                    base_url, key=_read_env(a.env), header=a.header
+                    base_url, key=_read_env(a.env), header=a.header, limiter=limiter
                 )
             else:
                 return APIClient.with_api_key_query(
-                    base_url, key=_read_env(a.env), param=a.param
+                    base_url, key=_read_env(a.env), param=a.param, limiter=limiter
                 )
         case BearerAuthConfig() as a:
-            return APIClient.with_bearer(base_url, token=_read_env(a.env))
+            return APIClient.with_bearer(
+                base_url, token=_read_env(a.env), limiter=limiter
+            )
         case BasicAuthConfig() as a:
             return APIClient.with_basic(
                 base_url,
                 username=_read_env(a.username_env),
                 password=_read_env(a.password_env),
+                limiter=limiter,
             )
 
 

@@ -87,3 +87,61 @@ def test_ties_broken_deterministically():
 
     assert feed_a is first
     assert feed_b is second
+
+
+def test_jitter_zero_is_exact_seed_and_reschedule():
+    # Default jitter=0 preserves the original deterministic behavior.
+    clock = FakeClock(start=1000.0)
+    feed = make_feed("a", interval=30)
+    sched = Scheduler([feed], default_interval=60, clock=clock)  # jitter defaults 0
+    due_at, _ = sched.next_due()
+    assert due_at == 1000.0  # seeded exactly at now
+    sched.mark_polled(feed)
+    assert sched.next_due()[0] == 1030.0  # exactly now + interval
+
+
+def test_jitter_seed_spreads_positively():
+    clock = FakeClock(start=1000.0)
+    feed = make_feed("a", interval=100)
+    # seed offset = interval * jitter * rng() = 100 * 0.1 * 0.5 = 5.0
+    sched = Scheduler(
+        [feed], default_interval=60, clock=clock, jitter=0.1, rng=lambda: 0.5
+    )
+    due_at, _ = sched.next_due()
+    assert due_at == 1005.0
+
+
+def test_jitter_reschedule_is_symmetric():
+    feed = make_feed("a", interval=100)
+    # rng=1.0 -> offset = interval*jitter*(2*1-1) = +10  -> 1000 + 100 + 10
+    s_hi = Scheduler(
+        [feed],
+        default_interval=60,
+        clock=FakeClock(1000.0),
+        jitter=0.1,
+        rng=lambda: 1.0,
+    )
+    s_hi.next_due()  # drain seed (at 1000 + 100*0.1*1.0 = 1010)
+    s_hi.mark_polled(feed)
+    assert s_hi.next_due()[0] == 1110.0
+
+    # rng=0.0 -> offset = interval*jitter*(2*0-1) = -10  -> 1000 + 100 - 10
+    s_lo = Scheduler(
+        [feed],
+        default_interval=60,
+        clock=FakeClock(1000.0),
+        jitter=0.1,
+        rng=lambda: 0.0,
+    )
+    s_lo.next_due()  # drain seed (at 1000 + 0)
+    s_lo.mark_polled(feed)
+    assert s_lo.next_due()[0] == 1090.0
+
+
+def test_interval_override_used_for_backoff():
+    clock = FakeClock(start=1000.0)
+    feed = make_feed("a", interval=30)
+    sched = Scheduler([feed], default_interval=60, clock=clock)  # jitter 0
+    sched.next_due()
+    sched.mark_polled(feed, interval=300)  # backoff override, ignores feed's 30
+    assert sched.next_due()[0] == 1300.0

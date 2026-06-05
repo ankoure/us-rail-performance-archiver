@@ -93,6 +93,11 @@ class FeedArchiver:
                     e,
                 )
             self.writer.write(feed.name, response)
+            # Returned so the loop can classify the outcome (success vs failure)
+            # for backoff/quarantine. On the outer-except path below, returns None
+            # implicitly => an archiver-side error, which the loop ignores for
+            # feed health (it doesn't reflect on the feed).
+            return response
         except Exception:
             self.telemetry.incr("poll.error", tags={"feed": feed.name})
             logger.exception("unexpected error polling %s", feed.name)

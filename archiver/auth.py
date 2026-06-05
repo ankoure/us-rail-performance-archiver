@@ -2,6 +2,8 @@ from typing import Optional, Generator
 
 import httpx
 
+from archiver.rate_limit import NullRateLimiter, RateLimiter
+
 
 class BearerAuth(httpx.Auth):
     def __init__(self, token: str):
@@ -50,9 +52,13 @@ class APIClient:
         base_url: str,
         auth: Optional[httpx.Auth] = None,
         timeout: int = 10,
+        limiter: RateLimiter | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        # Per-agency rate limiter (one client per agency). The poll loop consults
+        # it as a non-blocking admission gate; None => unlimited.
+        self.limiter = limiter or NullRateLimiter()
         self.client = httpx.AsyncClient(
             headers={"User-Agent": self.DEFAULT_USER_AGENT},
             auth=auth,

@@ -77,6 +77,13 @@ class FeedConfig(BaseModel):
     poll_interval_seconds: int | None = Field(default=None, gt=0)
 
 
+class RateLimitConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    requests: int  # e.g. 60
+    per_seconds: float  # e.g. 3600  -> refill_rate = requests/per_seconds
+    burst: int | None = None  # capacity; default to `requests` if omitted
+
+
 class AgencyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     agency_id: str
@@ -86,6 +93,7 @@ class AgencyConfig(BaseModel):
     base_url: HttpUrl
     auth: AuthConfig
     feeds: list[FeedConfig]
+    rate_limit: RateLimitConfig | None = None  # None => unlimited (NullRateLimiter)
     mdb_feed_id: str | None = None
 
     @field_validator("feeds")

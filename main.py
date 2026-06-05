@@ -1,7 +1,11 @@
 import asyncio
 import contextlib
+import functools
 
 from archiver.scheduler import Scheduler
+from archiver.health import FeedHealth, is_transient_failure
+from archiver.feed import Feed
+from archiver.logger import logger
 from dotenv import load_dotenv
 from archiver.loader import build_archiver, load_config
 import argparse
@@ -10,6 +14,10 @@ import time
 import signal
 
 load_dotenv()
+
+# Fraction of a feed's interval to jitter reschedules by (±), desyncing feeds
+# that share an origin and softening the startup burst.
+POLL_JITTER = 0.1
 
 
 def parse_args():
@@ -42,7 +50,11 @@ def parse_args():
 async def run(args):
     config = load_config("config/feeds.yaml")
     archiver = build_archiver(config)
-    scheduler = Scheduler(archiver.feeds, default_interval=args.frequency)
+    scheduler = Scheduler(
+        archiver.feeds, default_interval=args.frequency, jitter=POLL_JITTER
+    )
+    # Per-feed failure tracking → exponential backoff + dead-feed quarantine.
+    health = FeedHealth()
 
     # Liveness signal: a metric for alerting (no data => process down/hung) and
     # a local file the container HEALTHCHECK can stat for freshness. Refreshed
@@ -69,9 +81,26 @@ async def run(args):
         inflight: set[asyncio.Task] = set()
         sem = asyncio.Semaphore(args.workers)
 
-        def _on_done(task: asyncio.Task) -> None:
+        def _on_done(feed: Feed, task: asyncio.Task) -> None:
             inflight.discard(task)
             sem.release()
+            response = task.result()  # archive_one is self-protecting; never raises
+            if response is None:
+                return  # archiver-side error (already logged) — don't blame the feed
+            if is_transient_failure(response):
+                if health.record_failure(feed.name):
+                    archiver.telemetry.incr(
+                        "feed.quarantined", tags={"feed": feed.name}
+                    )
+                    logger.warning(
+                        "Feed %s quarantined after %d consecutive failures",
+                        feed.name,
+                        health.consecutive_failures(feed.name),
+                    )
+            else:
+                if health.is_quarantined(feed.name):
+                    logger.info("Feed %s recovered from quarantine", feed.name)
+                health.record_success(feed.name)
 
         # flush_due gating: windows are wall-clock-aligned, so every feed's window
         # closes on the same boundary -> one synchronized write burst. Flush only
@@ -96,16 +125,25 @@ async def run(args):
                 archiver.telemetry.gauge("poller.heartbeat", 1)
                 heartbeat_path.touch()
 
-                if sem.locked():  # no free slot → shed this cycle
+                # Next interval reflects the feed's health: normal, backed-off, or
+                # quarantined. Computed once and used for the reschedule on every
+                # path — a skip doesn't change health, so a quarantined feed that
+                # gets skipped stays quarantined.
+                base_interval = feed.poll_interval_seconds or args.frequency
+                interval = health.next_interval(feed.name, base_interval)
+
+                if sem.locked():  # concurrency gate: no free slot → shed this cycle
                     archiver.telemetry.incr("poll.skipped", tags={"feed": feed.name})
+                elif not feed.client.limiter.try_acquire():  # per-agency rate gate
+                    archiver.telemetry.incr(
+                        "poll.rate_limited", tags={"feed": feed.name}
+                    )
                 else:
-                    await (
-                        sem.acquire()
-                    )  # can't block: we just checked locked() is False
+                    await sem.acquire()  # can't block: we just checked locked()
                     task = asyncio.create_task(archiver.archive_one(feed))
                     inflight.add(task)
-                    task.add_done_callback(_on_done)
-                scheduler.mark_polled(feed)  # reschedule either way
+                    task.add_done_callback(functools.partial(_on_done, feed))
+                scheduler.mark_polled(feed, interval=interval)  # reschedule
 
                 # Wall-clock (NOT the monotonic `now` above): window keys are unix
                 # seconds. Flush only when crossing into a new window.
