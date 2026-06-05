@@ -1,39 +1,41 @@
-from typing import Optional
+from typing import Optional, Generator
 
-import requests
-from requests.auth import AuthBase, HTTPBasicAuth
-from urllib.parse import quote
+import httpx
 
 
-class BearerAuth(AuthBase):
+class BearerAuth(httpx.Auth):
     def __init__(self, token: str):
         self.token = token
 
-    def __call__(self, request):
+    def auth_flow(
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
         request.headers["Authorization"] = f"Bearer {self.token}"
-        return request
+        yield request
 
 
-class APIKeyAuth(AuthBase):
+class APIKeyAuth(httpx.Auth):
     def __init__(self, key: str, header: str = "X-API-Key"):
         self.key = key
         self.header = header
 
-    def __call__(self, request):
+    def auth_flow(
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
         request.headers[self.header] = self.key
-        return request
+        yield request
 
 
-class APIKeyQueryAuth(AuthBase):
+class APIKeyQueryAuth(httpx.Auth):
     def __init__(self, key: str, param: str):
         self.key = key
         self.param = param
 
-    def __call__(self, request):
-        sep = "&" if "?" in request.url else "?"
-        encoded_value = quote(self.key, safe="")
-        request.url = f"{request.url}{sep}{self.param}={encoded_value}"
-        return request
+    def auth_flow(
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
+        request.url = request.url.copy_merge_params({self.param: self.key})
+        yield request
 
 
 class APIClient:
@@ -46,43 +48,57 @@ class APIClient:
     def __init__(
         self,
         base_url: str,
-        auth: Optional[AuthBase] = None,
+        auth: Optional[httpx.Auth] = None,
         timeout: int = 10,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers["User-Agent"] = self.DEFAULT_USER_AGENT
-        self.session.auth = auth
+        self.client = httpx.AsyncClient(
+            headers={"User-Agent": self.DEFAULT_USER_AGENT},
+            auth=auth,
+        )
 
-    def set_auth(self, auth: AuthBase):
-        """Swap auth at runtime."""
-        self.session.auth = auth
+    def set_auth(self, auth: httpx.Auth):
+        self.client.auth = auth
 
-    def request(self, method: str, path: str, **kwargs):
+    async def request(self, method: str, path: str, **kwargs) -> httpx.Response:
         url = f"{self.base_url}/{path.lstrip('/')}"
         kwargs.setdefault("timeout", self.timeout)
-        response = self.session.request(method, url, **kwargs)
-        return response
+        return await self.client.request(method, url, **kwargs)
 
-    def get(self, path, **kwargs):
-        return self.request("GET", path, **kwargs)
+    async def get(self, path: str, **kwargs) -> httpx.Response:
+        return await self.request("GET", path, **kwargs)
 
-    def post(self, path, **kwargs):
-        return self.request("POST", path, **kwargs)
+    async def post(self, path: str, **kwargs) -> httpx.Response:
+        return await self.request("POST", path, **kwargs)
+
+    async def aclose(self):
+        await self.client.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.aclose()
 
     @classmethod
-    def with_basic(cls, base_url: str, username: str, password: str, **kwargs):
-        return cls(base_url, auth=HTTPBasicAuth(username, password), **kwargs)
+    def with_basic(
+        cls, base_url: str, username: str, password: str, **kwargs
+    ) -> "APIClient":
+        return cls(base_url, auth=httpx.BasicAuth(username, password), **kwargs)
 
     @classmethod
-    def with_bearer(cls, base_url: str, token: str, **kwargs):
+    def with_bearer(cls, base_url: str, token: str, **kwargs) -> "APIClient":
         return cls(base_url, auth=BearerAuth(token), **kwargs)
 
     @classmethod
-    def with_api_key(cls, base_url: str, key: str, header: str = "X-API-Key", **kwargs):
+    def with_api_key(
+        cls, base_url: str, key: str, header: str = "X-API-Key", **kwargs
+    ) -> "APIClient":
         return cls(base_url, auth=APIKeyAuth(key, header=header), **kwargs)
 
     @classmethod
-    def with_api_key_query(cls, base_url: str, key: str, param: str, **kwargs):
+    def with_api_key_query(
+        cls, base_url: str, key: str, param: str, **kwargs
+    ) -> "APIClient":
         return cls(base_url, auth=APIKeyQueryAuth(key, param=param), **kwargs)

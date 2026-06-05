@@ -8,6 +8,7 @@ dependencies = [
     "boto3>=1.43.9",
     "datadog>=0.52.1",
     "gtfs-realtime-bindings>=2.0.0",
+    "httpx>=0.28.1",
     "pyarrow>=24.0.0",
     "pydantic>=2.13.3",
     "python-dotenv>=1.2.2",
@@ -22,6 +23,7 @@ dev = [
     "nbformat>=5.10.4",
     "pandas>=3.0.3",
     "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.15.12",
 ]
 
@@ -29,3 +31,4 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "--strict-markers"
+asyncio_mode = "auto"

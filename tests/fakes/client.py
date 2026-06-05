@@ -6,7 +6,7 @@ class _FakeClient:
         self._response = response
         self.calls = []  # optional: record headers to assert later
 
-    def get(self, path, headers=None):
+    async def get(self, path, headers=None):
         self.calls.append(headers)
         return self._response  # same content every call -> same digest
 
@@ -20,7 +20,7 @@ class _ConditionalFakeClient:
         self.last_modified = last_modified
         self.calls = []  # optional: record headers to assert later
 
-    def get(self, path, headers=None):
+    async def get(self, path, headers=None):
         headers = headers or {}  # archive_one passes {} when empty
         self.calls.append(headers)
         if self.etag and headers.get("If-None-Match") == self.etag:
@@ -42,6 +42,6 @@ class _SequenceFakeClient:
         self._responses = list(responses)
         self.calls = []
 
-    def get(self, path, headers=None):
+    async def get(self, path, headers=None):
         self.calls.append(headers)
         return self._responses.pop(0)

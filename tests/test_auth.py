@@ -1,26 +1,26 @@
 from archiver.auth import APIClient, APIKeyQueryAuth
+import httpx
 import pytest
-from unittest.mock import Mock
+
+
+def _apply(auth, url: str) -> httpx.URL:
+    """Drive the httpx.Auth flow once and return the resulting request URL."""
+    request = httpx.Request("GET", url)
+    flow = auth.auth_flow(request)
+    modified = next(flow)
+    return modified.url
 
 
 def test_no_existing_query_string():
     auth = APIKeyQueryAuth(key="secret123", param="api_key")
-    mock_request = Mock()
-    mock_request.url = "https://api.example.com/data"
-
-    result = auth(mock_request)  # invoking __call__
-
-    assert result.url == "https://api.example.com/data?api_key=secret123"
+    url = _apply(auth, "https://api.example.com/data")
+    assert str(url) == "https://api.example.com/data?api_key=secret123"
 
 
 def test_existing_query_string_appends():
     auth = APIKeyQueryAuth(key="secret123", param="api_key")
-    mock_request = Mock()
-    mock_request.url = "https://api.example.com/data?f=json"
-
-    result = auth(mock_request)
-
-    assert result.url == "https://api.example.com/data?f=json&api_key=secret123"
+    url = _apply(auth, "https://api.example.com/data?f=json")
+    assert str(url) == "https://api.example.com/data?f=json&api_key=secret123"
 
 
 @pytest.mark.parametrize(
@@ -33,18 +33,12 @@ def test_existing_query_string_appends():
 )
 def test_special_characters_encoded(key, expected_encoded):
     auth = APIKeyQueryAuth(key=key, param="api_key")
-    mock_request = Mock()
-    mock_request.url = "https://api.example.com/data"
-
-    auth(mock_request)
-
-    assert (
-        mock_request.url == f"https://api.example.com/data?api_key={expected_encoded}"
-    )
+    url = _apply(auth, "https://api.example.com/data")
+    assert str(url) == f"https://api.example.com/data?api_key={expected_encoded}"
 
 
 def test_apiclient_sets_default_user_agent():
     client = APIClient("https://example.com")
-    ua = client.session.headers["User-Agent"]
+    ua = client.client.headers["User-Agent"]
     assert "us-rail-archiver" in ua
     assert "github.com" in ua

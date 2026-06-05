@@ -9,7 +9,9 @@ from archiver.writer import LocalWriter
 from tests.fakes.client import _ConditionalFakeClient, _FakeClient, _SequenceFakeClient
 
 
-def test_duplicate_poll_writes_no_bin(make_response, valid_protobuf_bytes, tmp_path):
+async def test_duplicate_poll_writes_no_bin(
+    make_response, valid_protobuf_bytes, tmp_path
+):
     feed = Feed(
         name="test-feed",
         path="/x",
@@ -20,8 +22,8 @@ def test_duplicate_poll_writes_no_bin(make_response, valid_protobuf_bytes, tmp_p
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
 
-    archiver.archive_one(feed)  # first poll  -> stores bytes
-    archiver.archive_one(feed)  # second poll -> identical -> DuplicateResponse
+    await archiver.archive_one(feed)  # first poll  -> stores bytes
+    await archiver.archive_one(feed)  # second poll -> identical -> DuplicateResponse
 
     bins = list(tmp_path.rglob("*.bin"))
     assert len(bins) == 1, "duplicate poll should not write a second .bin"
@@ -44,7 +46,7 @@ def test_duplicate_poll_writes_no_bin(make_response, valid_protobuf_bytes, tmp_p
         )
 
 
-def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
+async def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
     feed = Feed(
         name="test-feed",
         path="/x",
@@ -57,8 +59,8 @@ def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
     )
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
-    archiver.archive_one(feed)  # first poll  -> stores bytes
-    archiver.archive_one(feed)  # second poll -> doesn't
+    await archiver.archive_one(feed)  # first poll  -> stores bytes
+    await archiver.archive_one(feed)  # second poll -> doesn't
 
     bins = list(tmp_path.rglob("*.bin"))
     assert len(bins) == 1, "duplicate poll should not write a second .bin"
@@ -79,7 +81,7 @@ def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
         assert feed.client.calls[1]["If-None-Match"] == "v1"
 
 
-def test_archiver_respects_last_modified(valid_protobuf_bytes, tmp_path):
+async def test_archiver_respects_last_modified(valid_protobuf_bytes, tmp_path):
     feed = Feed(
         name="test-feed",
         path="/x",
@@ -92,8 +94,8 @@ def test_archiver_respects_last_modified(valid_protobuf_bytes, tmp_path):
     )
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
-    archiver.archive_one(feed)  # first poll  -> stores bytes
-    archiver.archive_one(feed)  # second poll -> doesn't
+    await archiver.archive_one(feed)  # first poll  -> stores bytes
+    await archiver.archive_one(feed)  # second poll -> doesn't
     bins = list(tmp_path.rglob("*.bin"))
     assert len(bins) == 1, "duplicate poll should not write a second .bin"
 
@@ -115,7 +117,7 @@ def test_archiver_respects_last_modified(valid_protobuf_bytes, tmp_path):
         )
 
 
-def test_transient_error_does_not_update_poll_state(
+async def test_transient_error_does_not_update_poll_state(
     make_response, valid_protobuf_bytes, tmp_path
 ):
     feed = Feed(
@@ -137,11 +139,11 @@ def test_transient_error_does_not_update_poll_state(
     )
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
-    archiver.archive_one(feed)  # first poll  -> stores bytes
-    archiver.archive_one(
+    await archiver.archive_one(feed)  # first poll  -> stores bytes
+    await archiver.archive_one(
         feed
     )  # second poll -> transient error, should not update state
-    archiver.archive_one(
+    await archiver.archive_one(
         feed
     )  # third poll -> identical to first, should be DuplicateResponse
 
