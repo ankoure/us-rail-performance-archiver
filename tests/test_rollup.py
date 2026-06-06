@@ -1,11 +1,15 @@
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
+import hashlib
+import io
+import json
 from typing import Iterator
 from archiver.feed import Feed
 import pyarrow.parquet as pq
 import pyarrow as pa
 from archiver.decoder import VehicleRow, StandardDecoder
 from archiver.rollup import _schema_for_spec, Rollup
+from archiver.writer import FrameWriter
 import pytest
 from archiver.decoder import Row, Decoder, TableSpec
 from archiver.parser import Parser
@@ -14,6 +18,82 @@ from archiver.parser import Parser
 class FakeParser(Parser):
     def parse(self, body: bytes):
         return b""  # FakeDecoder ignores its input, so this can be anything
+
+
+class EchoParser(Parser):
+    def parse(self, body: bytes) -> bytes:
+        return body  # identity: hand the raw frame payload straight to EchoDecoder
+
+
+@dataclass
+class EchoRow(Row):
+    payload: str
+    fetched_at: int | None
+
+
+class EchoDecoder(Decoder):
+    """One row per payload, echoing the bytes + the fetched_at it was given. Lets a
+    test prove per-frame parsing AND that fetched_at is the joined/fallback value."""
+
+    produces = {EchoRow: TableSpec("echoes")}
+
+    def decode(self, raw: bytes, *, fetched_at: int | None = None) -> Iterator[Row]:
+        yield EchoRow(payload=raw.decode(), fetched_at=fetched_at)
+
+
+def _framed_bytes(payloads: list[bytes]) -> bytes:
+    """Encode payloads as one BatchingWriter-style framed object (header + frames)."""
+    buf = io.BytesIO()
+    writer = FrameWriter(buf)
+    for payload in payloads:
+        writer.write_frame(payload, hashlib.sha256(payload).digest())
+    return buf.getvalue()
+
+
+def _write_framed_window(
+    landing_dir, feed_name: str, day: date, window_start: int, payloads: list[bytes]
+):
+    path = (
+        landing_dir
+        / feed_name
+        / "raw"
+        / f"year={day.year}"
+        / f"month={day.month}"
+        / f"day={day.day}"
+        / f"window={window_start}.bin"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_framed_bytes(payloads))
+    return path
+
+
+def _write_metadata(landing_dir, feed_name: str, day: date, rows: list[dict]):
+    path = (
+        landing_dir
+        / feed_name
+        / "metadata"
+        / f"year={day.year}"
+        / f"month={day.month}"
+        / f"day={day.day}"
+        / "data.jsonl"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+    return path
+
+
+def _echo_feed() -> Feed:
+    return Feed(
+        name="echo-feed",
+        path="/whatever",
+        client=None,
+        parser=EchoParser(),
+        decoder=EchoDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
+    )
 
 
 @dataclass
@@ -227,6 +307,151 @@ def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
 
     assert metadata_calls == [1]
     assert data_calls == [1]
+
+
+def test_framed_window_rolls_up_with_joined_fetched_at(tmp_path):
+    """A framed window yields one payload per frame, and each frame's fetched_at is
+    recovered by joining its content digest to the metadata jsonl's timestamp."""
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    day = date(2026, 5, 1)
+    payloads = [b"alpha", b"bravo"]
+
+    _write_framed_window(
+        landing_dir, "echo-feed", day, window_start=900, payloads=payloads
+    )
+    _write_metadata(
+        landing_dir,
+        "echo-feed",
+        day,
+        rows=[
+            {
+                "timestamp": 1000,
+                "status_code": 200,
+                "digest": hashlib.sha256(b"alpha").hexdigest(),
+            },
+            {
+                "timestamp": 2000,
+                "status_code": 200,
+                "digest": hashlib.sha256(b"bravo").hexdigest(),
+            },
+        ],
+    )
+
+    rollup = Rollup(
+        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=curated_dir
+    )
+    rollup.rollup_one("echo-feed", day, force=True)
+
+    out = (
+        curated_dir
+        / "echoes"
+        / "feed=echo-feed"
+        / "year=2026"
+        / "month=5"
+        / "day=1"
+        / "data.parquet"
+    )
+    table = pq.ParquetFile(out).read()
+    got = sorted(
+        zip(table.column("payload").to_pylist(), table.column("fetched_at").to_pylist())
+    )
+    # Both frames parsed individually, each carrying its own joined per-poll timestamp.
+    assert got == [("alpha", 1000), ("bravo", 2000)]
+
+
+def test_framed_window_unknown_digest_falls_back_to_window_start(tmp_path):
+    """A frame whose digest is absent from the metadata index falls back to the
+    window-start unix in the filename rather than crashing or dropping the row."""
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    day = date(2026, 5, 1)
+
+    _write_framed_window(
+        landing_dir, "echo-feed", day, window_start=900, payloads=[b"orphan"]
+    )
+    # Index exists but holds an unrelated digest, so the orphan frame can't be joined.
+    _write_metadata(
+        landing_dir,
+        "echo-feed",
+        day,
+        rows=[
+            {
+                "timestamp": 1000,
+                "status_code": 304,
+                "digest": hashlib.sha256(b"other").hexdigest(),
+            }
+        ],
+    )
+
+    rollup = Rollup(
+        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=curated_dir
+    )
+    rollup.rollup_one("echo-feed", day, force=True)
+
+    out = (
+        curated_dir
+        / "echoes"
+        / "feed=echo-feed"
+        / "year=2026"
+        / "month=5"
+        / "day=1"
+        / "data.parquet"
+    )
+    table = pq.ParquetFile(out).read()
+    assert table.column("payload").to_pylist() == ["orphan"]
+    assert table.column("fetched_at").to_pylist() == [900]  # window-start fallback
+
+
+def test_truncated_framed_window_keeps_complete_frames(tmp_path):
+    """Truncation mid-window is tolerated: complete frames roll up, the rest is
+    dropped, and the day does not crash (the FrameError/EOFError policy)."""
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    day = date(2026, 5, 1)
+
+    full = _framed_bytes([b"alpha", b"bravo"])
+    truncated = full[:-3]  # lop off the tail of the second frame's payload
+    raw_path = (
+        landing_dir
+        / "echo-feed"
+        / "raw"
+        / "year=2026"
+        / "month=5"
+        / "day=1"
+        / "window=900.bin"
+    )
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(truncated)
+    _write_metadata(
+        landing_dir,
+        "echo-feed",
+        day,
+        rows=[
+            {
+                "timestamp": 1000,
+                "status_code": 200,
+                "digest": hashlib.sha256(b"alpha").hexdigest(),
+            }
+        ],
+    )
+
+    rollup = Rollup(
+        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=curated_dir
+    )
+    rollup.rollup_one("echo-feed", day, force=True)  # must not raise
+
+    out = (
+        curated_dir
+        / "echoes"
+        / "feed=echo-feed"
+        / "year=2026"
+        / "month=5"
+        / "day=1"
+        / "data.parquet"
+    )
+    table = pq.ParquetFile(out).read()
+    assert table.column("payload").to_pylist() == ["alpha"]  # only the intact frame
 
 
 def test_second_run_does_not_redo_work(tmp_path):

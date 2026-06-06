@@ -1,5 +1,6 @@
 from contextlib import ExitStack, contextmanager
 import dataclasses
+import json
 import typing
 from dataclasses import asdict
 from pathlib import Path
@@ -13,6 +14,7 @@ from archiver.feed import Feed
 from archiver.parser import ParseFailure
 from archiver.logger import logger
 from archiver.telemetry import Telemetry, NoOpTelemetry
+from archiver.writer import FrameError, FrameReader
 
 _PY_TO_ARROW = {
     int: pa.int64(),
@@ -154,28 +156,160 @@ class Rollup:
             bin_files = (self.landing_dir / feed_name / "raw").glob(
                 f"year={day.year}/month={day.month}/day={day.day}/*.bin"
             )
-
+            digest_ts = self._digest_timestamps(
+                feed_name, day
+            )  # once, before the file loop
             count = 0
             for bin_file in bin_files:
                 count += 1
-                fetched_at = int(float(bin_file.stem))
                 try:
-                    parsed = feed.parser.parse(bin_file.read_bytes())
-                    rows = feed.decoder.decode(parsed, fetched_at=fetched_at)
+                    for payload, fetched_at in self._iter_payloads(bin_file, digest_ts):
+                        parsed = feed.parser.parse(payload)
+                        rows = feed.decoder.decode(parsed, fetched_at=fetched_at)
+                        for row in rows:
+                            if type(row) not in feed.decoder.produces:
+                                logger.warning(
+                                    "unexpected row type: %s", type(row).__name__
+                                )
+                                continue
+                            append = writers.get(type(row))
+                            if append is None:
+                                continue  # known type, but its output already exists
+                            append(asdict(row))
+
                 except (ParseFailure, DecodeFailure):
                     logger.warning("skipping malformed .bin: %s", bin_file)
                     continue
 
-                for row in rows:
-                    if type(row) not in feed.decoder.produces:
-                        logger.warning("unexpected row type: %s", type(row).__name__)
-                        continue
-                    append = writers.get(type(row))
-                    if append is None:
-                        continue  # known type, but its output already exists
-                    append(asdict(row))
             if count == 0:
                 logger.warning("no .bin files for %s/%s", feed_name, day)
+
+    def _digest_timestamps(self, feed_name: str, day: date) -> dict[str, int]:
+        """Map each stored payload's content digest -> its earliest poll timestamp.
+
+        Built from the day's metadata jsonl (the index): every poll writes a row with
+        `timestamp` and `digest`, *including* dedup'd / 304 polls that stored no frame.
+        A framed window object only holds DISTINCT payloads, so each frame's digest
+        joins here to recover the true per-poll `fetched_at` that the `window=<unix>`
+        filename can't carry. If a digest appears on several rows (rare intra-window
+        content flap A->B->A collapses to one frame but leaves two rows), keep the
+        EARLIEST timestamp.
+
+        Returns {} if the day's metadata file is absent (e.g. a raw-only partition).
+        """
+        metadata_path = (
+            self.landing_dir
+            / feed_name
+            / "metadata"
+            / f"year={day.year}"
+            / f"month={day.month}"
+            / f"day={day.day}"
+            / "data.jsonl"
+        )
+
+        if not metadata_path.exists():
+            return {}
+
+        digest_timestamps: dict[str, int] = {}
+
+        with metadata_path.open("r", encoding="utf-8") as fh:
+            for lineno, raw in enumerate(fh, 1):
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    logger.warning(
+                        "Skipping malformed metadata row %s:%d: %s",
+                        metadata_path,
+                        lineno,
+                        exc,
+                    )
+                    continue
+
+                digest = row.get("digest")
+                raw_ts = row.get("timestamp")
+
+                if digest is None or raw_ts is None:
+                    logger.warning(
+                        "Metadata row missing 'digest' or 'timestamp' field at %s:%d: %r",
+                        metadata_path,
+                        lineno,
+                        row,
+                    )
+                    continue
+
+                # Match legacy `int(float(stem))` coercion used when timestamps
+                # were embedded in window filenames, so Phase C golden parquet parity holds.
+                ts = int(float(raw_ts))
+
+                if digest not in digest_timestamps or ts < digest_timestamps[digest]:
+                    digest_timestamps[digest] = ts
+
+        return digest_timestamps
+
+    def _iter_payloads(
+        self, bin_file: Path, digest_ts: dict[str, int]
+    ) -> Iterator[tuple[bytes, int]]:
+        """Yield (payload_bytes, fetched_at) for one raw .bin file, format-agnostic.
+
+        Two on-disk shapes coexist (the cutover day has both):
+          * legacy LocalWriter  -> filename stem IS the wall-clock ts; the whole file
+            is ONE payload.
+          * BatchingWriter      -> filename `window=<unix>`; the file is `\\x89GRT` +
+            N framed payloads. `FrameReader` yields (payload, raw-digest-bytes); the
+            metadata digest is a hex string, so `.hex()` the frame digest to join into
+            `digest_ts`. Fallback when a digest is missing: the window-start unix in
+            the stem (coarse, but never crashes).
+
+        Keeping this the single source of "how to get payloads out of a file" lets the
+        parse -> decode -> append loop in _rollup_data stay format-agnostic.
+        """
+        stem = bin_file.stem
+
+        if stem.startswith("window="):
+            # --- BatchingWriter framed file ---
+            # Stem is "window=<unix>"; parse the fallback timestamp from it.
+            try:
+                window_start = int(stem.split("=", 1)[1])
+            except (IndexError, ValueError) as exc:
+                raise ValueError(
+                    f"Cannot parse window timestamp from filename {bin_file.name!r}"
+                ) from exc
+
+            try:
+                fh = bin_file.open("rb")
+            except OSError as exc:
+                raise OSError(f"Failed to open framed bin file {bin_file}") from exc
+
+            with fh:
+                try:
+                    reader = FrameReader(fh)
+                    for payload, raw_digest in reader:
+                        fetched_at = digest_ts.get(raw_digest.hex(), window_start)
+                        yield payload, fetched_at
+                except (FrameError, EOFError) as exc:
+                    logger.warning(
+                        "Truncated or corrupt frame in %s (window_start=%d); skipping remainder: %s",
+                        bin_file,
+                        window_start,
+                        exc,
+                    )
+                    # generator just stops yielding for this file
+
+        else:
+            # --- Legacy LocalWriter file ---
+            # The entire file is one payload; the stem IS the wall-clock timestamp.
+            try:
+                fetched_at = int(float(stem))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Cannot parse legacy timestamp from filename {bin_file.name!r}"
+                ) from exc
+
+            yield bin_file.read_bytes(), fetched_at
 
     def _expected_outputs(self, feed: Feed, day: date) -> dict[str, Path]:
         shape = {
