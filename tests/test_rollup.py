@@ -454,6 +454,33 @@ def test_truncated_framed_window_keeps_complete_frames(tmp_path):
     assert table.column("payload").to_pylist() == ["alpha"]  # only the intact frame
 
 
+def test_digest_timestamps_skips_digestless_rows_silently(tmp_path, caplog):
+    """Transport-error rows carry a timestamp but no digest (nothing was stored). They
+    must be dropped from the join map silently — not warned about (a feed outage would
+    otherwise spam WARNING) and not crash the build."""
+    import logging
+
+    landing_dir = tmp_path / "landing"
+    day = date(2026, 5, 1)
+    _write_metadata(
+        landing_dir,
+        "echo-feed",
+        day,
+        rows=[
+            {"timestamp": 1000, "status_code": 200, "digest": "abc"},
+            {"timestamp": 1001, "error_type": "ConnectionError", "error_message": "boom"},  # no digest
+            {"timestamp": 1002, "status_code": 304, "digest": "def"},
+        ],
+    )
+    rollup = Rollup(feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=tmp_path / "curated")
+
+    with caplog.at_level(logging.WARNING):
+        got = rollup._digest_timestamps("echo-feed", day)
+
+    assert got == {"abc": 1000, "def": 1002}  # digest-less row dropped, others kept
+    assert "missing" not in caplog.text.lower()  # no spurious warning emitted
+
+
 def test_second_run_does_not_redo_work(tmp_path):
     landing_dir = tmp_path / "landing"
     curated_dir = tmp_path / "curated"

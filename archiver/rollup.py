@@ -232,13 +232,11 @@ class Rollup:
                 digest = row.get("digest")
                 raw_ts = row.get("timestamp")
 
+                # A digest-less row is expected, not malformed: transport-error and
+                # other non-payload rows carry no digest (nothing was stored), so they
+                # are simply not join candidates. Skip silently — warning here turned a
+                # routine feed outage (e.g. a DNS blip) into WARNING-level log spam.
                 if digest is None or raw_ts is None:
-                    logger.warning(
-                        "Metadata row missing 'digest' or 'timestamp' field at %s:%d: %r",
-                        metadata_path,
-                        lineno,
-                        row,
-                    )
                     continue
 
                 # Match legacy `int(float(stem))` coercion used when timestamps

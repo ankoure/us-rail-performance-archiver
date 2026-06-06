@@ -26,6 +26,11 @@ services:
     build: .
     restart: unless-stopped
     user: "1000:1000"
+    # The image HEALTHCHECK probes poll_state/.heartbeat (the poller's liveness file),
+    # which this rollup+ship loop never writes, so it would be perpetually "unhealthy".
+    # Disable the inherited check rather than report a misleading status.
+    healthcheck:
+      disable: true
     environment:
     - PYTHONUNBUFFERED=1
     - ROLLUP_WORKERS=${ROLLUP_WORKERS:-4}

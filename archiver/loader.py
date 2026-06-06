@@ -157,9 +157,18 @@ def build_uploader(config: S3Config) -> Uploader:
 
     # Lazy import — boto3 only loaded if actually enabled
     import boto3
+    from botocore.config import Config
     from archiver.uploader import S3Uploader
 
-    client = boto3.client("s3", region_name=config.region)
+    # Shipper.run fans uploads across a ThreadPoolExecutor (default 8 workers) that
+    # share this one client; the default urllib3 pool of 10 then thrashes ("Connection
+    # pool is full, discarding connection"). Size the pool comfortably above the ship
+    # worker count (plus headroom for multipart) so connections are reused, not dropped.
+    client = boto3.client(
+        "s3",
+        region_name=config.region,
+        config=Config(max_pool_connections=25),
+    )
     return S3Uploader(client)
 
 
