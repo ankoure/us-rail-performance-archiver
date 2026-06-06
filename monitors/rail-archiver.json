@@ -2,9 +2,9 @@
   {
     "name": "[rail-archiver] Feed went dark",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:feed.poll.duration.count{env:dev, service:rail-archiver, interval_class:fast} by {feed}.as_count() < 1",
+    "query": "sum(last_15m):sum:feed.poll.duration.count{env:prod, service:rail-archiver, interval_class:fast} by {feed}.as_count() < 1",
     "message": "Feed `{{feed.name}}` (normal cadence) has not polled in the last 15+ minutes. Slow feeds (interval_class:slow, e.g. Bay Area 511) are covered separately by `Slow feed went dark`.\n\nMost common causes:\n- Upstream URL changed (check agency dev portal)\n- API key expired (check `.env`)\n- DNS / network issue\n\nInvestigate:\n```\ndocker compose logs app --since 30m | grep {{feed.name}}\n```\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": true,
       "no_data_timeframe": 30,
@@ -17,9 +17,9 @@
   {
     "name": "[rail-archiver] Batch step errored in last 24h",
     "type": "metric alert",
-    "query": "sum(last_1d):sum:rollup.day.duration.count{env:dev, service:rail-archiver, status:error}.as_count() + sum:ship.cold.duration.count{env:dev, service:rail-archiver, status:error}.as_count() + sum:ship.hot.duration.count{env:dev, service:rail-archiver, status:error}.as_count() > 0",
+    "query": "sum(last_1d):sum:rollup.day.duration.count{env:prod, service:rail-archiver, status:error}.as_count() + sum:ship.cold.duration.count{env:prod, service:rail-archiver, status:error}.as_count() + sum:ship.hot.duration.count{env:prod, service:rail-archiver, status:error}.as_count() > 0",
     "message": "One or more batch operations (rollup or ship) failed in the last 24h.\n\nTotal errors across rollup.day + ship.cold + ship.hot: {{value}}\n\nInvestigate:\n```\ndocker compose logs batch --since 24h | grep -i 'error\\|traceback'\n```\n\nThis is a once-a-day batch — a single failure can lose a day's worth of S3 uploads if not retried.\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:batch"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:batch"],
     "options": {
       "notify_no_data": false,
       "renotify_interval": 0,
@@ -30,9 +30,9 @@
   {
     "name": "[rail-archiver] Schema drift detected",
     "type": "metric alert",
-    "query": "sum(last_1h):sum:decoder.schema_drift{env:dev, service:rail-archiver} by {feed}.as_count() > 0",
+    "query": "sum(last_1h):sum:decoder.schema_drift{env:prod, service:rail-archiver} by {feed}.as_count() > 0",
     "message": "Decoder schema drift detected on feed `{{feed.name}}` — the incoming payload is missing required keys, so its records are being dropped from the rollup.\n\nMost common causes:\n- Upstream agency renamed or removed a JSON key\n- The decoder's `required_input_keys` is out of date relative to the live API\n\nInvestigate:\n```\ngrep drift_missing_required archive/{{feed.name}}/metadata/year=*/month=*/day=*/data.jsonl | tail\n```\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:decode"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:decode"],
     "options": {
       "notify_no_data": false,
       "renotify_interval": 60,
@@ -43,9 +43,9 @@
   {
     "name": "[rail-archiver] Poller heartbeat absent",
     "type": "metric alert",
-    "query": "avg(last_5m):avg:poller.heartbeat{env:dev, service:rail-archiver} < 1",
+    "query": "avg(last_5m):avg:poller.heartbeat{env:prod, service:rail-archiver} < 1",
     "message": "The poller has emitted no `poller.heartbeat` in the last 5 minutes — the process is down or hung.\n\nUnlike `Feed went dark` (which is per-feed), this is the single unambiguous \"the archiver is not running\" alert. An 18h outage once went unnoticed because nothing watched for this.\n\nMost common causes:\n- Poller container crashed and is crash-looping (check `restart` count)\n- Poller hung mid-request (autoheal should have restarted it — check why it didn't)\n- datadog-agent down, so the heartbeat never reached Datadog\n\nInvestigate:\n```\ndocker compose ps\ndocker compose logs app --since 15m\n```\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": true,
       "no_data_timeframe": 5,
@@ -57,9 +57,9 @@
   {
     "name": "[rail-archiver] Poll error rate elevated",
     "type": "metric alert",
-    "query": "avg(last_30m):( sum:feed.poll.duration.count{env:dev, service:rail-archiver, status:error}.as_count() / sum:feed.poll.duration.count{env:dev, service:rail-archiver}.as_count() ) * 100 > 5",
+    "query": "avg(last_30m):( sum:feed.poll.duration.count{env:prod, service:rail-archiver, status:error}.as_count() / sum:feed.poll.duration.count{env:prod, service:rail-archiver}.as_count() ) * 100 > 5",
     "message": "Poll error rate is {{value}}% across all feeds over the last 30 minutes.\n\nIf only one feed is failing, you'll also see a `Feed went dark` alert. If this fires alone, suspect a systemic issue:\n- Outbound network from the container\n- DNS resolver\n- Auth refresh logic\n- Or a transient where many agencies' feeds are down at once (not unusual on weekends)\n\nDrill in:\n- Dashboard \"Rail Archiver — Pipeline Health\" → row 2 → \"Poll errors by feed and error_type\"\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": false,
       "renotify_interval": 120,
@@ -71,9 +71,9 @@
   {
     "name": "[rail-archiver] Feed quarantined (dead feed)",
     "type": "metric alert",
-    "query": "sum(last_1h):sum:feed.quarantined{env:dev, service:rail-archiver} by {feed}.as_count() > 0",
+    "query": "sum(last_1h):sum:feed.quarantined{env:prod, service:rail-archiver} by {feed}.as_count() > 0",
     "message": "Feed `{{feed.name}}` has been QUARANTINED after repeated consecutive failures — the poller gave up on its normal cadence and dropped it to a long fallback interval (~1h), so it is effectively producing no fresh data until it recovers.\n\nUnlike a transient blip, quarantine means the feed failed K times in a row. Most common causes:\n- Upstream URL changed or the endpoint was retired (check the agency dev portal)\n- API key expired or revoked (check `.env`)\n- Agency is down for an extended window\n\nInvestigate:\n```\ndocker compose logs app --since 2h | grep -i 'quarantined\\|{{feed.name}}'\ntail archive/{{feed.name}}/metadata/year=*/month=*/day=*/data.jsonl\n```\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": false,
       "renotify_interval": 60,
@@ -84,9 +84,9 @@
   {
     "name": "[rail-archiver] Archiver internal error",
     "type": "metric alert",
-    "query": "sum(last_30m):sum:poll.error{env:dev, service:rail-archiver} by {feed}.as_count() > 0",
+    "query": "sum(last_30m):sum:poll.error{env:prod, service:rail-archiver} by {feed}.as_count() > 0",
     "message": "An UNEXPECTED exception fired inside `archive_one` for feed `{{feed.name}}` ({{value}} in 30m).\n\nThis is NOT a transport/HTTP failure — those are caught and recorded as TransportErrorResponse and surface via `Feed went dark` / `Poll error rate`. A `poll.error` means something archiver-side broke: a parsing/writing bug, or a local-disk / write-path failure (disk full, permissions). The self-protecting `_on_done` keeps the loop alive, but this poll's data may have been lost.\n\nInvestigate:\n```\ndocker compose logs app --since 30m | grep -A20 'unexpected error polling'\ndf -h   # rule out a full disk on the write path\n```\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": false,
       "renotify_interval": 60,
@@ -97,9 +97,9 @@
   {
     "name": "[rail-archiver] Slow feed went dark",
     "type": "metric alert",
-    "query": "sum(last_90m):sum:feed.poll.duration.count{env:dev, service:rail-archiver, interval_class:slow} by {feed}.as_count() < 1",
+    "query": "sum(last_90m):sum:feed.poll.duration.count{env:prod, service:rail-archiver, interval_class:slow} by {feed}.as_count() < 1",
     "message": "Slow-cadence feed `{{feed.name}}` has not polled in the last 90 minutes. These feeds (interval_class:slow) poll every ~17-30 min by design — often because they share a rate-limited key (e.g. Bay Area 511 at 60 req/hr) — so they get a longer dark window than normal feeds. 90 min with zero polls means it is genuinely stuck, not just slow.\n\nMost common causes:\n- Upstream URL changed or endpoint retired\n- Shared API key expired/revoked (one bad key darkens the whole agency)\n- The agency's rate budget is so saturated the feed never wins a token (check `poll.rate_limited` on the dashboard)\n\nInvestigate:\n```\ndocker compose logs app --since 2h | grep {{feed.name}}\n```\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": true,
       "no_data_timeframe": 120,
@@ -112,9 +112,9 @@
   {
     "name": "[rail-archiver] Ingest saturated (polls being shed)",
     "type": "metric alert",
-    "query": "sum(last_15m):sum:poll.skipped{env:dev, service:rail-archiver}.as_count() > 100",
+    "query": "sum(last_15m):sum:poll.skipped{env:prod, service:rail-archiver}.as_count() > 100",
     "message": "The poll loop shed {{value}} polls to the concurrency gate (`poll.skipped`) in the last 15 min — every worker slot was busy, so feeds were skipped rather than queued.\n\nWith the startup herd fixed (seed spread), steady-state poll.skipped should be ~0. Sustained shedding means the box can't keep up: polls are taking longer than expected, or there are simply too many feeds for the worker pool.\n\nNOTE: this threshold (100/15m) is a first guess with no baseline yet — tune it against the dashboard once you've watched normal load. This is a CAPACITY signal, not an outage: data isn't lost, but coverage is thinning.\n\nLevers:\n- Raise `--workers` (more concurrent polls)\n- Lengthen poll intervals on low-value feeds\n- Shard feeds across processes (roadmap step 4)\n\n@<your-notification-target>",
-    "tags": ["service:rail-archiver", "env:dev", "layer:poll"],
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": false,
       "renotify_interval": 120,
