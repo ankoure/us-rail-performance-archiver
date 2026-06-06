@@ -74,6 +74,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def resolve_dates(args: argparse.Namespace) -> list[dt.date]:
+    """Sorted, deduped dates from --date plus the inclusive --start..--end range."""
     dates: list[dt.date] = []
     if args.date:
         dates.extend(args.date)
@@ -88,6 +89,7 @@ def resolve_dates(args: argparse.Namespace) -> list[dt.date]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Export ARR-only MARTA events for each requested day; returns an exit code."""
     args = parse_args(argv)
     try:
         tz = ZoneInfo(args.tz)

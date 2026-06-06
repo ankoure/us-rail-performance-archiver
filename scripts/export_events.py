@@ -70,6 +70,7 @@ _PART_RE = re.compile(r"^(year|month|day)=(\d+)$")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse argv and enforce the date / GTFS-override / single-feed rules."""
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -287,12 +288,20 @@ def discover_dates(
 def resolve_dates_for_feed(
     args: argparse.Namespace, feed: str, base: list[dt.date]
 ) -> list[dt.date]:
+    """Explicit dates, unioned with on-disk partitions when --all-days is set."""
     if not args.all_days:
         return base
     return sorted(set(base) | set(discover_dates(feed, args.curated_dir, args.source)))
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Export events for every requested (feed, day); returns a process exit code.
+
+    Picks the Visit source (vehicles vs trip_updates), resolves the right GTFS
+    snapshot per (feed, day) — explicit override, else the agency's mdb_feed_id
+    resolver — and prints per-feed and grand totals. Missing partitions and
+    GTFS lookup failures skip that (feed, day) rather than abort the run.
+    """
     args = parse_args(argv)
     feed_tz_map = load_feed_tz_map(args.config)
     feed_agency_map = load_feed_agency_map(args.config)

@@ -84,6 +84,11 @@ def _apply_notify_target(monitor: dict, target: str | None) -> dict:
 
 
 def sync_monitors(dry_run: bool) -> None:
+    """Upsert every monitor in the repo JSON by name (PUT if it exists, else POST).
+
+    Applies the DD_NOTIFY_TARGET substitution first, so a monitor still holding
+    the notify placeholder aborts the sync rather than deploy paging nobody.
+    """
     monitors = json.loads(MONITORS_FILE.read_text())
     target = os.environ.get("DD_NOTIFY_TARGET")
     if target and not target.startswith("@"):
@@ -109,6 +114,7 @@ def sync_monitors(dry_run: bool) -> None:
 
 
 def sync_dashboards(dry_run: bool) -> None:
+    """Upsert the repo dashboard JSON by title (PUT if it exists, else POST)."""
     dashboard = json.loads(DASHBOARDS_FILE.read_text())
     title = dashboard["title"]
 
@@ -130,6 +136,7 @@ def sync_dashboards(dry_run: bool) -> None:
 
 
 def main() -> None:
+    """Validate required env keys, then sync monitors and/or dashboards."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run",

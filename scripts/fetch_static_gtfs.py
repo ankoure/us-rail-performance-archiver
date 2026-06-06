@@ -58,6 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Resolve the date to a snapshot, ensure its zip is cached, and print the path."""
     args = parse_args(argv)
     catalog = fetch_catalog(args.feed_id, api_url=args.api_url)
     snapshot = pick_snapshot(catalog, args.date)

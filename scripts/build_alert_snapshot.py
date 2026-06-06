@@ -73,6 +73,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def resolve_dates(args: argparse.Namespace) -> list[dt.date]:
+    """Sorted, deduped dates from --date plus the inclusive --start..--end range."""
     dates: list[dt.date] = []
     if args.date:
         dates.extend(args.date)
@@ -87,6 +88,7 @@ def resolve_dates(args: argparse.Namespace) -> list[dt.date]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Build and write one alert snapshot per requested day; days with no alerts are skipped."""
     args = parse_args(argv)
     config = load_config(str(args.config))
     feeds = {f.name: f for f in build_feeds(config)}
