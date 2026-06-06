@@ -18,6 +18,8 @@ async def test_duplicate_poll_writes_no_bin(
         client=_FakeClient(make_response(content=valid_protobuf_bytes)),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
@@ -56,6 +58,8 @@ async def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
         ),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
@@ -91,6 +95,8 @@ async def test_archiver_respects_last_modified(valid_protobuf_bytes, tmp_path):
         ),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
@@ -136,6 +142,8 @@ async def test_transient_error_does_not_update_poll_state(
         ),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
     archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())

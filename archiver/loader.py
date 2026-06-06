@@ -23,6 +23,7 @@ from archiver.feed import Feed
 from archiver.parser import Parser
 from archiver.poll_state import PollStateStore
 from archiver.rollup import Rollup
+from archiver.shard import belongs_to_shard
 from archiver.shipper import Shipper
 from archiver.telemetry import NoOpTelemetry, Telemetry
 from archiver.uploader import Uploader
@@ -76,9 +77,13 @@ def build_client(agency: AgencyConfig) -> APIClient:
             )
 
 
-def build_feeds(config: ArchiverConfig) -> list[Feed]:
+def build_feeds(
+    config: ArchiverConfig, shard_index: int = 0, shard_count: int = 1
+) -> list[Feed]:
     feeds: list[Feed] = []
     for agency in config.agencies:
+        if not belongs_to_shard(agency.agency_id, shard_index, shard_count):
+            continue
         client = build_client(agency)
         for feed_cfg in agency.feeds:
             feeds.append(
@@ -89,12 +94,13 @@ def build_feeds(config: ArchiverConfig) -> list[Feed]:
                     parser=Parser.from_name(feed_cfg.expected_format),
                     decoder=Decoder.from_name(feed_cfg.decoder),
                     poll_interval_seconds=feed_cfg.poll_interval_seconds,
+                    agency_id=agency.agency_id,
                 )
             )
     return feeds
 
 
-def build_telemetry(config: TelemetryConfig) -> Telemetry:
+def build_telemetry(config: TelemetryConfig, shard_index: int = 0) -> Telemetry:
     if not config.enabled:
         return NoOpTelemetry()
 
@@ -106,6 +112,7 @@ def build_telemetry(config: TelemetryConfig) -> Telemetry:
     default_tags = {
         "service": config.service,
         "env": config.env,
+        "shard": str(shard_index),
         **config.tags,
     }
     return DatadogTelemetry(client, default_tags=default_tags)
@@ -123,10 +130,12 @@ def build_writer(config: WriterConfig) -> BaseWriter:
             raise ValueError(f"Unsupported writer_type: {other}")
 
 
-def build_archiver(config: ArchiverConfig) -> FeedArchiver:
-    feeds = build_feeds(config)
+def build_archiver(
+    config: ArchiverConfig, shard_index: int, shard_count: int
+) -> FeedArchiver:
+    feeds = build_feeds(config, shard_index, shard_count)
     writer = build_writer(config.writer)
-    telemetry = build_telemetry(config.telemetry)
+    telemetry = build_telemetry(config.telemetry, shard_index)
     store = PollStateStore(str(config.writer.poll_state_dir))
     return FeedArchiver(feeds=feeds, writer=writer, telemetry=telemetry, store=store)
 

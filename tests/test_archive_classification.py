@@ -33,6 +33,8 @@ def _feed(client) -> Feed:
         client=client,
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
 
 

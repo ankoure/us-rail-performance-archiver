@@ -151,6 +151,8 @@ def test_skip_happens_when_outputs_exist(tmp_path, monkeypatch):
         client=None,
         parser=None,
         decoder=FakeDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
     rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
@@ -179,6 +181,8 @@ def test_skip_does_not_happen_when_outputs_missing(tmp_path, monkeypatch):
         client=None,
         parser=None,
         decoder=FakeDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
     rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
@@ -204,6 +208,8 @@ def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
         client=None,
         parser=None,
         decoder=FakeDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
     rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
@@ -256,6 +262,8 @@ def test_second_run_does_not_redo_work(tmp_path):
         client=None,
         parser=FakeParser(),
         decoder=FakeDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
     rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)

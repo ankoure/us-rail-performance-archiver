@@ -21,6 +21,7 @@ def make_feed(name: str, interval: int | None = None) -> Feed:
         parser=None,  # type: ignore
         decoder=None,  # type: ignore
         poll_interval_seconds=interval,
+        agency_id="agency",  # value doesn't matter for scheduler tests
     )
 
 
@@ -100,15 +101,24 @@ def test_jitter_zero_is_exact_seed_and_reschedule():
     assert sched.next_due()[0] == 1030.0  # exactly now + interval
 
 
-def test_jitter_seed_spreads_positively():
+def test_seed_spread_distributes_first_poll():
+    # seed_spread (not jitter) controls the startup spread of first-poll times.
     clock = FakeClock(start=1000.0)
     feed = make_feed("a", interval=100)
-    # seed offset = interval * jitter * rng() = 100 * 0.1 * 0.5 = 5.0
+    # seed offset = interval * seed_spread * rng() = 100 * 0.5 * 0.5 = 25.0
     sched = Scheduler(
-        [feed], default_interval=60, clock=clock, jitter=0.1, rng=lambda: 0.5
+        [feed], default_interval=60, clock=clock, seed_spread=0.5, rng=lambda: 0.5
     )
     due_at, _ = sched.next_due()
-    assert due_at == 1005.0
+    assert due_at == 1025.0
+
+
+def test_seed_spread_zero_seeds_at_now():
+    # Default seed_spread=0 keeps "everything due at now", even with jitter on.
+    clock = FakeClock(start=1000.0)
+    feed = make_feed("a", interval=100)
+    sched = Scheduler([feed], default_interval=60, clock=clock, jitter=0.1)
+    assert sched.next_due()[0] == 1000.0
 
 
 def test_jitter_reschedule_is_symmetric():
@@ -121,7 +131,7 @@ def test_jitter_reschedule_is_symmetric():
         jitter=0.1,
         rng=lambda: 1.0,
     )
-    s_hi.next_due()  # drain seed (at 1000 + 100*0.1*1.0 = 1010)
+    s_hi.next_due()  # drain seed (at 1000; seed_spread defaults to 0)
     s_hi.mark_polled(feed)
     assert s_hi.next_due()[0] == 1110.0
 
@@ -133,7 +143,7 @@ def test_jitter_reschedule_is_symmetric():
         jitter=0.1,
         rng=lambda: 0.0,
     )
-    s_lo.next_due()  # drain seed (at 1000 + 0)
+    s_lo.next_due()  # drain seed (at 1000; seed_spread defaults to 0)
     s_lo.mark_polled(feed)
     assert s_lo.next_due()[0] == 1090.0
 

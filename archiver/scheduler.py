@@ -11,23 +11,27 @@ class Scheduler:
         default_interval: int,
         clock=time.monotonic,
         jitter: float = 0.0,
+        seed_spread: float = 0.0,
         rng=random.random,
     ):
         self._clock = clock
         self._default_interval = default_interval
-        self._jitter = jitter  # fraction of interval, e.g. 0.1 => ±10%
+        self._jitter = jitter  # ± fraction of interval on each reschedule, e.g. 0.1
+        self._seed_spread = seed_spread  # + fraction of interval spread at startup
         self._rng = rng  # callable -> float in [0.0, 1.0)
         self._seq = 0
         self._heap: list[tuple[float, int, Feed]] = []
-        # Seed the heap: every feed starts due ~"now" so the system polls
-        # everything at startup. With jitter > 0, a positive-only offset spreads
-        # the initial burst across [now, now + jitter*interval), softening the
-        # startup thundering herd. With jitter == 0 (the default), every feed is
-        # seeded at exactly `now`, preserving the original behavior.
+        # Seed the heap. With seed_spread > 0, each feed's first due time is spread
+        # uniformly across [now, now + seed_spread*interval) — set to 1.0 in prod so
+        # feeds come due evenly instead of all at "now", which kills the startup
+        # thundering herd (all-due-at-once → a burst of poll.skipped while the loop
+        # never yields). With seed_spread == 0 (the default), every feed is seeded
+        # at exactly `now`, preserving the original poll-everything-at-startup
+        # behavior — used by the deterministic tests.
         now = self._clock()
         for feed in feeds:
             interval = feed.poll_interval_seconds or default_interval
-            seed_offset = interval * self._jitter * self._rng()
+            seed_offset = interval * self._seed_spread * self._rng()
             self._push(due_at=now + seed_offset, feed=feed)
 
     def next_due(self) -> tuple[float, Feed]:

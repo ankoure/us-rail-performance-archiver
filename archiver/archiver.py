@@ -17,6 +17,13 @@ from archiver.logger import logger
 from archiver.telemetry import Telemetry, NoOpTelemetry
 
 
+# Feeds polling less often than this are tagged interval_class:slow so the
+# dark-feed monitor can give them a longer "gone dark" window (a 15-min window
+# would false-positive on a feed that only polls every ~17-30 min, e.g. the
+# rate-limited Bay Area 511 feeds).
+SLOW_POLL_THRESHOLD_SECONDS = 600
+
+
 class FeedArchiver:
     def __init__(
         self,
@@ -39,8 +46,16 @@ class FeedArchiver:
             if prior.last_modified:
                 conditional_headers["If-Modified-Since"] = prior.last_modified
 
+            interval_class = (
+                "slow"
+                if (feed.poll_interval_seconds or 0) >= SLOW_POLL_THRESHOLD_SECONDS
+                else "fast"
+            )
             try:
-                with self.telemetry.span("feed.poll", tags={"feed": feed.name}):
+                with self.telemetry.span(
+                    "feed.poll",
+                    tags={"feed": feed.name, "interval_class": interval_class},
+                ):
                     start = time.monotonic()
                     http = await feed.client.get(feed.path, headers=conditional_headers)
 

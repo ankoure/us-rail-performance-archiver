@@ -43,15 +43,33 @@ def parse_args():
         default=10,
         help="Max concurrent in-flight polls (semaphore cap)",
     )
+    parser.add_argument(
+        "--shard-index",
+        type=int,
+        default=0,
+        help="This worker's shard index, in [0, shard-count)",
+    )
+    parser.add_argument(
+        "--shard-count",
+        type=int,
+        default=1,
+        help="Total number of shards (default: 1 = no sharding)",
+    )
+
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
 
 
 async def run(args):
     config = load_config("config/feeds.yaml")
-    archiver = build_archiver(config)
+    archiver = build_archiver(
+        config, shard_index=args.shard_index, shard_count=args.shard_count
+    )
     scheduler = Scheduler(
-        archiver.feeds, default_interval=args.frequency, jitter=POLL_JITTER
+        archiver.feeds,
+        default_interval=args.frequency,
+        jitter=POLL_JITTER,
+        seed_spread=1.0,  # spread first polls over a full interval → no startup herd
     )
     # Per-feed failure tracking → exponential backoff + dead-feed quarantine.
     health = FeedHealth()
