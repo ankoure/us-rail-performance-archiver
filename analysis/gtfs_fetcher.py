@@ -65,6 +65,12 @@ def fetch_catalog(feed_id: str, api_url: str = DEFAULT_API_URL) -> pd.DataFrame:
 
 
 def pick_snapshot(catalog: pd.DataFrame, target_date: dt.date) -> Snapshot:
+    """The schedule in effect on `target_date`: latest-starting eligible row.
+
+    Among catalog rows whose [feed_start_date, feed_end_date] span covers the
+    date, the one with the latest feed_start_date is the schedule officially in
+    effect. Raises LookupError when no row covers the date.
+    """
     target = pd.Timestamp(target_date)
     eligible = catalog[
         (catalog["feed_start_date"] <= target) & (catalog["feed_end_date"] >= target)
@@ -124,11 +130,19 @@ class GtfsResolver:
         self._loaded: dict[str, StaticGtfs] = {}
 
     def catalog(self) -> pd.DataFrame:
+        """The feed's archived-feeds catalog, fetched once and memoized."""
         if self._catalog is None:
             self._catalog = fetch_catalog(self.feed_id, self.api_url)
         return self._catalog
 
     def for_date(self, target_date: dt.date) -> StaticGtfs:
+        """StaticGtfs for the schedule in effect on `target_date`.
+
+        Picks the snapshot from the catalog, downloads its zip if not cached,
+        and loads it. Each distinct snapshot is downloaded and loaded once for
+        the resolver's lifetime, so a date range sharing one schedule pays the
+        cost a single time.
+        """
         snap = pick_snapshot(self.catalog(), target_date)
         if snap.version_slug not in self._loaded:
             path = ensure_local_zip(snap, self.agency, self.cache_dir)

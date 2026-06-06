@@ -99,6 +99,12 @@ class Vehicle:
 
     @cached_property
     def trip_ids(self) -> list[str]:
+        """Distinct trip_ids in the order the vehicle served them.
+
+        Run-length distinct, not a set: consecutive duplicate pings collapse to
+        one entry, but a trip_id that reappears after a different one is kept as
+        a separate entry (a vehicle cycling back to an earlier trip).
+        """
         seen: list[str] = []
         last: str | None = None
         for r in self._rows:
@@ -352,12 +358,17 @@ class VehicleDay:
         return [Stop(sid, visits) for sid, visits in by_stop.items()]
 
     def vehicle(self, vehicle_id: str) -> Vehicle:
+        """The Vehicle for one id; raises KeyError if it has no rows that day."""
         rows = self._rows_by_vehicle.get(vehicle_id)
         if rows is None:
             raise KeyError(vehicle_id)
         return Vehicle(vehicle_id, rows, merge_gap_seconds=self.merge_gap_seconds)
 
     def stop(self, stop_id: str) -> Stop:
+        """The Stop for one id, built from every vehicle's dwells there.
+
+        Raises KeyError when no vehicle dwelled at that stop on this day.
+        """
         visits = [
             visit
             for v in self.vehicles

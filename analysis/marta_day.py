@@ -46,6 +46,15 @@ DIRECTION_MAP = {"N": 0, "E": 0, "S": 1, "W": 1}
 
 @dataclass(frozen=True, slots=True)
 class MartaArrival:
+    """One reconstructed ARR: a train reaching a station on its way to `destination`.
+
+    `arrival_ts` is the predicted `next_arr` of the ping where the countdown
+    bottomed out; `last_waiting_seconds` is that smallest observed
+    `waiting_seconds` (how close to zero the countdown got before the tuple
+    dropped from the stream — a confidence proxy for whether the train really
+    arrived).
+    """
+
     train_id: str
     station: str
     line: str

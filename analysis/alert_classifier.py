@@ -209,6 +209,12 @@ def _translation(ts: dict | None, language: str) -> str:
 
 
 def alert_is_delay(alert: dict) -> bool:
+    """Whether the alert describes a delay (step 1 of the pipeline).
+
+    Trusts the GTFS-RT Effect enum when it's set and unambiguous; only when the
+    effect is absent, UNKNOWN_EFFECT, or OTHER_EFFECT does it fall back to TM's
+    text heuristics over the alert prose.
+    """
     effect = alert.get("effect")
     if effect in _DELAY_EFFECTS:
         return True
@@ -251,6 +257,11 @@ def extract_delay_minutes(alert: dict) -> int | None:
 
 
 def classify_alert(alert: dict) -> dict:
+    """Run the full pipeline on one alert → is_delay / type / delay_minutes.
+
+    delay_minutes is only attempted when the alert is classified as a delay;
+    non-delay alerts get None.
+    """
     type_label, type_source = alert_type(alert)
     is_delay = alert_is_delay(alert)
     delay_minutes = extract_delay_minutes(alert) if is_delay else None

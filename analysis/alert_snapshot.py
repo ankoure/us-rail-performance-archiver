@@ -29,6 +29,13 @@ from archiver.parser import ParseFailure
 
 
 def build_alert_snapshot(feed: Feed, day: date, landing_dir: Path) -> dict:
+    """Merge a day's raw .bin polls into one last-write-wins alert snapshot.
+
+    Reads the (feed, day) raw poll files in timestamp order, decodes each, and
+    folds every alert entity into a dict keyed by alert id. The newest poll's
+    body wins per id, while first_seen / last_seen / poll_count accumulate
+    across all polls. Polls that fail to parse are skipped, not fatal.
+    """
     raw_dir = (
         landing_dir
         / feed.name
@@ -81,6 +88,7 @@ def build_alert_snapshot(feed: Feed, day: date, landing_dir: Path) -> dict:
 
 
 def snapshot_path(base_dir: Path, feed_name: str, day: date) -> Path:
+    """The data.json.gz path for one (feed, day) snapshot (see module docstring)."""
     return (
         base_dir
         / "snapshots"
@@ -94,6 +102,11 @@ def snapshot_path(base_dir: Path, feed_name: str, day: date) -> Path:
 
 
 def write_alert_snapshot(snapshot: dict, base_dir: Path) -> Path:
+    """Gzip-write a snapshot to its canonical path; returns that path.
+
+    Writes to a .tmp sibling and renames on success so a reader never sees a
+    half-written file.
+    """
     feed_name = snapshot["feed"]
     day = date.fromisoformat(snapshot["service_date"])
     out_path = snapshot_path(base_dir, feed_name, day)
@@ -106,6 +119,7 @@ def write_alert_snapshot(snapshot: dict, base_dir: Path) -> Path:
 
 
 def load_alert_snapshot(path: Path) -> dict:
+    """Load a snapshot dict, transparently handling gzipped or plain JSON."""
     opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "rt", encoding="utf-8") as f:
         return json.load(f)

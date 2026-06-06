@@ -42,6 +42,15 @@ _RTE_DIR_STOP = ["route_id", "direction_id", "stop_id"]
 
 
 class StaticGtfs:
+    """One GTFS static zip, read lazily and answering enrichment queries.
+
+    Each component table (`trips`, `routes`, `stop_times`, `calendar`,
+    `calendar_dates`) is read from the zip on first access and cached. Missing
+    optional files degrade to empty frames rather than raising, so a feed that
+    omits e.g. calendar_dates.txt still works. The zip is never extracted to
+    disk — tables are read straight out of the archive.
+    """
+
     def __init__(self, zip_path: Path | str) -> None:
         self.zip_path = Path(zip_path)
         if not self.zip_path.exists():
@@ -140,6 +149,12 @@ class StaticGtfs:
 
     @cached_property
     def stop_times(self) -> pd.DataFrame:
+        """stop_times.txt plus derived `arrival_seconds` / `departure_seconds`.
+
+        The HH:MM:SS time strings (which GTFS allows past 24:00 for next-day
+        continuations) are converted to seconds via [[_hms_to_seconds]] so
+        scheduled_tt and scheduled_headway are plain integer subtractions.
+        """
         df = self._read(
             "stop_times.txt",
             usecols=lambda c: (
