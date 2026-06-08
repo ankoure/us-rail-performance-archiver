@@ -189,6 +189,20 @@ sudo mkdir -p /opt/rail-archiver
 sudo mount /dev/nvme1n1 /opt/rail-archiver
 echo "/dev/nvme1n1 /opt/rail-archiver xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
 
+# Add swap. The box ships with none, and the once-daily batch rollup spikes memory
+# on the big feeds (e.g. NYCT/BART). Without swap, an overrun on 2026-06-01 became an
+# unrecoverable page-cache refault storm (~18h wedge) instead of a clean OOM-kill.
+# 4 GiB on the data volume (plenty free), low swappiness so it's a safety net, not
+# eager paging. Use dd (not fallocate) — XFS rejects swapon on a holey file.
+sudo dd if=/dev/zero of=/opt/rail-archiver/swapfile bs=1M count=4096 status=progress
+sudo chmod 600 /opt/rail-archiver/swapfile
+sudo mkswap /opt/rail-archiver/swapfile
+sudo swapon /opt/rail-archiver/swapfile
+echo "/opt/rail-archiver/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab
+echo "vm.swappiness=10" | sudo tee /etc/sysctl.d/99-swappiness.conf
+sudo sysctl --system
+# Verify: `swapon --show` and `free -h` should now show 4 GiB of swap.
+
 # Clone the repo.
 sudo chown ssm-user:ssm-user /opt/rail-archiver
 cd /opt/rail-archiver

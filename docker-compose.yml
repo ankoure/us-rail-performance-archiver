@@ -31,9 +31,14 @@ services:
     # Disable the inherited check rather than report a misleading status.
     healthcheck:
       disable: true
+    # Cap rollup+ship RAM so an overrun OOM-kills this container (restart recovers)
+    # rather than starving the box. Mirror of compose.prod.yml; tune via `docker stats`.
+    mem_limit: 2560m
     environment:
     - PYTHONUNBUFFERED=1
-    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-4}
+    # 2 concurrent rollup processes — peak RAM scales with concurrent big feeds.
+    # Mirror of compose.prod.yml.
+    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-2}
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive

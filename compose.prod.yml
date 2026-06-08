@@ -70,9 +70,20 @@ services:
     # rather than report a misleading status.
     healthcheck:
       disable: true
+    # Cap the daily rollup+ship container's RAM. With host swap present (deploy/README
+    # 3c), an overrun on a big feed spills to swap (slow but recoverable) and a true
+    # runaway OOM-kills THIS container — restart: unless-stopped retries — instead of
+    # starving the poller / dockerd and wedging the whole box (the 2026-06-01 swapless
+    # refault-storm outage). Kept below total RAM so the real-time poller stays resident.
+    # Tune after measuring a real rollup's peak via `docker stats`.
+    mem_limit: 2560m
     environment:
     - PYTHONUNBUFFERED=1
-    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-4}
+    # 2 (not 4) concurrent rollup processes: peak RAM scales with how many big feeds
+    # roll up at once, so halving workers ~halves the peak (each gets ~1.25 GiB of the
+    # mem_limit) at the cost of wall-clock — still far inside the 24h cycle. Override
+    # with the ROLLUP_WORKERS env var if the box is resized.
+    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-2}
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive

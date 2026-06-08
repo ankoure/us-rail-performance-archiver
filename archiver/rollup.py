@@ -343,7 +343,7 @@ class Rollup:
         path: Path,
         schema: pa.Schema,
         column_names: dict[str, str] | None = None,
-        batch_size: int = 10_000,
+        batch_size: int = 5_000,
     ):
         tmp = path.with_suffix(".parquet.tmp")
         writer: pq.ParquetWriter | None = None
