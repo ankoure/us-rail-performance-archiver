@@ -468,11 +468,17 @@ def test_digest_timestamps_skips_digestless_rows_silently(tmp_path, caplog):
         day,
         rows=[
             {"timestamp": 1000, "status_code": 200, "digest": "abc"},
-            {"timestamp": 1001, "error_type": "ConnectionError", "error_message": "boom"},  # no digest
+            {
+                "timestamp": 1001,
+                "error_type": "ConnectionError",
+                "error_message": "boom",
+            },  # no digest
             {"timestamp": 1002, "status_code": 304, "digest": "def"},
         ],
     )
-    rollup = Rollup(feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=tmp_path / "curated")
+    rollup = Rollup(
+        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=tmp_path / "curated"
+    )
 
     with caplog.at_level(logging.WARNING):
         got = rollup._digest_timestamps("echo-feed", day)

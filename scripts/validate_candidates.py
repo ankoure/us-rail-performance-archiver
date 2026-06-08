@@ -134,7 +134,9 @@ def write_validated(raw: dict, ok_names: set[str], out_path: Path) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as fh:
         fh.write(header)
-        yaml.safe_dump({"agencies": out_agencies}, fh, allow_unicode=True, sort_keys=False)
+        yaml.safe_dump(
+            {"agencies": out_agencies}, fh, allow_unicode=True, sort_keys=False
+        )
     return len(out_agencies)
 
 
@@ -150,8 +152,10 @@ def report(results: list[tuple[str, str, str]]) -> None:
         print(f"{bucket:16} {len(items)}", file=sys.stderr)
     empties = sum(1 for _, _, d in results if "(EMPTY)" in d)
     if empties:
-        print(f"  (of OK, {empties} returned 0 entities — verify they're not stale)",
-              file=sys.stderr)
+        print(
+            f"  (of OK, {empties} returned 0 entities — verify they're not stale)",
+            file=sys.stderr,
+        )
 
     # Detail the non-OK ones so a human can act on them.
     for bucket in (FORMAT_MISMATCH, NEEDS_AUTH, DEAD):
@@ -166,7 +170,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--candidates", type=Path, default=Path("config/feeds.candidates.yaml"))
+    p.add_argument(
+        "--candidates", type=Path, default=Path("config/feeds.candidates.yaml")
+    )
     p.add_argument(
         "--out", type=Path, default=Path("config/feeds.candidates.validated.yaml")
     )

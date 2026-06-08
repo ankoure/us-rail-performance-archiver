@@ -42,7 +42,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument(
-        "--candidates", type=Path, default=Path("config/feeds.candidates.validated.yaml")
+        "--candidates",
+        type=Path,
+        default=Path("config/feeds.candidates.validated.yaml"),
     )
     p.add_argument("--target", type=Path, default=Path("config/feeds.yaml"))
     return p.parse_args(argv)
@@ -68,7 +70,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Dump as a top-level sequence, then indent 2 spaces to nest under `agencies:`.
     block = yaml.safe_dump(new, sort_keys=False, allow_unicode=True, indent=2)
-    indented = "".join(("  " + ln if ln.strip() else ln) for ln in block.splitlines(keepends=True))
+    indented = "".join(
+        ("  " + ln if ln.strip() else ln) for ln in block.splitlines(keepends=True)
+    )
     with args.target.open("a") as fh:
         fh.write(
             "\n  # ---- Onboarded from Mobility Database "

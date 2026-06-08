@@ -466,16 +466,20 @@ def build_agencies(
         # listed under both http and https collapses to one feed. Prefer the https
         # row when both exist; otherwise keep whatever scheme the catalog gave us
         # (some hosts are http-only). dedup against existing config happens here too.
-        kept: dict[tuple[str, str], tuple[int, str, str]] = {}  # (host,path)->(id,ent,scheme)
+        kept: dict[
+            tuple[str, str], tuple[int, str, str]
+        ] = {}  # (host,path)->(id,ent,scheme)
         for _, row in group.iterrows():
             rt_mdb_id = int(row["mdb_source_id"])
-            url_raw = str(row.get("urls.direct_download") or row.get("urls.latest") or "")
+            url_raw = str(
+                row.get("urls.direct_download") or row.get("urls.latest") or ""
+            )
             if not url_raw:
                 logger.warning("Row mdb-%d has no download URL; skipping", rt_mdb_id)
                 continue
             base, path = split_url(url_raw)
             full_url = base.rstrip("/") + "/" + path.lstrip("/")
-            if full_url in existing_urls:        # URL backstop
+            if full_url in existing_urls:  # URL backstop
                 continue
             scheme = urlparse(base).scheme
             key = (urlparse(base).netloc, path)
@@ -491,8 +495,12 @@ def build_agencies(
         # origins (e.g. CDTA, Kitsap) we can't model with a single base_url.
         hosts = {host for host, _path in kept}
         if len(hosts) > 1:
-            logger.warning("Skipping static_ref %d (%s): feeds span hosts %s",
-                            static_ref, provider, sorted(hosts))
+            logger.warning(
+                "Skipping static_ref %d (%s): feeds span hosts %s",
+                static_ref,
+                provider,
+                sorted(hosts),
+            )
             continue
         host = hosts.pop()
         scheme = "https" if any(v[2] == "https" for v in kept.values()) else "http"
@@ -503,14 +511,18 @@ def build_agencies(
         for (host, path), (rt_mdb_id, entity_type, _scheme) in kept.items():
             name = feed_name(provider, entity_type, rt_mdb_id)
             try:
-                feeds.append(FeedConfig(name=name, path=path,
-                                        poll_interval_seconds=30,
-                                        mdb_feed_id=f"mdb-{rt_mdb_id}"))
+                feeds.append(
+                    FeedConfig(
+                        name=name,
+                        path=path,
+                        poll_interval_seconds=30,
+                        mdb_feed_id=f"mdb-{rt_mdb_id}",
+                    )
+                )
             except Exception as exc:
                 logger.warning("FeedConfig mdb-%d failed: %s", rt_mdb_id, exc)
         if not feeds:
             continue
-
 
         name = provider
         if name in used_names:
@@ -567,10 +579,7 @@ def dump_candidates(agencies: list[AgencyConfig], out_path: Path) -> None:
     )
 
     payload = {
-        "agencies": [
-            a.model_dump(mode="json", exclude_none=True)
-            for a in agencies
-        ]
+        "agencies": [a.model_dump(mode="json", exclude_none=True) for a in agencies]
     }
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -597,9 +606,7 @@ def main(argv: list[str] | None = None) -> int:
     catalog = fetch_catalog(args.catalog_url)
     rt_rows = select_us_noauth_rt(catalog)
     existing_ids, existing_urls, existing_agency_ids = load_existing(args.existing)
-    agencies = build_agencies(
-        rt_rows, existing_ids, existing_urls, existing_agency_ids
-    )
+    agencies = build_agencies(rt_rows, existing_ids, existing_urls, existing_agency_ids)
     dump_candidates(agencies, args.out)
     print(
         f"[gen] wrote {len(agencies)} candidate agencies -> {args.out}", file=sys.stderr
