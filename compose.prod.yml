@@ -10,24 +10,47 @@ services:
     expose:
       - "8125/udp"
 
-  app:
+  # Poller, sharded across N=2 processes (the box has 2 vCPUs). Sharding is by
+  # agency_id (archiver/shard.py), so each agency — including shared rate-limit
+  # blocks like BAY_AREA_511 — lives entirely on one shard, keeping per-agency
+  # TokenBucket budgets correct. Add shards by copying a block, bumping
+  # --shard-index, and raising --shard-count on every shard in lockstep.
+  #
+  # The image's HEALTHCHECK marks a container unhealthy if its poll loop stops
+  # refreshing poll_state/.heartbeat. `restart: unless-stopped` does not react to
+  # health status, so the autoheal sidecar (below) watches for the `autoheal=true`
+  # label and restarts unhealthy containers.
+  #
+  # Each shard gets its OWN host poll_state dir mounted at the same in-container
+  # path, so the baked HEALTHCHECK (a fixed /app/poll_state/.heartbeat) keeps
+  # working unchanged while each shard's heartbeat is independent — a dead shard
+  # goes unhealthy on its own instead of being masked by a live sibling sharing
+  # the file. poll_state is keyed by feed name and each feed lives on one shard,
+  # so nothing is lost by not sharing it. ./archive stays shared: feed names are
+  # globally unique, so there are no collisions and rollup consumes one tree.
+  app-shard-0: &poller
     image: ghcr.io/ankoure/us-rail-performance-archiver:${IMAGE_TAG:-latest}
     restart: unless-stopped
     user: "1000:1000"
-    # The image's HEALTHCHECK marks the container unhealthy if the poll loop
-    # stops refreshing poll_state/.heartbeat. `restart: unless-stopped` does not
-    # react to health status, so the autoheal sidecar (below) watches for the
-    # `autoheal=true` label and restarts unhealthy containers.
     labels:
       - autoheal=true
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive
-      - ./poll_state:/app/poll_state
+      - ./poll_state/shard-0:/app/poll_state
+    command: python main.py --shard-index 0 --shard-count 2
     env_file:
       - .env
     depends_on:
       - datadog-agent
+
+  app-shard-1:
+    <<: *poller
+    volumes:
+      - ./config:/app/config:ro
+      - ./archive:/app/archive
+      - ./poll_state/shard-1:/app/poll_state
+    command: python main.py --shard-index 1 --shard-count 2
 
   autoheal:
     image: willfarrell/autoheal:latest

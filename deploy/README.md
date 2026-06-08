@@ -205,12 +205,21 @@ Then do a manual first run to confirm everything wires up:
 
 ```bash
 cd /opt/rail-archiver
+
+# The poller runs sharded (app-shard-0/1 in compose.prod.yml), and each shard mounts
+# its OWN ./poll_state/shard-<i> so the per-container HEALTHCHECK heartbeat stays
+# independent. Docker would create those bind-mount dirs as root, but the containers
+# run as 1000:1000 — pre-create them owned correctly (make target does the mkdir):
+make shard-dirs
+sudo chown -R 1000:1000 poll_state/   # skip if your deploy user is already uid 1000
+
 docker compose -f compose.prod.yml pull   # pulls the image CI pushed
 docker compose -f compose.prod.yml up -d
-docker compose -f compose.prod.yml logs -f app
+docker compose -f compose.prod.yml logs -f app-shard-0   # (and app-shard-1)
 ```
 
-If logs show feed polls landing in `./archive/`, you're done with the bootstrap.
+If logs show feed polls landing in `./archive/` and both shards report `healthy`
+(`docker compose -f compose.prod.yml ps`), you're done with the bootstrap.
 
 ---
 
