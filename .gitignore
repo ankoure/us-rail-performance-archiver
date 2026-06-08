@@ -22,3 +22,7 @@ curated/
 static_gtfs/
 analysis/snapshots/
 poll_state/
+
+# Feed-onboarding intermediates (regenerable via `make feeds-onboard`)
+config/feeds.candidates.yaml
+config/feeds.candidates.validated.yaml

@@ -75,6 +75,7 @@ class FeedConfig(BaseModel):
     expected_format: Literal["protobuf", "json", "auto"] = "protobuf"
     decoder: Literal["standard", "mta_nyct", "marta_json"] = "standard"
     poll_interval_seconds: int | None = Field(default=None, gt=0)
+    mdb_feed_id: str | None = None
 
 
 class RateLimitConfig(BaseModel):

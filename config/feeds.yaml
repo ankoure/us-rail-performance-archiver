@@ -764,3 +764,1541 @@ agencies:
   # ATI (Tren Urbano), HART (TECO Line), KCSA (KC Streetcar),
   # M-1 Rail (Q-Line), NFTA (Buffalo Metro Rail), PATCO,
   # DDOT (DC Streetcar - discontinued)
+
+  # ---- Onboarded from Mobility Database (scripts/gen_feeds_from_mdb.py -> validate_candidates.py) ----
+  - agency_id: OCTA
+    name: Orange County Transportation Authority (OCTA)
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://api.octa.net/
+    auth:
+      type: none
+    feeds:
+    - name: orange-county-transportation-authority-octa-trips-1641
+      path: /GTFSRealTime/protoBuf/tripupdates.aspx
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1641
+    - name: orange-county-transportation-authority-octa-alerts-1642
+      path: /GTFSRealTime/protoBuf/servicealerts.aspx
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1642
+    - name: orange-county-transportation-authority-octa-vehicles-1643
+      path: /GTFSRealTime/protoBuf/VehiclePositions.aspx
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1643
+    mdb_feed_id: mdb-15
+  - agency_id: HUMBOLDT_TRANSIT
+    name: Humboldt Transit
+    region: California
+    timezone: America/Los_Angeles
+    base_url: http://gtfs-realtime.trilliumtransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: humboldt-transit-alerts-1494
+      path: /gtfs-realtime/feed/humboldtcounty-ca-us/service_alerts.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1494
+    mdb_feed_id: mdb-19
+  - agency_id: THOUSAND_OAKS_TRANSIT
+    name: Thousand Oaks Transit
+    region: California
+    timezone: America/Los_Angeles
+    base_url: http://gtfs-realtime.trilliumtransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: thousand-oaks-transit-alerts-1689
+      path: /gtfs-realtime/feed/thousandoaks-ca-us/service_alerts.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1689
+    mdb_feed_id: mdb-33
+  - agency_id: BIG_BLUE_BUS
+    name: Big Blue Bus
+    region: California
+    timezone: America/Los_Angeles
+    base_url: http://gtfs.bigbluebus.com/
+    auth:
+      type: none
+    feeds:
+    - name: big-blue-bus-vehicles-1436
+      path: /vehiclepositions.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1436
+    - name: big-blue-bus-alerts-1437
+      path: /alerts.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1437
+    - name: big-blue-bus-trips-1438
+      path: /tripupdates.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1438
+    mdb_feed_id: mdb-37
+  - agency_id: PASADENA_TRANSIT
+    name: Pasadena Transit
+    region: California
+    timezone: America/Los_Angeles
+    base_url: http://rt.pasadenatransit.net/
+    auth:
+      type: none
+    feeds:
+    - name: pasadena-transit-alerts-1654
+      path: /rtt/public/utility/gtfsrealtime.aspx/alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1654
+    - name: pasadena-transit-trips-1655
+      path: /rtt/public/utility/gtfsrealtime.aspx/tripupdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1655
+    mdb_feed_id: mdb-41
+  - agency_id: THE_BUS
+    name: Merced County Transit (The Bus)
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://thebuslive.com/
+    auth:
+      type: none
+    feeds:
+    - name: merced-county-transit-the-bus-vehicles-1506
+      path: /gtfs-rt/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1506
+    - name: merced-county-transit-the-bus-alerts-1507
+      path: /gtfs-rt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1507
+    mdb_feed_id: mdb-86
+  - agency_id: RIVERSIDE_TRANSIT_AGENCY
+    name: Riverside Transit Agency
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://rtabus.com/
+    auth:
+      type: none
+    feeds:
+    - name: riverside-transit-agency-trips-1663
+      path: /gtfsrt/trips
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1663
+    - name: riverside-transit-agency-alerts-1664
+      path: /gtfsrt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1664
+    - name: riverside-transit-agency-vehicles-1665
+      path: /gtfsrt/vehicles
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1665
+    mdb_feed_id: mdb-98
+  - agency_id: BENTON_AREA_TRANSPORTATION
+    name: Benton Area Transportation
+    region: Oregon
+    timezone: America/Los_Angeles
+    base_url: http://gtfs-realtime.trilliumtransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: benton-area-transportation-alerts-1762
+      path: /gtfs-realtime/feed/benton-or-us/service_alerts.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1762
+    mdb_feed_id: mdb-126
+  - agency_id: VALLEY_REGIONAL_TRANSIT
+    name: Valley Regional Transit
+    region: Idaho
+    timezone: America/Boise
+    base_url: https://s3.amazonaws.com/
+    auth:
+      type: none
+    feeds:
+    - name: valley-regional-transit-alerts-2452
+      path: /etatransit.gtfs/valleyregionaltransit.etaspot.net/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2452
+    - name: valley-regional-transit-trips-2453
+      path: /etatransit.gtfs/valleyregionaltransit.etaspot.net/trip_updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2453
+    - name: valley-regional-transit-vehicles-2454
+      path: /etatransit.gtfs/valleyregionaltransit.etaspot.net/position_updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2454
+    mdb_feed_id: mdb-142
+  - agency_id: CAPITAL_METRO
+    name: Capital Metro
+    region: Texas
+    timezone: America/Chicago
+    base_url: https://data.texas.gov/
+    auth:
+      type: none
+    feeds:
+    - name: capital-metro-vehicles-1427
+      path: /download/eiei-9rpf/application%2Foctet-stream
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1427
+    - name: capital-metro-alerts-1428
+      path: /download/9zu9-jwr2/text%2Fplain
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1428
+    - name: capital-metro-trips-1429
+      path: /download/rmk2-acnw/application%2Foctet-stream
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1429
+    mdb_feed_id: mdb-150
+  - agency_id: DART
+    name: Des Moines Area Regional Transit Authority (DART)
+    region: Iowa
+    timezone: America/Chicago
+    base_url: https://www.ridedart.com/
+    auth:
+      type: none
+    feeds:
+    - name: des-moines-area-regional-transit-authority-dart-alerts-1769
+      path: /gtfs/real-time/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1769
+    - name: des-moines-area-regional-transit-authority-dart-trips-1770
+      path: /gtfs/real-time/trip-updates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1770
+    - name: des-moines-area-regional-transit-authority-dart-vehicles-1771
+      path: /gtfs/real-time/vehicle-positions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1771
+    mdb_feed_id: mdb-193
+  - agency_id: WASHINGTON_PARK_SHUTTLE
+    name: Washington Park Shuttle
+    region: Oregon
+    timezone: America/Los_Angeles
+    base_url: http://gtfs-realtime.trilliumtransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: washington-park-shuttle-alerts-1745
+      path: /gtfs-realtime/feed/washingtonparkshuttle-or-us/service_alerts.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1745
+    mdb_feed_id: mdb-254
+  - agency_id: C_TRAN
+    name: C-TRAN
+    region: Washington
+    timezone: America/Los_Angeles
+    base_url: http://gtfs-rt.c-tran.org/
+    auth:
+      type: none
+    feeds:
+    - name: c-tran-trips-1922
+      path: /gtfsrealtime/TripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1922
+    mdb_feed_id: mdb-258
+  - agency_id: INTERCITY_TRANSIT
+    name: Intercity Transit
+    region: Washington
+    timezone: America/Los_Angeles
+    base_url: https://its.rideralerts.com/
+    auth:
+      type: none
+    feeds:
+    - name: intercity-transit-vehicles-1537
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=VehiclePosition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1537
+    - name: intercity-transit-alerts-1538
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=Alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1538
+    - name: intercity-transit-trips-1539
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=TripUpdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1539
+    mdb_feed_id: mdb-266
+  - agency_id: COMMUNITY_TRANSIT
+    name: Community Transit
+    region: Washington
+    timezone: America/Los_Angeles
+    base_url: https://s3.amazonaws.com/
+    auth:
+      type: none
+    feeds:
+    - name: community-transit-vehicles-1448
+      path: /commtrans-realtime-prod/vehiclepositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1448
+    - name: community-transit-alerts-1449
+      path: /commtrans-realtime-prod/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1449
+    - name: community-transit-trips-1450
+      path: /commtrans-realtime-prod/tripupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1450
+    mdb_feed_id: mdb-287
+  - agency_id: DULUTH_TRANSIT
+    name: Duluth Transit
+    region: Minnesota
+    timezone: America/Chicago
+    base_url: https://duluthtransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: duluth-transit-vehicles-1461
+      path: /gtfsrt/Vehicle/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1461
+    - name: duluth-transit-alerts-1462
+      path: /gtfsrt/Alert/Alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1462
+    - name: duluth-transit-trips-1463
+      path: /gtfsrt/TripUpdate/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1463
+    mdb_feed_id: mdb-301
+  - agency_id: CINCINNATI_METRO
+    name: Cincinnati Metro
+    region: Ohio
+    timezone: America/New_York
+    base_url: https://tmgtfsprd.sorttrpcloud.com/
+    auth:
+      type: none
+    feeds:
+    - name: cincinnati-metro-trips-1488
+      path: /TMGTFSRealTimeWebService/tripupdate/tripupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1488
+    - name: cincinnati-metro-vehicles-1489
+      path: /TMGTFSRealTimeWebService/vehicle/vehiclepositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1489
+    - name: cincinnati-metro-alerts-1490
+      path: /TMGTFSRealTimeWebService/alert/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1490
+    mdb_feed_id: mdb-307
+  - agency_id: LYNX
+    name: Central Florida Regional Transit Authority (LYNX)
+    region: Florida
+    timezone: America/New_York
+    base_url: http://gtfsrt.golynx.com/
+    auth:
+      type: none
+    feeds:
+    - name: central-florida-regional-transit-authority-lynx-vehicles-1766
+      path: /gtfsrt/GTFS_VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1766
+    - name: central-florida-regional-transit-authority-lynx-trips-1767
+      path: /gtfsrt/GTFS_TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1767
+    - name: central-florida-regional-transit-authority-lynx-alerts-1768
+      path: /gtfsrt/GTFS_ServiceAlerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1768
+    mdb_feed_id: mdb-347
+  - agency_id: VOTRAN
+    name: Votran
+    region: Florida
+    timezone: America/New_York
+    base_url: http://realtimevotran.availtec.com/
+    auth:
+      type: none
+    feeds:
+    - name: votran-vehicles-1740
+      path: /infopoint/GTFS-Realtime.ashx?&Type=VehiclePosition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1740
+    - name: votran-trips-1741
+      path: /infopoint/GTFS-Realtime.ashx?&Type=TripUpdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1741
+    mdb_feed_id: mdb-349
+  - agency_id: CHARLESTON_AREA_REGIONAL_TRANSPORTATION_AUTHORITY
+    name: Charleston Area Regional Transportation Authority
+    region: South Carolina
+    timezone: America/New_York
+    base_url: http://gtfs-realtime.trilliumtransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: charleston-area-regional-transportation-authority-alerts-1736
+      path: /gtfs-realtime/feed/carta-sc-us/service_alerts.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1736
+    mdb_feed_id: mdb-352
+  - agency_id: NASHVILLE_MTA_WEGO_PUBLIC_TRANSIT
+    name: Nashville MTA WeGo Public Transit
+    region: Tennessee
+    timezone: America/Chicago
+    base_url: http://transitdata.nashvillemta.org/
+    auth:
+      type: none
+    feeds:
+    - name: nashville-mta-wego-public-transit-trips-1620
+      path: /TMGTFSRealTimeWebService/tripupdate/tripupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1620
+    - name: nashville-mta-wego-public-transit-alerts-1621
+      path: /TMGTFSRealTimeWebService/alert/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1621
+    - name: nashville-mta-wego-public-transit-vehicles-1622
+      path: /TMGTFSRealTimeWebService/vehicle/vehiclepositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1622
+    mdb_feed_id: mdb-360
+  - agency_id: SMTD
+    name: Springfield Mass Transit District (SMTD)
+    region: Illinois
+    timezone: America/Chicago
+    base_url: http://ride.smtd.org/
+    auth:
+      type: none
+    feeds:
+    - name: springfield-mass-transit-district-smtd-alerts-1779
+      path: /gtfsrt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1779
+    - name: springfield-mass-transit-district-smtd-trips-1780
+      path: /gtfsrt/trips
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1780
+    - name: springfield-mass-transit-district-smtd-vehicles-1781
+      path: /gtfsrt/vehicles
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1781
+    mdb_feed_id: mdb-385
+  - agency_id: METRO_TRANSIT_CITY_OF_MADISON
+    name: Metro Transit - City of Madison
+    region: Wisconsin
+    timezone: America/Chicago
+    base_url: https://metromap.cityofmadison.com/
+    auth:
+      type: none
+    feeds:
+    - name: metro-transit-city-of-madison-alerts-2095
+      path: /gtfsrt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2095
+    - name: metro-transit-city-of-madison-trips-2096
+      path: /gtfsrt/trips
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2096
+    - name: metro-transit-city-of-madison-vehicles-2097
+      path: /gtfsrt/vehicles
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2097
+    mdb_feed_id: mdb-394
+  - agency_id: CAPITAL_AREA_TRANSPORTATION_AUTHORITY
+    name: Capital Area Transportation Authority
+    region: Michigan
+    timezone: America/Detroit
+    base_url: http://developers.cata.org/
+    auth:
+      type: none
+    feeds:
+    - name: capital-area-transportation-authority-vehicles-1424
+      path: /gtfsrt/vehicle/vehiclepositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1424
+    - name: capital-area-transportation-authority-alerts-1425
+      path: /gtfsrt/alert/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1425
+    - name: capital-area-transportation-authority-trips-1426
+      path: /gtfsrt/tripupdate/tripupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1426
+    mdb_feed_id: mdb-402
+  - agency_id: CENTRAL_OHIO_TRANSIT_AUTHORITY
+    name: Central Ohio Transit Authority
+    region: Ohio
+    timezone: America/New_York
+    base_url: http://realtime.cota.com/
+    auth:
+      type: none
+    feeds:
+    - name: central-ohio-transit-authority-vehicles-1430
+      path: /TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1430
+    - name: central-ohio-transit-authority-alerts-1431
+      path: /TMGTFSRealTimeWebService/Alert/Alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1431
+    - name: central-ohio-transit-authority-trips-1432
+      path: /TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1432
+    mdb_feed_id: mdb-404
+  - agency_id: MBTA
+    name: Massachusetts Bay Transportation Authority (MBTA)
+    region: Massachusetts
+    timezone: America/New_York
+    base_url: https://cdn.mbta.com/
+    auth:
+      type: none
+    feeds:
+    - name: massachusetts-bay-transportation-authority-mbta-vehicles-1602
+      path: /realtime/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1602
+    - name: massachusetts-bay-transportation-authority-mbta-alerts-1603
+      path: /realtime/Alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1603
+    - name: massachusetts-bay-transportation-authority-mbta-trips-1604
+      path: /realtime/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1604
+    mdb_feed_id: mdb-437
+  - agency_id: MARYLAND_TRANSIT_ADMINISTRATION
+    name: Maryland Transit Administration
+    region: Maryland
+    timezone: America/New_York
+    base_url: https://mdotmta-gtfs-rt.s3.amazonaws.com/
+    auth:
+      type: none
+    feeds:
+    - name: maryland-transit-administration-vehicles-trips-1619
+      path: /MARC+RT/marc.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1619
+    mdb_feed_id: mdb-468
+  - agency_id: ARLINGTON_TRANSIT
+    name: Arlington Transit
+    region: Virginia
+    timezone: America/New_York
+    base_url: https://realtime.arlingtontransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: arlington-transit-trips-1372
+      path: /gtfsrt/trips
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1372
+    - name: arlington-transit-vehicles-1790
+      path: /gtfsrt/vehicles
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1790
+    mdb_feed_id: mdb-485
+  - agency_id: MTA_507
+    name: Metropolitan Transit Authority (MTA)
+    region: New York
+    timezone: America/New_York
+    base_url: https://api-endpoint.mta.info/
+    auth:
+      type: none
+    feeds:
+    - name: metropolitan-transit-authority-mta-vehicles-trips-1624
+      path: /Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1624
+    - name: metropolitan-transit-authority-mta-alerts-1625
+      path: /Dataservice/mtagtfsfeeds/camsys%2Flirr-alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1625
+    mdb_feed_id: mdb-507
+  - agency_id: MTA_510
+    name: Metropolitan Transit Authority (MTA) (mdb-510)
+    region: New York
+    timezone: America/New_York
+    base_url: https://api-endpoint.mta.info/
+    auth:
+      type: none
+    feeds:
+    - name: metropolitan-transit-authority-mta-alerts-1628
+      path: /Dataservice/mtagtfsfeeds/camsys%2Fbus-alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1628
+    mdb_feed_id: mdb-510
+  - agency_id: NYC_FERRY
+    name: NYC Ferry
+    region: New York
+    timezone: America/New_York
+    base_url: http://nycferry.connexionz.net/
+    auth:
+      type: none
+    feeds:
+    - name: nyc-ferry-trips-1638
+      path: /rtt/public/utility/gtfsrealtime.aspx/tripupdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1638
+    - name: nyc-ferry-alerts-1639
+      path: /rtt/public/utility/gtfsrealtime.aspx/alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1639
+    mdb_feed_id: mdb-515
+  - agency_id: MTA_524
+    name: Metropolitan Transit Authority (MTA) (mdb-524)
+    region: New York
+    timezone: America/New_York
+    base_url: https://api-endpoint.mta.info/
+    auth:
+      type: none
+    feeds:
+    - name: metropolitan-transit-authority-mta-alerts-1626
+      path: /Dataservice/mtagtfsfeeds/camsys%2Fmnr-alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1626
+    - name: metropolitan-transit-authority-mta-trips-1627
+      path: /Dataservice/mtagtfsfeeds/mnr%2Fgtfs-mnr
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1627
+    mdb_feed_id: mdb-524
+  - agency_id: RGRTA
+    name: Rochester-Genesee Regional Transportation Authority (RGRTA)
+    region: New York
+    timezone: America/New_York
+    base_url: https://api.rgrta.com/
+    auth:
+      type: none
+    feeds:
+    - name: rochester-genesee-regional-transportation-authority-rgrta-vehicles-1775
+      path: /rtgvehicles?key=00e2dbf6b15742febb37d0a1d7d3acd5
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1775
+    mdb_feed_id: mdb-533
+  - agency_id: TCAT
+    name: Tompkins Consolidated Area Transit (TCAT)
+    region: New York
+    timezone: America/New_York
+    base_url: https://realtimetcatbus.availtec.com/
+    auth:
+      type: none
+    feeds:
+    - name: tompkins-consolidated-area-transit-tcat-trips-1647
+      path: /InfoPoint/GTFS-Realtime.ashx?&Type=TripUpdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1647
+    - name: tompkins-consolidated-area-transit-tcat-alerts-1648
+      path: /InfoPoint/GTFS-Realtime.ashx?&Type=Alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1648
+    - name: tompkins-consolidated-area-transit-tcat-vehicles-1649
+      path: /InfoPoint/GTFS-Realtime.ashx?&Type=VehiclePosition&serverid=0
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1649
+    mdb_feed_id: mdb-535
+  - agency_id: MIDDLETOWN_AREA_TRANSIT
+    name: Middletown Area Transit
+    region: Connecticut
+    timezone: America/New_York
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: middletown-area-transit-trips-vehicles-2271
+      path: /9town/passioTransit/gtfs/realtime
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2271
+    mdb_feed_id: mdb-551
+  - agency_id: MADERA_COUNTY_CONNECTION
+    name: Madera County Connection
+    region: California
+    timezone: America/Los_Angeles
+    base_url: http://gtfs-realtime.trilliumtransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: madera-county-connection-alerts-1757
+      path: /gtfs-realtime/feed/maderactc-ca-us/service_alerts.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1757
+    mdb_feed_id: mdb-572
+  - agency_id: SOUTH_BEND_PUBLIC_TRANSPORTATION_CORPORATION
+    name: South Bend Public Transportation Corporation
+    region: Indiana
+    timezone: America/Indiana/Indianapolis
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: south-bend-public-transportation-corporation-alerts-3075
+      path: /transpo/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3075
+    - name: south-bend-public-transportation-corporation-trips-3076
+      path: /transpo/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3076
+    - name: south-bend-public-transportation-corporation-vehicles-3077
+      path: /transpo/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3077
+    mdb_feed_id: mdb-585
+  - agency_id: RHODE_ISLAND_PUBLIC_TRANSIT_AUTHORITY
+    name: Rhode Island Public Transit Authority
+    region: Rhode Island
+    timezone: America/New_York
+    base_url: http://realtime.ripta.com:81/
+    auth:
+      type: none
+    feeds:
+    - name: rhode-island-public-transit-authority-trips-1660
+      path: /api/tripupdates?format=gtfs.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1660
+    - name: rhode-island-public-transit-authority-alerts-1661
+      path: /api/servicealerts?format=gtfs.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1661
+    - name: rhode-island-public-transit-authority-vehicles-1662
+      path: /api/vehiclepositions?format=gtfs.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1662
+    mdb_feed_id: mdb-624
+  - agency_id: BEACH_CITIES_TRANSIT
+    name: Beach Cities Transit
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://redondobeachbct.com/
+    auth:
+      type: none
+    feeds:
+    - name: beach-cities-transit-trips-1564
+      path: /gtfs-rt/tripupdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1564
+    - name: beach-cities-transit-alerts-1565
+      path: /gtfs-rt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1565
+    - name: beach-cities-transit-vehicles-1566
+      path: /gtfs-rt/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1566
+    mdb_feed_id: mdb-803
+  - agency_id: COMMERCE_MUNICIPAL_BUS_LINES
+    name: Commerce Municipal Bus Lines
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://citycommbus.com/
+    auth:
+      type: none
+    feeds:
+    - name: commerce-municipal-bus-lines-vehicles-1794
+      path: /gtfs-rt/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1794
+    - name: commerce-municipal-bus-lines-trips-1795
+      path: /gtfs-rt/tripupdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1795
+    - name: commerce-municipal-bus-lines-alerts-1796
+      path: /gtfs-rt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1796
+    mdb_feed_id: mdb-994
+  - agency_id: SPORTRAN
+    name: Shreveport Area Transit System (SporTran)
+    region: Louisiana
+    timezone: America/Chicago
+    base_url: https://sportranbus.com/
+    auth:
+      type: none
+    feeds:
+    - name: shreveport-area-transit-system-sportran-trips-1473
+      path: /gtfs-rt/tripupdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1473
+    - name: shreveport-area-transit-system-sportran-vehicles-1474
+      path: /gtfs-rt/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1474
+    - name: shreveport-area-transit-system-sportran-alerts-1475
+      path: /gtfs-rt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1475
+    mdb_feed_id: mdb-1060
+  - agency_id: KING_COUNTY_METRO
+    name: King County Metro
+    region: Washington
+    timezone: America/Los_Angeles
+    base_url: https://s3.amazonaws.com/
+    auth:
+      type: none
+    feeds:
+    - name: king-county-metro-trips-1540
+      path: /kcm-alerts-realtime-prod/tripupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1540
+    - name: king-county-metro-alerts-1541
+      path: /kcm-alerts-realtime-prod/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1541
+    - name: king-county-metro-vehicles-1542
+      path: /kcm-alerts-realtime-prod/vehiclepositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1542
+    mdb_feed_id: mdb-1330
+  - agency_id: STANRTA
+    name: Stanislaus Regional Transit Authority (StanRTA)
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://max.availtec.com/
+    auth:
+      type: none
+    feeds:
+    - name: stanislaus-regional-transit-authority-stanrta-trips-1613
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=Tripupdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1613
+    - name: stanislaus-regional-transit-authority-stanrta-vehicles-1614
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=VehiclePosition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1614
+    - name: stanislaus-regional-transit-authority-stanrta-alerts-1615
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=Alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1615
+    mdb_feed_id: mdb-1332
+  - agency_id: TOWSON_LOOP
+    name: Towson Loop
+    region: Maryland
+    timezone: America/New_York
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: towson-loop-trips-1785
+      path: /towson/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1785
+    - name: towson-loop-alerts-1786
+      path: /towson/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1786
+    - name: towson-loop-vehicles-1787
+      path: /towson/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1787
+    mdb_feed_id: mdb-1784
+  - agency_id: MOUNTAIN_LINE_TRANSIT
+    name: Mountain Line Transit
+    region: Arizona
+    timezone: America/Phoenix
+    base_url: https://mountainline.syncromatics.com/
+    auth:
+      type: none
+    feeds:
+    - name: mountain-line-transit-vehicles-1980
+      path: /gtfs-rt/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1980
+    - name: mountain-line-transit-trips-1981
+      path: /gtfs-rt/tripupdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1981
+    - name: mountain-line-transit-alerts-1982
+      path: /gtfs-rt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1982
+    mdb_feed_id: mdb-1979
+  - agency_id: MVGO
+    name: Mountain View Transportation Management Association (MVgo)
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://mtma.tripshot.com/
+    auth:
+      type: none
+    feeds:
+    - name: mountain-view-transportation-management-association-mvgo-trips-2109
+      path: /v1/gtfs/realtime/feed/mvgo?types=TripUpdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2109
+    - name: mountain-view-transportation-management-association-mvgo-vehicles-2110
+      path: /v1/gtfs/realtime/feed/mvgo?types=VehiclePosition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2110
+    - name: mountain-view-transportation-management-association-mvgo-alerts-2111
+      path: /v1/gtfs/realtime/feed/mvgo?types=Alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2111
+    mdb_feed_id: mdb-2025
+  - agency_id: BEN_FRANKLIN_TRANSIT
+    name: Ben Franklin Transit
+    region: Washington
+    timezone: America/Los_Angeles
+    base_url: https://myride.bft.org/
+    auth:
+      type: none
+    feeds:
+    - name: ben-franklin-transit-alerts-2123
+      path: /Realtime/GTFS_ServiceAlerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2123
+    - name: ben-franklin-transit-trips-2124
+      path: /Realtime/GTFS_TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2124
+    - name: ben-franklin-transit-vehicles-2125
+      path: /Realtime/GTFS_VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2125
+    mdb_feed_id: mdb-2122
+  - agency_id: MCTS
+    name: Milwaukee County Transit System (MCTS)
+    region: Wisconsin
+    timezone: America/Chicago
+    base_url: https://realtime.ridemcts.com/
+    auth:
+      type: none
+    feeds:
+    - name: milwaukee-county-transit-system-mcts-trips-2128
+      path: /gtfsrt/trips
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2128
+    - name: milwaukee-county-transit-system-mcts-alerts-2129
+      path: /gtfsrt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2129
+    - name: milwaukee-county-transit-system-mcts-vehicles-2130
+      path: /gtfsrt/vehicles
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2130
+    mdb_feed_id: mdb-2127
+  - agency_id: MONTEBELLO_BUS_LINES
+    name: Montebello Bus Lines
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://mbl.rideralerts.com/
+    auth:
+      type: none
+    feeds:
+    - name: montebello-bus-lines-alerts-2217
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=Alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2217
+    - name: montebello-bus-lines-vehicles-2218
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=VehiclePosition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2218
+    - name: montebello-bus-lines-trips-2219
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=TripUpdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2219
+    mdb_feed_id: mdb-2201
+  - agency_id: SPIRIT_BUS
+    name: Spirit Bus
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: spirit-bus-trips-2220
+      path: /montereyp/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2220
+    - name: spirit-bus-vehicles-2221
+      path: /montereyp/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2221
+    - name: spirit-bus-alerts-2222
+      path: /montereyp/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2222
+    mdb_feed_id: mdb-2202
+  - agency_id: EMERY_GO_ROUND
+    name: Emery Go-Round
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://emerygoround.tripshot.com/
+    auth:
+      type: none
+    feeds:
+    - name: emery-go-round-alerts-2225
+      path: /v1/gtfs/realtime/feed/egr?types=Alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2225
+    - name: emery-go-round-trips-2226
+      path: /v1/gtfs/realtime/feed/egr?types=TripUpdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2226
+    - name: emery-go-round-vehicles-2227
+      path: /v1/gtfs/realtime/feed/egr?types=VehiclePosition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2227
+    mdb_feed_id: mdb-2224
+  - agency_id: VIA_MOBILITY
+    name: Via Mobility
+    region: Colorado
+    timezone: America/Denver
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: via-mobility-alerts-2396
+      path: /viaboulder/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2396
+    - name: via-mobility-trips-2397
+      path: /viaboulder/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2397
+    - name: via-mobility-vehicles-2398
+      path: /viaboulder/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2398
+    mdb_feed_id: mdb-2395
+  - agency_id: SCMTD
+    name: Santa Cruz Metro (SCMTD)
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://rt.scmetro.org/
+    auth:
+      type: none
+    feeds:
+    - name: santa-cruz-metro-scmtd-vehicles-1910
+      path: /gtfsrt/vehicles
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1910
+    - name: santa-cruz-metro-scmtd-trips-1911
+      path: /gtfsrt/trips
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1911
+    - name: santa-cruz-metro-scmtd-alerts-1912
+      path: /gtfsrt/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1912
+    mdb_feed_id: mdb-2425
+  - agency_id: FREDERICK_COUNTY_TRANSIT
+    name: Frederick County TransIT
+    region: Maryland
+    timezone: America/New_York
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: frederick-county-transit-trips-3069
+      path: /frederick/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3069
+    - name: frederick-county-transit-vehicles-3070
+      path: /frederick/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3070
+    mdb_feed_id: mdb-2432
+  - agency_id: GREATER_PORTLAND_METRO_BUS
+    name: Greater Portland Metro Bus
+    region: Maine
+    timezone: America/New_York
+    base_url: https://gtfsrt.gptd.cadavl.com/
+    auth:
+      type: none
+    feeds:
+    - name: greater-portland-metro-bus-alerts-2643
+      path: /ProfilGtfsRt2_0RSProducer-GPTD/Alert.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2643
+    - name: greater-portland-metro-bus-vehicles-2645
+      path: /ProfilGtfsRt2_0RSProducer-GPTD/VehiclePosition.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2645
+    mdb_feed_id: mdb-2642
+  - agency_id: TARC
+    name: Transit Authority of River City (TARC)
+    region: Kentucky
+    timezone: America/New_York
+    base_url: https://tarc.rideralerts.com/
+    auth:
+      type: none
+    feeds:
+    - name: transit-authority-of-river-city-tarc-alerts-2663
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=Alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2663
+    - name: transit-authority-of-river-city-tarc-trips-2664
+      path: /InfoPoint/GTFS-Realtime.ashx?Type=TripUpdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2664
+    - name: transit-authority-of-river-city-tarc-vehicles-2665
+      path: /InfoPoint/GTFS-realtime.ashx?Type=VehiclePosition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2665
+    mdb_feed_id: mdb-2662
+  - agency_id: SMART
+    name: South Metro Area Regional Transit (SMART)
+    region: Oregon
+    timezone: America/Los_Angeles
+    base_url: https://mysmartbus.com/
+    auth:
+      type: none
+    feeds:
+    - name: south-metro-area-regional-transit-smart-trips-2697
+      path: /gtfs-rt/tripupdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2697
+    - name: south-metro-area-regional-transit-smart-vehicles-2707
+      path: /gtfs-rt/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2707
+    mdb_feed_id: mdb-2706
+  - agency_id: SANDY_AREA_METRO
+    name: Sandy Area Metro
+    region: Oregon
+    timezone: America/Los_Angeles
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: sandy-area-metro-alerts-2745
+      path: /sandyor/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2745
+    - name: sandy-area-metro-trips-2746
+      path: /sandyor/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2746
+    - name: sandy-area-metro-vehicles-2747
+      path: /sandyor/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2747
+    mdb_feed_id: mdb-2739
+  - agency_id: CLACKAMAS_COUNTY
+    name: ClackCo Connects (Clackamas County)
+    region: Oregon
+    timezone: America/Los_Angeles
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: clackco-connects-clackamas-county-alerts-2742
+      path: /clackamas/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2742
+    - name: clackco-connects-clackamas-county-trips-2743
+      path: /clackamas/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2743
+    - name: clackco-connects-clackamas-county-vehicles-2744
+      path: /clackamas/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2744
+    mdb_feed_id: mdb-2740
+  - agency_id: CLOVIS_TRANSIT
+    name: Clovis Transit
+    region: California
+    timezone: America/Los_Angeles
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: clovis-transit-alerts-2895
+      path: /clovis/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2895
+    - name: clovis-transit-trips-2896
+      path: /clovis/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2896
+    - name: clovis-transit-vehicles-2897
+      path: /clovis/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2897
+    mdb_feed_id: mdb-2894
+  - agency_id: CECIL_TRANSIT
+    name: Cecil Transit
+    region: Maryland
+    timezone: America/New_York
+    base_url: https://passio3.com/
+    auth:
+      type: none
+    feeds:
+    - name: cecil-transit-alerts-3078
+      path: /cecil/passioTransit/gtfs/realtime/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3078
+    - name: cecil-transit-trips-3079
+      path: /cecil/passioTransit/gtfs/realtime/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3079
+    - name: cecil-transit-vehicles-3080
+      path: /cecil/passioTransit/gtfs/realtime/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3080
+    mdb_feed_id: mdb-3034
+  - agency_id: EVERETT_TRANSIT
+    name: Everett Transit
+    region: Washington
+    timezone: America/Los_Angeles
+    base_url: https://everett.mapstrat.com/
+    auth:
+      type: none
+    feeds:
+    - name: everett-transit-alerts-3072
+      path: /current/gtfrealtime_ServiceAlerts.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3072
+    - name: everett-transit-trips-3073
+      path: /current/gtfrealtime_TripUpdates.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3073
+    - name: everett-transit-vehicles-3074
+      path: /current/gtfrealtime_VehiclePositions.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3074
+    mdb_feed_id: mdb-3038
+  - agency_id: NY_WATERWAY
+    name: NY Waterway
+    region: New York
+    timezone: America/New_York
+    base_url: https://nywaterway.connexionz.net/
+    auth:
+      type: none
+    feeds:
+    - name: ny-waterway-alerts-3197
+      path: /rtt/public/utility/gtfsrealtime.aspx/alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3197
+    - name: ny-waterway-trips-3198
+      path: /rtt/public/utility/gtfsrealtime.aspx/tripupdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3198
+    - name: ny-waterway-vehicles-3199
+      path: /rtt/public/utility/gtfsrealtime.aspx/vehicleposition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3199
+    - name: ny-waterway-trips-3200
+      path: /rtt/public/utility/gtfsrealtime.aspx/tripupdate2
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3200
+    mdb_feed_id: mdb-3192
+  - agency_id: EL_PASO_TRANSPORTATION_AUTHORITY
+    name: El Paso Transportation Authority
+    region: Texas
+    timezone: America/Denver
+    base_url: https://data.peaktransit.com/
+    auth:
+      type: none
+    feeds:
+    - name: el-paso-transportation-authority-trips-3203
+      path: /gtfsrt/193/TripUpdate.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3203
+    - name: el-paso-transportation-authority-vehicles-3204
+      path: /gtfsrt/193/VehiclePosition.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3204
+    mdb_feed_id: mdb-3202
