@@ -97,6 +97,67 @@ def test_ship_one_hot_upload(shipper):
     )
 
 
+# --- prune ---------------------------------------------------------------- #
+def _raw_dir(shipper, feed, day):
+    return (
+        shipper.landing_dir
+        / feed
+        / "raw"
+        / f"year={day.year}"
+        / f"month={day.month}"
+        / f"day={day.day}"
+    )
+
+
+def test_prune_deletes_shipped_old_day(shipper):
+    # DAY (2026-05-01) is well past keep_days. Mark its cold tarball as already in S3.
+    shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+
+    result = shipper.prune(keep_days=3)
+
+    assert result == {"deleted": 1, "skipped": 0}
+    assert not _raw_dir(shipper, FEED, DAY).exists()
+    meta_day = (
+        shipper.landing_dir
+        / FEED
+        / "metadata"
+        / f"year={DAY.year}"
+        / f"month={DAY.month}"
+        / f"day={DAY.day}"
+    )
+    assert not meta_day.exists(), "metadata day-partition not pruned"
+
+
+def test_prune_skips_unshipped_day(shipper):
+    # Cold tarball NOT seeded -> prune must NOT delete (crash/loss safety).
+    result = shipper.prune(keep_days=3)
+
+    assert result == {"deleted": 0, "skipped": 1}
+    assert _raw_dir(shipper, FEED, DAY).exists(), "deleted raw that wasn't shipped!"
+
+
+def test_prune_dry_run_touches_nothing(shipper):
+    shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+
+    result = shipper.prune(keep_days=3, dry_run=True)
+
+    assert result == {"deleted": 1, "skipped": 0}  # would-be count
+    assert _raw_dir(shipper, FEED, DAY).exists(), "dry-run deleted from disk"
+
+
+def test_prune_keeps_recent_days(shipper):
+    # A partition within keep_days must survive even when shipped.
+    today = datetime.now(tz=timezone.utc).date()
+    recent = _raw_dir(shipper, FEED, today)
+    recent.mkdir(parents=True)
+    (recent / "1.bin").write_bytes(b"x")
+    shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, today))
+
+    shipper.prune(keep_days=3)
+
+    assert recent.exists(), "pruned a day inside the keep_days buffer"
+
+
 def test_ship_one_skips_when_keys_exist(dirs):
     uploader = FakeUploader()
     shipper = Shipper(

@@ -1,7 +1,8 @@
+import shutil
 import tarfile
 import tempfile
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -166,3 +167,75 @@ class Shipper:
             if day is not None and partition_day != day:
                 continue
             yield feed_name, partition_day
+
+    def _discover_partitions(self) -> set[tuple[str, date]]:
+        """Every (feed, day) raw/metadata day-partition currently on disk."""
+        found: set[tuple[str, date]] = set()
+        for sub in ("raw", "metadata"):
+            for p in self.landing_dir.glob(f"*/{sub}/year=*/month=*/day=*"):
+                rel = p.relative_to(self.landing_dir).parts
+                try:
+                    found.add(
+                        (
+                            rel[0],
+                            date(
+                                int(rel[2].removeprefix("year=")),
+                                int(rel[3].removeprefix("month=")),
+                                int(rel[4].removeprefix("day=")),
+                            ),
+                        )
+                    )
+                except (ValueError, IndexError):
+                    continue
+        return found
+
+    def prune(
+        self, *, keep_days: int = 3, day: date | None = None, dry_run: bool = False
+    ) -> dict[str, int]:
+        """Delete landing-zone raw+metadata day-partitions older than keep_days.
+
+        SAFETY: a day is deleted only if its cold tarball is confirmed in S3
+        (same exists() check ship uses). A day not yet shipped is skipped, never
+        deleted — so this is crash-safe and idempotent. `keep_days` retains that
+        many recent days as a buffer for re-rollups; `day` restricts to one day;
+        `dry_run` logs what it would delete without touching disk.
+        """
+        cutoff = datetime.now(tz=timezone.utc).date() - timedelta(days=keep_days)
+        deleted = skipped = 0
+        for feed_name, partition_day in sorted(self._discover_partitions()):
+            if partition_day >= cutoff or (day is not None and partition_day != day):
+                continue
+            key = self._cold_key(feed_name, partition_day)
+            if not self.uploader.exists(self.cold_bucket, key):
+                logger.warning(
+                    "prune skip %s %s: cold tarball %s not in s3 (not shipped yet)",
+                    feed_name,
+                    partition_day,
+                    key,
+                )
+                self.telemetry.incr("prune.skipped_unshipped", tags={"feed": feed_name})
+                skipped += 1
+                continue
+            for sub in ("raw", "metadata"):
+                d = (
+                    self.landing_dir
+                    / feed_name
+                    / sub
+                    / f"year={partition_day.year}"
+                    / f"month={partition_day.month}"
+                    / f"day={partition_day.day}"
+                )
+                if d.exists():
+                    logger.info("%sprune %s", "[dry-run] " if dry_run else "", d)
+                    if not dry_run:
+                        shutil.rmtree(d)
+            if not dry_run:
+                self.telemetry.incr("prune.deleted", tags={"feed": feed_name})
+            deleted += 1
+        logger.info(
+            "prune: %d day-partition(s) %s, %d skipped (unshipped)",
+            deleted,
+            "would be deleted" if dry_run else "deleted",
+            skipped,
+        )
+        return {"deleted": deleted, "skipped": skipped}
