@@ -77,6 +77,12 @@ services:
     # refault-storm outage). Kept below total RAM so the real-time poller stays resident.
     # Tune after measuring a real rollup's peak via `docker stats`.
     mem_limit: 2560m
+    # Cap the daily rollup+ship loop at 1.5 of the box's 2 vCPUs. Without this the
+    # batch (gzip tarball + parquet rollup, both CPU-bound) pegged BOTH cores for hours
+    # — load hit 8 on 2 cores — starving the real-time pollers. The pollers need ~0.1
+    # core combined, so reserving 0.5 here keeps ingest responsive during the batch
+    # window. The batch runs once daily with 24h of slack, so the slowdown is free.
+    cpus: 1.5
     environment:
     - PYTHONUNBUFFERED=1
     # 2 (not 4) concurrent rollup processes: peak RAM scales with how many big feeds

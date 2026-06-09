@@ -228,7 +228,7 @@ make shard-dirs
 sudo chown -R 1000:1000 poll_state/   # skip if your deploy user is already uid 1000
 
 docker compose -f compose.prod.yml pull   # pulls the image CI pushed
-docker compose -f compose.prod.yml up -d
+docker compose -f compose.prod.yml up -d --remove-orphans   # --remove-orphans drops renamed/old services (e.g. the pre-shard `app`)
 docker compose -f compose.prod.yml logs -f app-shard-0   # (and app-shard-1)
 ```
 

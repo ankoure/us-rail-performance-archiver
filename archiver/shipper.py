@@ -35,7 +35,7 @@ class Shipper:
         self.hot_prefix = hot_prefix
         self.telemetry = telemetry or NoOpTelemetry()
 
-    def run(self, feed=None, day=None, *, force=False, hot_only=False, workers=8):
+    def run(self, feed=None, day=None, *, force=False, hot_only=False, workers=4):
         pairs = list(self._discover(feed, day))
         if not pairs:
             return
@@ -115,7 +115,11 @@ class Shipper:
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tar_path = Path(tmp.name)
         try:
-            with tarfile.open(tar_path, "w:gz") as tar:
+            # compresslevel=6 (not tarfile's default 9): on the 2-vCPU box the daily
+            # ship saturated both cores at gzip-9, the slowest level. Level 6 is ~2-3x
+            # faster for a few % larger tarball — negligible in DEEP_ARCHIVE, where these
+            # cold tarballs land. CPU is the box's scarce resource, storage is not.
+            with tarfile.open(tar_path, "w:gz", compresslevel=6) as tar:
                 for sub in ("raw", "metadata"):
                     src = (
                         self.landing_dir
