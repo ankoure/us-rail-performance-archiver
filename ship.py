@@ -27,6 +27,12 @@ def parse_args():
         "Use after re-rolling parquets when the raw bins haven't changed, to avoid "
         "DEEP_ARCHIVE early-deletion fees.",
     )
+    parser.add_argument(
+        "-c",
+        "--config",
+        default="config/feeds.yaml",
+        help="Path to the feeds config YAML (default: config/feeds.yaml)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
 
@@ -34,7 +40,7 @@ def parse_args():
 def main(args):
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
 
-    config = load_config("config/feeds.yaml")
+    config = load_config(args.config)
     shipper = build_shipper(config)
     shipper.run(feed=args.feed, day=args.day, force=args.force, hot_only=args.hot_only)
 
