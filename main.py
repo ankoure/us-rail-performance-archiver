@@ -56,12 +56,19 @@ def parse_args():
         help="Total number of shards (default: 1 = no sharding)",
     )
 
+    parser.add_argument(
+        "-c",
+        "--config",
+        default="config/feeds.yaml",
+        help="Path to the feeds config YAML (default: config/feeds.yaml)",
+    )
+
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
 
 
 async def run(args):
-    config = load_config("config/feeds.yaml")
+    config = load_config(args.config)
     archiver = build_archiver(
         config, shard_index=args.shard_index, shard_count=args.shard_count
     )

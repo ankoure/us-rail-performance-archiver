@@ -11,6 +11,8 @@ from archiver.logger import logger
 import json
 from abc import abstractmethod
 
+from archiver.sink import Sink
+
 
 class BaseWriter(ABC):
     def __init__(self, base_dir: str) -> None:
@@ -177,59 +179,74 @@ class FrameReader:
 
 
 class BatchingWriter(BaseWriter):
-    def __init__(self, base_dir: str, window_seconds: int = 300) -> None:
+    def __init__(self, base_dir: str, sink: Sink, window_seconds: int = 300) -> None:
         super().__init__(base_dir)
         self._window_seconds = window_seconds
         self._buffer: dict[tuple[str, int], dict[str, bytes]] = {}
+        self._meta_buffer: dict[tuple[str, int], list[dict]] = {}
         self._lock = threading.Lock()
+        self._sink = sink
 
     def write(self, feed_name: str, response: FeedResponse) -> None:
-        self.append_metadata(feed_name, response)
+        self.append_metadata(feed_name, response)  # local daily jsonl — unchanged
 
-        payload = response.raw_payload()
-        if payload is None:
-            return
-
-        digest = response.content_digest()
         window = int(response.get_timestamp() // self._window_seconds)
         key = (feed_name, window)
+        row = response.to_metadata_row()
+        payload = response.raw_payload()
 
         with self._lock:
-            self._buffer.setdefault(key, {})[digest] = payload
+            self._meta_buffer.setdefault(key, []).append(
+                row
+            )  # EVERY poll, incl. 304/dup
+            if payload is not None:
+                self._buffer.setdefault(key, {})[response.content_digest()] = payload
 
     def flush_due(self, now: float) -> None:
         current = int(now // self._window_seconds)
-
-        with self._lock:
-            closed = {
-                k: self._buffer.pop(k) for k in list(self._buffer) if k[1] < current
-            }
-        self._write_buckets(closed)
+        self._flush(lambda window: window < current)  # closed = strictly older windows
 
     def flush_all(self) -> None:
+        self._flush(lambda window: True)  # shutdown: everything is "closed"
+
+    def _flush(self, is_closed) -> None:
+        # one lock acquisition → both buffers pop consistently; release before any I/O
         with self._lock:
-            closed = {
-                k: self._buffer.pop(k) for k in list(self._buffer)
-            }  # no window filter
-        self._write_buckets(closed)
+            bins = {
+                k: self._buffer.pop(k) for k in list(self._buffer) if is_closed(k[1])
+            }
+            metas = {
+                k: self._meta_buffer.pop(k)
+                for k in list(self._meta_buffer)
+                if is_closed(k[1])
+            }
+        self._write_buckets(bins, metas)
 
-    def _write_buckets(self, closed: dict) -> None:
-        for (feed, window), frames in closed.items():
-            buf = io.BytesIO()
-            writer = FrameWriter(buf)
-            for digest_hex, payload in frames.items():
-                writer.write_frame(payload, bytes.fromhex(digest_hex))
+    def _write_buckets(self, bins: dict, metas: dict) -> None:
+        # INVARIANT: metas.keys() ⊇ bins.keys() — every poll appends a metadata row
+        # (before the payload early-return), so any window with a payload also has
+        # metadata. All-304 windows are in metas but NOT bins. So iterate metas.
+        for key, rows in metas.items():
+            feed, window = key
+            if key in bins:
+                self._put_bin(feed, window, bins[key])  # bin FIRST...
+            self._put_metadata(feed, window, rows)  # ...then metadata
 
-            window_dt = datetime.fromtimestamp(
-                window * self._window_seconds, tz=timezone.utc
-            )
-            window_path = (
-                self.base_dir
-                / feed
-                / "raw"
-                / f"year={window_dt.year}"
-                / f"month={window_dt.month}"
-                / f"day={window_dt.day}"
-                / f"window={window * self._window_seconds}.bin"
-            )
-            self.write_bytes_atomic(window_path, buf.getvalue())
+    def _window_key(self, feed: str, window: int, kind: str, ext: str) -> str:
+        unix = window * self._window_seconds
+        dt = datetime.fromtimestamp(unix, tz=timezone.utc)
+        return (
+            f"{feed}/{kind}/year={dt.year}/month={dt.month}"
+            f"/day={dt.day}/window={unix}.{ext}"
+        )
+
+    def _put_bin(self, feed: str, window: int, frames: dict[str, bytes]) -> None:
+        buf = io.BytesIO()
+        fw = FrameWriter(buf)
+        for digest_hex, payload in frames.items():
+            fw.write_frame(payload, bytes.fromhex(digest_hex))
+        self._sink.put(self._window_key(feed, window, "raw", "bin"), buf.getvalue())
+
+    def _put_metadata(self, feed: str, window: int, rows: list[dict]) -> None:
+        body = "".join(json.dumps(r) + "\n" for r in rows).encode("utf-8")
+        self._sink.put(self._window_key(feed, window, "metadata", "jsonl"), body)

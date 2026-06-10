@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Protocol
+from typing import Iterator, Protocol
 from botocore.exceptions import ClientError
 
 
@@ -14,8 +14,20 @@ class Uploader(Protocol):
         local_path: Path,
         *,
         storage_class: str | None = None,
-    ) -> None:
-        pass
+    ) -> None: ...
+
+    def put_bytes(
+        self,
+        bucket: str,
+        key: str,
+        data: bytes,
+        *,
+        storage_class: str | None = None,
+        content_type: str | None = None,
+    ) -> None: ...
+
+    def list_keys(self, bucket: str, prefix: str) -> Iterator[str]: ...  # paginated
+    def get_bytes(self, bucket: str, key: str) -> bytes: ...
 
 
 class S3Uploader:
@@ -47,3 +59,31 @@ class S3Uploader:
         extra_args = {"StorageClass": storage_class} if storage_class else {}
         # upload_file handles multipart automatically; needs str not Path
         self.client.upload_file(str(local_path), bucket, key, ExtraArgs=extra_args)
+
+    def put_bytes(
+        self,
+        bucket: str,
+        key: str,
+        data: bytes,
+        *,
+        storage_class: str | None = None,
+        content_type: str | None = None,
+    ) -> None:
+        # put_object takes params directly (not ExtraArgs) and sends the body
+        # in a single request — no automatic multipart.
+        kwargs = {"Bucket": bucket, "Key": key, "Body": data}
+        if storage_class:
+            kwargs["StorageClass"] = storage_class
+        if content_type:
+            kwargs["ContentType"] = content_type
+        self.client.put_object(**kwargs)
+
+    def list_keys(self, bucket: str, prefix: str) -> Iterator[str]:
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                yield obj["Key"]
+
+    def get_bytes(self, bucket: str, key: str) -> bytes:
+        obj = self.client.get_object(Bucket=bucket, Key=key)
+        return obj["Body"].read()

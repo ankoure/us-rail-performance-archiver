@@ -1,10 +1,12 @@
 from contextlib import ExitStack, contextmanager
 import dataclasses
+import io
 import json
 import typing
 from dataclasses import asdict
 from pathlib import Path
 from typing import Iterator
+from archiver.source import Source
 import pyarrow as pa
 import pyarrow.json as paj
 import pyarrow.parquet as pq
@@ -56,11 +58,11 @@ class Rollup:
     def __init__(
         self,
         feeds: list[Feed],
-        landing_dir: Path,
+        source: Source,
         curated_dir: Path,
         telemetry: Telemetry | None = None,
     ) -> None:
-        self.landing_dir = landing_dir
+        self._source = source
         self.curated_dir = curated_dir
         self.feeds_by_name = {f.name: f for f in feeds}
         self.telemetry = telemetry or NoOpTelemetry()
@@ -97,42 +99,24 @@ class Rollup:
         """Yield (feed_name, day) for every metadata partition older than today UTC,
         optionally filtered to a single feed and/or day."""
         today = datetime.now(timezone.utc).date()
-        for metadata_dir in self.landing_dir.glob(f"*/{self._METADATA_KIND}"):
-            feed_name = metadata_dir.parent.name
-            if feed is not None and feed_name != feed:
+
+        for feed_name, partition_day in self._source.discover(feed, day):
+            if partition_day >= today:
                 continue
-            for jsonl_path in metadata_dir.rglob("data.jsonl"):
-                partitions = {
-                    part.split("=")[0]: int(part.split("=")[1])
-                    for part in jsonl_path.parts
-                    if "=" in part
-                }
-                partition_day = date(
-                    partitions["year"], partitions["month"], partitions["day"]
-                )
-                if partition_day >= today:
-                    continue
-                if day is not None and partition_day != day:
-                    continue
-                yield feed_name, partition_day
+            yield feed_name, partition_day
 
     def _rollup_metadata(
         self, feed_name: str, day: date, *, force: bool = False
     ) -> None:
-
-        root = self.landing_dir / feed_name / self._METADATA_KIND
-        metadata_path = (
-            root
-            / f"year={day.year}"
-            / f"month={day.month}"
-            / f"day={day.day}"
-            / "data.jsonl"
-        )
         out_path = self._curated_path(self._METADATA_KIND, feed_name, day)
         if not force and out_path.exists():
             return
+        data = self._source.read_metadata(feed_name, day)
+        if not data:
+            logger.warning("nothing to roll up for %s/%s", feed_name, day)
+            return
+        table = paj.read_json(io.BytesIO(data))
 
-        table = paj.read_json(input_file=metadata_path)
         if table.num_rows > 0:
             self._write_parquet(table, out_path)
         else:
@@ -153,17 +137,16 @@ class Rollup:
             if not writers:
                 return
 
-            bin_files = (self.landing_dir / feed_name / "raw").glob(
-                f"year={day.year}/month={day.month}/day={day.day}/*.bin"
-            )
             digest_ts = self._digest_timestamps(
                 feed_name, day
             )  # once, before the file loop
             count = 0
-            for bin_file in bin_files:
+            for name, blob in self._source.iter_bins(feed_name, day):
                 count += 1
                 try:
-                    for payload, fetched_at in self._iter_payloads(bin_file, digest_ts):
+                    for payload, fetched_at in self._iter_payloads(
+                        name, blob, digest_ts
+                    ):
                         parsed = feed.parser.parse(payload)
                         rows = feed.decoder.decode(parsed, fetched_at=fetched_at)
                         for row in rows:
@@ -178,7 +161,7 @@ class Rollup:
                             append(asdict(row))
 
                 except (ParseFailure, DecodeFailure):
-                    logger.warning("skipping malformed .bin: %s", bin_file)
+                    logger.warning("skipping malformed .bin: %s", name)
                     continue
 
             if count == 0:
@@ -197,59 +180,50 @@ class Rollup:
 
         Returns {} if the day's metadata file is absent (e.g. a raw-only partition).
         """
-        metadata_path = (
-            self.landing_dir
-            / feed_name
-            / "metadata"
-            / f"year={day.year}"
-            / f"month={day.month}"
-            / f"day={day.day}"
-            / "data.jsonl"
-        )
 
-        if not metadata_path.exists():
+        data = self._source.read_metadata(feed_name, day)
+        if not data:
             return {}
-
+        lines = data.decode().splitlines()
         digest_timestamps: dict[str, int] = {}
+        for lineno, raw in enumerate(lines, 1):
+            raw = raw.strip()
+            if not raw:
+                continue
 
-        with metadata_path.open("r", encoding="utf-8") as fh:
-            for lineno, raw in enumerate(fh, 1):
-                raw = raw.strip()
-                if not raw:
-                    continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "Skipping malformed metadata row %s:%d: %s",
+                    feed_name,
+                    day,
+                    lineno,
+                    exc,
+                )
+                continue
 
-                try:
-                    row = json.loads(raw)
-                except json.JSONDecodeError as exc:
-                    logger.warning(
-                        "Skipping malformed metadata row %s:%d: %s",
-                        metadata_path,
-                        lineno,
-                        exc,
-                    )
-                    continue
+            digest = row.get("digest")
+            raw_ts = row.get("timestamp")
 
-                digest = row.get("digest")
-                raw_ts = row.get("timestamp")
+            # A digest-less row is expected, not malformed: transport-error and
+            # other non-payload rows carry no digest (nothing was stored), so they
+            # are simply not join candidates. Skip silently — warning here turned a
+            # routine feed outage (e.g. a DNS blip) into WARNING-level log spam.
+            if digest is None or raw_ts is None:
+                continue
 
-                # A digest-less row is expected, not malformed: transport-error and
-                # other non-payload rows carry no digest (nothing was stored), so they
-                # are simply not join candidates. Skip silently — warning here turned a
-                # routine feed outage (e.g. a DNS blip) into WARNING-level log spam.
-                if digest is None or raw_ts is None:
-                    continue
+            # Match legacy `int(float(stem))` coercion used when timestamps
+            # were embedded in window filenames, so Phase C golden parquet parity holds.
+            ts = int(float(raw_ts))
 
-                # Match legacy `int(float(stem))` coercion used when timestamps
-                # were embedded in window filenames, so Phase C golden parquet parity holds.
-                ts = int(float(raw_ts))
-
-                if digest not in digest_timestamps or ts < digest_timestamps[digest]:
-                    digest_timestamps[digest] = ts
+            if digest not in digest_timestamps or ts < digest_timestamps[digest]:
+                digest_timestamps[digest] = ts
 
         return digest_timestamps
 
     def _iter_payloads(
-        self, bin_file: Path, digest_ts: dict[str, int]
+        self, name: str, data: bytes, digest_ts
     ) -> Iterator[tuple[bytes, int]]:
         """Yield (payload_bytes, fetched_at) for one raw .bin file, format-agnostic.
 
@@ -265,7 +239,7 @@ class Rollup:
         Keeping this the single source of "how to get payloads out of a file" lets the
         parse -> decode -> append loop in _rollup_data stay format-agnostic.
         """
-        stem = bin_file.stem
+        stem = name.removesuffix(".bin")
 
         if stem.startswith("window="):
             # --- BatchingWriter framed file ---
@@ -274,28 +248,21 @@ class Rollup:
                 window_start = int(stem.split("=", 1)[1])
             except (IndexError, ValueError) as exc:
                 raise ValueError(
-                    f"Cannot parse window timestamp from filename {bin_file.name!r}"
+                    f"Cannot parse window timestamp from filename {name!r}"
                 ) from exc
 
             try:
-                fh = bin_file.open("rb")
-            except OSError as exc:
-                raise OSError(f"Failed to open framed bin file {bin_file}") from exc
-
-            with fh:
-                try:
-                    reader = FrameReader(fh)
-                    for payload, raw_digest in reader:
-                        fetched_at = digest_ts.get(raw_digest.hex(), window_start)
-                        yield payload, fetched_at
-                except (FrameError, EOFError) as exc:
-                    logger.warning(
-                        "Truncated or corrupt frame in %s (window_start=%d); skipping remainder: %s",
-                        bin_file,
-                        window_start,
-                        exc,
-                    )
-                    # generator just stops yielding for this file
+                reader = FrameReader(io.BytesIO(data))
+                for payload, raw_digest in reader:
+                    fetched_at = digest_ts.get(raw_digest.hex(), window_start)
+                    yield payload, fetched_at
+            except (FrameError, EOFError) as exc:
+                logger.warning(
+                    "Truncated/corrupt frame in %s (window_start=%d); skipping remainder: %s",
+                    name,
+                    window_start,
+                    exc,
+                )
 
         else:
             # --- Legacy LocalWriter file ---
@@ -304,10 +271,10 @@ class Rollup:
                 fetched_at = int(float(stem))
             except ValueError as exc:
                 raise ValueError(
-                    f"Cannot parse legacy timestamp from filename {bin_file.name!r}"
+                    f"Cannot parse legacy timestamp from filename {name!r}"
                 ) from exc
 
-            yield bin_file.read_bytes(), fetched_at
+            yield data, fetched_at
 
     def _expected_outputs(self, feed: Feed, day: date) -> dict[str, Path]:
         shape = {

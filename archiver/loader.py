@@ -25,6 +25,8 @@ from archiver.poll_state import PollStateStore
 from archiver.rollup import Rollup
 from archiver.shard import belongs_to_shard
 from archiver.shipper import Shipper
+from archiver.sink import LocalSink, S3Sink, TeeSink, Sink
+from archiver.source import LocalSource, S3Source, Source
 from archiver.telemetry import NoOpTelemetry, Telemetry
 from archiver.uploader import Uploader
 from archiver.writer import BaseWriter, BatchingWriter, LocalWriter
@@ -118,14 +120,50 @@ def build_telemetry(config: TelemetryConfig, shard_index: int = 0) -> Telemetry:
     return DatadogTelemetry(client, default_tags=default_tags)
 
 
-def build_writer(config: WriterConfig) -> BaseWriter:
-    match config.writer_type:
+def build_sink(writer: WriterConfig, uploader: Uploader | None) -> Sink:
+    match writer.landing_mode:
         case "local":
-            return LocalWriter(config.landing_dir)
-        case "batch":
-            return BatchingWriter(
-                config.landing_dir, window_seconds=config.window_seconds
+            return LocalSink(writer.landing_dir)
+        case "dual":
+            return TeeSink(
+                [
+                    LocalSink(writer.landing_dir),  # local FIRST
+                    S3Sink(uploader, writer.landing_bucket, writer.landing_prefix),
+                ]
             )
+        case "s3":
+            return S3Sink(uploader, writer.landing_bucket, writer.landing_prefix)
+        case other:
+            raise ValueError(f"Unsupported landing_mode: {other}")
+
+
+def build_source(config: ArchiverConfig) -> Source:
+    w = config.writer
+    match w.rollup_source:
+        case "local":
+            return LocalSource(w.landing_dir)
+        case "s3":
+            return S3Source(
+                build_uploader(config.s3), w.landing_bucket, w.landing_prefix
+            )
+        case other:
+            raise ValueError(f"Unsupported rollup_source: {other}")
+
+
+def build_writer(config: ArchiverConfig) -> BaseWriter:
+    writer = config.writer
+    match writer.writer_type:
+        case "local":
+            return LocalWriter(writer.landing_dir)  # legacy per-poll; no sink
+        case "batch":
+            # only touch S3 if the mode actually needs it (keeps pure-local runs boto-free)
+            uploader = (
+                build_uploader(config.s3)
+                if writer.landing_mode in ("dual", "s3")
+                else None
+            )
+            sink = build_sink(writer, uploader)
+            return BatchingWriter(writer.landing_dir, sink, writer.window_seconds)
         case other:
             raise ValueError(f"Unsupported writer_type: {other}")
 
@@ -134,7 +172,7 @@ def build_archiver(
     config: ArchiverConfig, shard_index: int, shard_count: int
 ) -> FeedArchiver:
     feeds = build_feeds(config, shard_index, shard_count)
-    writer = build_writer(config.writer)
+    writer = build_writer(config)
     telemetry = build_telemetry(config.telemetry, shard_index)
     store = PollStateStore(str(config.writer.poll_state_dir))
     return FeedArchiver(feeds=feeds, writer=writer, telemetry=telemetry, store=store)
@@ -145,7 +183,7 @@ def build_rollup(config: ArchiverConfig) -> Rollup:
     telemetry = build_telemetry(config.telemetry)
     return Rollup(
         feeds=feeds,
-        landing_dir=config.writer.landing_dir,
+        source=build_source(config),
         curated_dir=config.writer.curated_dir,
         telemetry=telemetry,
     )

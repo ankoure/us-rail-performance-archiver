@@ -13,6 +13,7 @@ from archiver.writer import FrameWriter
 import pytest
 from archiver.decoder import Row, Decoder, TableSpec
 from archiver.parser import Parser
+from archiver.source import LocalSource
 
 
 class FakeParser(Parser):
@@ -235,7 +236,9 @@ def test_skip_happens_when_outputs_exist(tmp_path, monkeypatch):
         poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
-    rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
+    rollup = Rollup(
+        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
     for path in rollup._expected_outputs(feed, day).values():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
@@ -265,7 +268,9 @@ def test_skip_does_not_happen_when_outputs_missing(tmp_path, monkeypatch):
         poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
-    rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
+    rollup = Rollup(
+        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
     metadata_calls = []
     data_calls = []
     monkeypatch.setattr(
@@ -292,7 +297,9 @@ def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
         poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
-    rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
+    rollup = Rollup(
+        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
     for path in rollup._expected_outputs(feed, day).values():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
@@ -339,7 +346,7 @@ def test_framed_window_rolls_up_with_joined_fetched_at(tmp_path):
     )
 
     rollup = Rollup(
-        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=curated_dir
+        feeds=[_echo_feed()], source=LocalSource(landing_dir), curated_dir=curated_dir
     )
     rollup.rollup_one("echo-feed", day, force=True)
 
@@ -385,7 +392,7 @@ def test_framed_window_unknown_digest_falls_back_to_window_start(tmp_path):
     )
 
     rollup = Rollup(
-        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=curated_dir
+        feeds=[_echo_feed()], source=LocalSource(landing_dir), curated_dir=curated_dir
     )
     rollup.rollup_one("echo-feed", day, force=True)
 
@@ -437,7 +444,7 @@ def test_truncated_framed_window_keeps_complete_frames(tmp_path):
     )
 
     rollup = Rollup(
-        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=curated_dir
+        feeds=[_echo_feed()], source=LocalSource(landing_dir), curated_dir=curated_dir
     )
     rollup.rollup_one("echo-feed", day, force=True)  # must not raise
 
@@ -477,7 +484,9 @@ def test_digest_timestamps_skips_digestless_rows_silently(tmp_path, caplog):
         ],
     )
     rollup = Rollup(
-        feeds=[_echo_feed()], landing_dir=landing_dir, curated_dir=tmp_path / "curated"
+        feeds=[_echo_feed()],
+        source=LocalSource(landing_dir),
+        curated_dir=tmp_path / "curated",
     )
 
     with caplog.at_level(logging.WARNING):
@@ -524,7 +533,9 @@ def test_second_run_does_not_redo_work(tmp_path):
         poll_interval_seconds=60,
     )
     day = date(2026, 5, 1)
-    rollup = Rollup(feeds=[feed], landing_dir=landing_dir, curated_dir=curated_dir)
+    rollup = Rollup(
+        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
 
     rollup.run(feed="fake-feed", day=day)  # first run — produces parquet
 
