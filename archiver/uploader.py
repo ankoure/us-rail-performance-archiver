@@ -115,4 +115,3 @@ class InstrumentedUploader:
     def list_keys(self, bucket, prefix, **kw):
         self._tel.incr("s3.request", tags={"op": "list", "bucket": bucket})
         return self._inner.list_keys(bucket, prefix, **kw)
-
