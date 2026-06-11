@@ -117,7 +117,7 @@ class WriterConfig(BaseModel):
     writer_type: Literal["local", "batch"] = "batch"
     landing_bucket: str = ""
     landing_prefix: str = ""
-    landing_mode: Literal["local", "dual", "s3"] = "local"
+    landing_mode: Literal["local", "s3"] = "local"
     rollup_source: Literal["local", "s3"] = "local"
     window_seconds: int = 300
     landing_dir: Path

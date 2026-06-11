@@ -3,6 +3,7 @@ import os
 import yaml
 import archiver.decoder  # noqa: F401 — populate Decoder._registry via import side effects
 import archiver.parser  # noqa: F401 — populate Parser._registry via import side effects
+from archiver.landing_uploader import LandingUploader
 from archiver.archiver import FeedArchiver
 from archiver.auth import APIClient
 from archiver.config import (
@@ -15,7 +16,6 @@ from archiver.config import (
     RateLimitConfig,
     S3Config,
     TelemetryConfig,
-    WriterConfig,
 )
 from archiver.rate_limit import NullRateLimiter, RateLimiter, TokenBucket
 from archiver.decoder import Decoder
@@ -25,7 +25,7 @@ from archiver.poll_state import PollStateStore
 from archiver.rollup import Rollup
 from archiver.shard import belongs_to_shard
 from archiver.shipper import Shipper
-from archiver.sink import LocalSink, S3Sink, TeeSink, Sink
+from archiver.sink import LocalSink
 from archiver.source import LocalSource, S3Source, Source
 from archiver.telemetry import NoOpTelemetry, Telemetry
 from archiver.uploader import Uploader
@@ -120,23 +120,6 @@ def build_telemetry(config: TelemetryConfig, shard_index: int = 0) -> Telemetry:
     return DatadogTelemetry(client, default_tags=default_tags)
 
 
-def build_sink(writer: WriterConfig, uploader: Uploader | None) -> Sink:
-    match writer.landing_mode:
-        case "local":
-            return LocalSink(writer.landing_dir)
-        case "dual":
-            return TeeSink(
-                [
-                    LocalSink(writer.landing_dir),  # local FIRST
-                    S3Sink(uploader, writer.landing_bucket, writer.landing_prefix),
-                ]
-            )
-        case "s3":
-            return S3Sink(uploader, writer.landing_bucket, writer.landing_prefix)
-        case other:
-            raise ValueError(f"Unsupported landing_mode: {other}")
-
-
 def build_source(config: ArchiverConfig) -> Source:
     w = config.writer
     match w.rollup_source:
@@ -158,12 +141,9 @@ def build_writer(config: ArchiverConfig) -> BaseWriter:
         case "local":
             return LocalWriter(writer.landing_dir)  # legacy per-poll; no sink
         case "batch":
-            uploader = None
-            if writer.landing_mode in ("dual", "s3"):
-                telemetry = build_telemetry(config.telemetry)
-                uploader = build_uploader(config.s3, telemetry)
-            sink = build_sink(writer, uploader)
-            return BatchingWriter(writer.landing_dir, sink, writer.window_seconds)
+            return BatchingWriter(
+                writer.landing_dir, LocalSink(writer.landing_dir), writer.window_seconds
+            )
 
         case other:
             raise ValueError(f"Unsupported writer_type: {other}")
@@ -224,3 +204,18 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
         hot_prefix=config.s3.hot_prefix,
         telemetry=telemetry,
     )
+
+
+def build_landing_uploader(config: ArchiverConfig) -> LandingUploader | None:
+    if config.writer.landing_mode == "s3":
+        telemetry = build_telemetry(config.telemetry)
+        uploader = build_uploader(config.s3, telemetry)
+        return LandingUploader(
+            landing_dir=config.writer.landing_dir,
+            uploader=uploader,
+            bucket=config.writer.landing_bucket,
+            prefix=config.writer.landing_prefix,
+            telemetry=telemetry,
+        )
+    else:
+        return None

@@ -4,9 +4,7 @@ writer:
   curated_dir: ./curated
   poll_state_dir: ./poll_state
   window_seconds: 300 # 5 minute windows for batching writes; ignored by LocalWriter
-  # Dual-write: keep the local landing (source of truth, rollup reads it) AND
-  # push window objects + per-window metadata to S3. Additive; verified parity.
-  landing_mode: dual
+  landing_mode: local
   landing_bucket: rail-performance-archiver-landing
   landing_prefix: "landing/"
   # rollup_source stays "local" on the box; the Fargate task overrides it to s3.

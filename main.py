@@ -7,7 +7,7 @@ from archiver.health import FeedHealth, is_transient_failure
 from archiver.feed import Feed
 from archiver.logger import logger
 from dotenv import load_dotenv
-from archiver.loader import build_archiver, load_config
+from archiver.loader import build_archiver, build_landing_uploader, load_config
 import argparse
 import logging
 import time
@@ -72,6 +72,9 @@ async def run(args):
     archiver = build_archiver(
         config, shard_index=args.shard_index, shard_count=args.shard_count
     )
+    landing_uploader = build_landing_uploader(
+        config
+    )  # None unless landing_mode == "s3"
     scheduler = Scheduler(
         archiver.feeds,
         default_interval=args.frequency,
@@ -102,6 +105,8 @@ async def run(args):
         # exit. One client is shared across all feeds of an agency, hence the set.
         for client in {feed.client for feed in archiver.feeds}:
             await stack.enter_async_context(client)
+        if landing_uploader is not None:
+            await stack.enter_async_context(landing_uploader)
 
         inflight: set[asyncio.Task] = set()
         sem = asyncio.Semaphore(args.workers)
