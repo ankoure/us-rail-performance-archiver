@@ -3,6 +3,7 @@ import os
 import yaml
 import archiver.decoder  # noqa: F401 — populate Decoder._registry via import side effects
 import archiver.parser  # noqa: F401 — populate Parser._registry via import side effects
+from archiver.backfill import LandingBackfill
 from archiver.landing_uploader import LandingUploader
 from archiver.archiver import FeedArchiver
 from archiver.auth import APIClient
@@ -219,3 +220,18 @@ def build_landing_uploader(config: ArchiverConfig) -> LandingUploader | None:
         )
     else:
         return None
+
+
+def build_landing_backfill(config: ArchiverConfig) -> LandingBackfill:
+    # Operational tool, run by hand during the soak (poller is in `local` mode),
+    # so it does not gate on landing_mode -- it always builds. build_uploader
+    # raises if s3 isn't enabled.
+    telemetry = build_telemetry(config.telemetry)
+    uploader = build_uploader(config.s3, telemetry)
+    return LandingBackfill(
+        landing_dir=config.writer.landing_dir,
+        uploader=uploader,
+        bucket=config.writer.landing_bucket,
+        prefix=config.writer.landing_prefix,
+        telemetry=telemetry,
+    )

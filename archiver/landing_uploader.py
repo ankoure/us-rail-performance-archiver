@@ -4,23 +4,10 @@ import asyncio
 import threading
 from pathlib import Path
 
+from archiver.landing_layout import iter_window_objects, window_object_key
 from archiver.logger import logger
 from archiver.telemetry import Telemetry
 from archiver.uploader import Uploader
-
-# Positive selection of window objects (relative to landing_dir). Everything
-# not matching  data.jsonl, *.tmp, directories  is local-only and skipped.
-#
-# MUST mirror the layout written by writer.py (see writer.py:235-241):
-#   {feed}/raw/year=YYYY/month=MM/day=DD/window=*.bin
-# Each `*` matches exactly one path segment (pathlib glob never crosses "/"),
-# so these patterns are pinned to that exact depth on purpose: a layout change
-# in writer.py must be reflected here, and the first-scan sanity check
-# (_warn_if_layout_mismatch) exists to catch it if it isn't.
-_WINDOW_OBJECT_GLOBS: tuple[str, ...] = (
-    "*/raw/year=*/month=*/day=*/window=*.bin",
-    "*/metadata/year=*/month=*/day=*/window=*.jsonl",
-)
 
 # How long __aexit__ waits for the worker to finish its in-flight upload before
 # giving up. The thread is a daemon, so process exit reaps a stuck one; any
@@ -138,9 +125,7 @@ class LandingUploader:
         mtime ordering (rather than name) gives true oldest-first across the
         raw/ and metadata/ subtrees, which interleave within a window.
         """
-        candidates: list[Path] = []
-        for pattern in _WINDOW_OBJECT_GLOBS:
-            candidates.extend(p for p in self._landing_dir.glob(pattern) if p.is_file())
+        candidates = list(iter_window_objects(self._landing_dir))
 
         if not self._layout_checked:
             if candidates:
@@ -180,8 +165,8 @@ class LandingUploader:
         if stray is not None:
             logger.error(
                 "landing layout mismatch: %s exists but matches no pattern in "
-                "_WINDOW_OBJECT_GLOBS  globs are likely stale vs writer.py; "
-                "NOTHING will ship until they are fixed",
+                "landing_layout.WINDOW_OBJECT_GLOBS - globs are likely stale vs "
+                "writer.py; NOTHING will ship until they are fixed",
                 stray,
             )
 
@@ -216,5 +201,4 @@ class LandingUploader:
         the old synchronous dual-write path  the Fargate rollup reads the same
         layout either way. (prefix is validated in __init__ to end with "/".)
         """
-        rel = path.relative_to(self._landing_dir)  # → the original window_key
-        return self._prefix + rel.as_posix()  # S3 keys always use "/" separators
+        return window_object_key(self._landing_dir, path, self._prefix)
