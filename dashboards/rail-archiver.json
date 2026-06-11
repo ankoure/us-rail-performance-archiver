@@ -8,7 +8,7 @@
       "name": "env",
       "prefix": "env",
       "available_values": [],
-      "default": "dev"
+      "default": "prod"
     },
     {
       "name": "feed",
@@ -72,9 +72,21 @@
                   ],
                   "formulas": [{ "formula": "(errors / total) * 100" }],
                   "conditional_formats": [
-                    { "comparator": "<", "value": 1, "palette": "white_on_green" },
-                    { "comparator": "<", "value": 5, "palette": "white_on_yellow" },
-                    { "comparator": ">=", "value": 5, "palette": "white_on_red" }
+                    {
+                      "comparator": "<",
+                      "value": 1,
+                      "palette": "white_on_green"
+                    },
+                    {
+                      "comparator": "<",
+                      "value": 5,
+                      "palette": "white_on_yellow"
+                    },
+                    {
+                      "comparator": ">=",
+                      "value": 5,
+                      "palette": "white_on_red"
+                    }
                   ]
                 }
               ]
@@ -96,7 +108,10 @@
                     }
                   ],
                   "formulas": [
-                    { "formula": "by_feed", "limit": { "count": 10, "order": "asc" } }
+                    {
+                      "formula": "by_feed",
+                      "limit": { "count": 10, "order": "asc" }
+                    }
                   ]
                 }
               ]
@@ -117,7 +132,11 @@
               "title": "Poll latency p95 by feed",
               "show_legend": true,
               "legend_layout": "auto",
-              "yaxis": { "scale": "linear", "include_zero": true, "label": "ms" },
+              "yaxis": {
+                "scale": "linear",
+                "include_zero": true,
+                "label": "ms"
+              },
               "requests": [
                 {
                   "response_format": "timeseries",
@@ -389,19 +408,35 @@
                   "response_format": "scalar",
                   "queries": [
                     {
-                      "name": "putlist",
+                      "name": "put",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)}.as_count()",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:put}.as_count()",
                       "aggregator": "sum"
                     },
                     {
-                      "name": "gethead",
+                      "name": "list",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)}.as_count()",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:list}.as_count()",
+                      "aggregator": "sum"
+                    },
+                    {
+                      "name": "get",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:get}.as_count()",
+                      "aggregator": "sum"
+                    },
+                    {
+                      "name": "head",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:head}.as_count()",
                       "aggregator": "sum"
                     }
                   ],
-                  "formulas": [{ "formula": "putlist * 0.000005 + gethead * 0.0000004" }]
+                  "formulas": [
+                    {
+                      "formula": "(put + list) * 0.000005 + (get + head) * 0.0000004"
+                    }
+                  ]
                 }
               ]
             }
@@ -419,20 +454,34 @@
                   "response_format": "scalar",
                   "queries": [
                     {
-                      "name": "putlist",
+                      "name": "put",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)}.as_count()",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:put}.as_count()",
                       "aggregator": "sum"
                     },
                     {
-                      "name": "gethead",
+                      "name": "list",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)}.as_count()",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:list}.as_count()",
+                      "aggregator": "sum"
+                    },
+                    {
+                      "name": "get",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:get}.as_count()",
+                      "aggregator": "sum"
+                    },
+                    {
+                      "name": "head",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:head}.as_count()",
                       "aggregator": "sum"
                     }
                   ],
                   "formulas": [
-                    { "formula": "(putlist * 0.000005 + gethead * 0.0000004) * 30" }
+                    {
+                      "formula": "((put + list) * 0.000005 + (get + head) * 0.0000004) * 30"
+                    }
                   ]
                 }
               ]
@@ -450,18 +499,31 @@
                   "display_type": "bars",
                   "queries": [
                     {
-                      "name": "putlist",
+                      "name": "put",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)}.as_count().rollup(sum, 86400)"
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:put}.as_count().rollup(sum, 86400)"
                     },
                     {
-                      "name": "gethead",
+                      "name": "list",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)}.as_count().rollup(sum, 86400)"
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:list}.as_count().rollup(sum, 86400)"
+                    },
+                    {
+                      "name": "get",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:get}.as_count().rollup(sum, 86400)"
+                    },
+                    {
+                      "name": "head",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:head}.as_count().rollup(sum, 86400)"
                     }
                   ],
                   "formulas": [
-                    { "formula": "putlist * 0.000005 + gethead * 0.0000004", "alias": "est. $/day" }
+                    {
+                      "formula": "(put + list) * 0.000005 + (get + head) * 0.0000004",
+                      "alias": "est. $/day"
+                    }
                   ]
                 }
               ]
@@ -500,18 +562,30 @@
                   "display_type": "bars",
                   "queries": [
                     {
-                      "name": "putlist",
+                      "name": "put",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)} by {bucket}.as_count().rollup(sum, 86400)"
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:put} by {bucket}.as_count().rollup(sum, 86400)"
                     },
                     {
-                      "name": "gethead",
+                      "name": "list",
                       "data_source": "metrics",
-                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)} by {bucket}.as_count().rollup(sum, 86400)"
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:list} by {bucket}.as_count().rollup(sum, 86400)"
+                    },
+                    {
+                      "name": "get",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:get} by {bucket}.as_count().rollup(sum, 86400)"
+                    },
+                    {
+                      "name": "head",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op:head} by {bucket}.as_count().rollup(sum, 86400)"
                     }
                   ],
                   "formulas": [
-                    { "formula": "putlist * 0.000005 + gethead * 0.0000004" }
+                    {
+                      "formula": "(put + list) * 0.000005 + (get + head) * 0.0000004"
+                    }
                   ]
                 }
               ]
