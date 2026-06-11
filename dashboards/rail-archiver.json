@@ -359,6 +359,166 @@
           }
         ]
       }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "S3 cost (estimated)",
+        "widgets": [
+          {
+            "definition": {
+              "type": "note",
+              "content": "Estimated from our own s3.request counts x us-east-1 list pricing: PUT/LIST $0.005/1k, GET/HEAD $0.0004/1k, DELETE free. Request cost only — storage and (free in-region) transfer not included. LISTs counted per-call, not per-page (sub-cent error).",
+              "background_color": "gray",
+              "font_size": "14",
+              "text_align": "left",
+              "show_tick": false
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "S3 request cost — last 24h (est. $)",
+              "precision": 3,
+              "custom_unit": "$",
+              "autoscale": false,
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "putlist",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)}.as_count()",
+                      "aggregator": "sum"
+                    },
+                    {
+                      "name": "gethead",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [{ "formula": "putlist * 0.000005 + gethead * 0.0000004" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Projected monthly S3 request cost (est. $ = 24h x 30)",
+              "precision": 2,
+              "custom_unit": "$",
+              "autoscale": false,
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "putlist",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)}.as_count()",
+                      "aggregator": "sum"
+                    },
+                    {
+                      "name": "gethead",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)}.as_count()",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "(putlist * 0.000005 + gethead * 0.0000004) * 30" }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Estimated S3 request cost per day ($)",
+              "show_legend": true,
+              "yaxis": { "label": "$", "include_zero": true },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "putlist",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)}.as_count().rollup(sum, 86400)"
+                    },
+                    {
+                      "name": "gethead",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)}.as_count().rollup(sum, 86400)"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "putlist * 0.000005 + gethead * 0.0000004", "alias": "est. $/day" }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "S3 requests by op (count)",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "by_op",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver} by {op}.as_count()"
+                    }
+                  ],
+                  "formulas": [{ "formula": "by_op" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Est. S3 request cost by bucket ($/day)",
+              "show_legend": true,
+              "yaxis": { "label": "$" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "putlist",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (put,list)} by {bucket}.as_count().rollup(sum, 86400)"
+                    },
+                    {
+                      "name": "gethead",
+                      "data_source": "metrics",
+                      "query": "sum:s3.request{$env, service:rail-archiver, op IN (get,head)} by {bucket}.as_count().rollup(sum, 86400)"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "putlist * 0.000005 + gethead * 0.0000004" }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   ]
 }

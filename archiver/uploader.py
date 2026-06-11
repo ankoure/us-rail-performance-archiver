@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import Iterator, Protocol
 from botocore.exceptions import ClientError
 
+from archiver.telemetry import Telemetry
+
 
 class Uploader(Protocol):
     def exists(self, bucket: str, key: str) -> bool:
@@ -87,3 +89,30 @@ class S3Uploader:
     def get_bytes(self, bucket: str, key: str) -> bytes:
         obj = self.client.get_object(Bucket=bucket, Key=key)
         return obj["Body"].read()
+
+
+class InstrumentedUploader:
+    def __init__(self, inner: Uploader, telemetry: Telemetry) -> None:
+        self._inner = inner
+        self._tel = telemetry
+
+    def put_bytes(self, bucket, key, data, **kw):
+        self._tel.incr("s3.request", tags={"op": "put", "bucket": bucket})
+        return self._inner.put_bytes(bucket, key, data, **kw)
+
+    def upload(self, bucket, key, local_path, **kw):
+        self._tel.incr("s3.request", tags={"op": "put", "bucket": bucket})
+        return self._inner.upload(bucket, key, local_path, **kw)
+
+    def get_bytes(self, bucket, key, **kw):
+        self._tel.incr("s3.request", tags={"op": "get", "bucket": bucket})
+        return self._inner.get_bytes(bucket, key, **kw)
+
+    def exists(self, bucket, key, **kw):
+        self._tel.incr("s3.request", tags={"op": "head", "bucket": bucket})
+        return self._inner.exists(bucket, key, **kw)
+
+    def list_keys(self, bucket, prefix, **kw):
+        self._tel.incr("s3.request", tags={"op": "list", "bucket": bucket})
+        return self._inner.list_keys(bucket, prefix, **kw)
+

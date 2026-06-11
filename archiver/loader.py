@@ -143,9 +143,11 @@ def build_source(config: ArchiverConfig) -> Source:
         case "local":
             return LocalSource(w.landing_dir)
         case "s3":
+            telemetry = build_telemetry(config.telemetry)
             return S3Source(
-                build_uploader(config.s3), w.landing_bucket, w.landing_prefix
+                build_uploader(config.s3, telemetry), w.landing_bucket, w.landing_prefix
             )
+
         case other:
             raise ValueError(f"Unsupported rollup_source: {other}")
 
@@ -156,14 +158,13 @@ def build_writer(config: ArchiverConfig) -> BaseWriter:
         case "local":
             return LocalWriter(writer.landing_dir)  # legacy per-poll; no sink
         case "batch":
-            # only touch S3 if the mode actually needs it (keeps pure-local runs boto-free)
-            uploader = (
-                build_uploader(config.s3)
-                if writer.landing_mode in ("dual", "s3")
-                else None
-            )
+            uploader = None
+            if writer.landing_mode in ("dual", "s3"):
+                telemetry = build_telemetry(config.telemetry)
+                uploader = build_uploader(config.s3, telemetry)
             sink = build_sink(writer, uploader)
             return BatchingWriter(writer.landing_dir, sink, writer.window_seconds)
+
         case other:
             raise ValueError(f"Unsupported writer_type: {other}")
 
@@ -189,14 +190,14 @@ def build_rollup(config: ArchiverConfig) -> Rollup:
     )
 
 
-def build_uploader(config: S3Config) -> Uploader:
+def build_uploader(config: S3Config, telemetry: Telemetry) -> Uploader:
     if not config.enabled:
         raise RuntimeError("s3 is not enabled in config")
 
     # Lazy import — boto3 only loaded if actually enabled
     import boto3
     from botocore.config import Config
-    from archiver.uploader import S3Uploader
+    from archiver.uploader import S3Uploader, InstrumentedUploader
 
     # Shipper.run fans uploads across a ThreadPoolExecutor (default 8 workers) that
     # share this one client; the default urllib3 pool of 10 then thrashes ("Connection
@@ -207,12 +208,12 @@ def build_uploader(config: S3Config) -> Uploader:
         region_name=config.region,
         config=Config(max_pool_connections=25),
     )
-    return S3Uploader(client)
+    return InstrumentedUploader(S3Uploader(client), telemetry)
 
 
 def build_shipper(config: ArchiverConfig) -> Shipper:
-    uploader = build_uploader(config.s3)
     telemetry = build_telemetry(config.telemetry)
+    uploader = build_uploader(config.s3, telemetry)
     return Shipper(
         landing_dir=config.writer.landing_dir,
         curated_dir=config.writer.curated_dir,
