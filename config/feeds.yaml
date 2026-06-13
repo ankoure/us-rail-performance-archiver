@@ -4,7 +4,7 @@ writer:
   curated_dir: ./curated
   poll_state_dir: ./poll_state
   window_seconds: 300 # 5 minute windows for batching writes; ignored by LocalWriter
-  landing_mode: local
+  landing_mode: s3
   landing_bucket: rail-performance-archiver-landing
   landing_prefix: "landing/"
   # rollup_source stays "local" on the box; the Fargate task overrides it to s3.
