@@ -39,6 +39,12 @@ services:
       - ./archive:/app/archive
       - ./poll_state/shard-0:/app/poll_state
     command: python main.py --shard-index 0 --shard-count 2
+    environment:
+      # botocore >=1.36 wraps the upload body in a non-seekable AwsChunkedWrapper
+      # to add a default request checksum; a retried PutObject then fails with
+      # UnseekableStreamError. The LandingUploader retries heavily under S3
+      # throttling, so disable the default checksum (S3 doesn't require it).
+      - AWS_REQUEST_CHECKSUM_CALCULATION=when_required
     env_file:
       - .env
     depends_on:
@@ -60,47 +66,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
-  batch:
-    image: ghcr.io/ankoure/us-rail-performance-archiver:${IMAGE_TAG:-latest}
-    restart: unless-stopped
-    user: "1000:1000"
-    # The image HEALTHCHECK probes poll_state/.heartbeat (the poller's liveness file),
-    # which this rollup+ship loop never writes, so it would be perpetually "unhealthy".
-    # It carries no autoheal label, so nothing acts on it — disable the inherited check
-    # rather than report a misleading status.
-    healthcheck:
-      disable: true
-    # Cap the daily rollup+ship container's RAM. With host swap present (deploy/README
-    # 3c), an overrun on a big feed spills to swap (slow but recoverable) and a true
-    # runaway OOM-kills THIS container — restart: unless-stopped retries — instead of
-    # starving the poller / dockerd and wedging the whole box (the 2026-06-01 swapless
-    # refault-storm outage). Kept below total RAM so the real-time poller stays resident.
-    # Tune after measuring a real rollup's peak via `docker stats`.
-    mem_limit: 2560m
-    # Cap the daily rollup+ship loop at 1.5 of the box's 2 vCPUs. Without this the
-    # batch (gzip tarball + parquet rollup, both CPU-bound) pegged BOTH cores for hours
-    # — load hit 8 on 2 cores — starving the real-time pollers. The pollers need ~0.1
-    # core combined, so reserving 0.5 here keeps ingest responsive during the batch
-    # window. The batch runs once daily with 24h of slack, so the slowdown is free.
-    cpus: 1.5
-    environment:
-    - PYTHONUNBUFFERED=1
-    # 2 (not 4) concurrent rollup processes: peak RAM scales with how many big feeds
-    # roll up at once, so halving workers ~halves the peak (each gets ~1.25 GiB of the
-    # mem_limit) at the cost of wall-clock — still far inside the 24h cycle. Override
-    # with the ROLLUP_WORKERS env var if the box is resized.
-    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-2}
-    volumes:
-      - ./config:/app/config:ro
-      - ./archive:/app/archive
-      - ./curated:/app/curated
-    env_file:
-      - .env
-    depends_on:
-      - datadog-agent
-    # rollup -> ship -> prune. prune deletes landing-zone raw/metadata older than
-    # --keep-days, but ONLY for days whose cold tarball is confirmed in S3 (gated on
-    # the same exists() check ship uses), so it can't delete unshipped data. Without
-    # it the landing zone fills the 500 GiB volume in ~2 weeks at the current feed
-    # count. Chained after ship so a ship failure also blocks the prune for that run.
-    command: sh -c "while true; do DAY=$$(date -u -d yesterday +%F); python rollup.py --day $$DAY && python ship.py --day $$DAY && python prune.py --keep-days 3; sleep 86400; done"
+  # The daily rollup+ship+prune that used to run here has moved off-box to a
+  # scheduled Fargate Spot task (terraform/, EventBridge -> ECS RunTask) reading
+  # the S3 landing zone. The box is now poller-only; landing is shipped to S3 by
+  # the in-process LandingUploader (landing_mode: s3).

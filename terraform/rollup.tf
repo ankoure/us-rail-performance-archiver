@@ -91,6 +91,11 @@ resource "aws_ecs_task_definition" "rollup" {
       command   = ["sh", "-c", local.rollup_script]
       environment = [
         { name = "HOT_BUCKET", value = var.hot_bucket },
+        # botocore >=1.36 wraps the upload body in a non-seekable AwsChunkedWrapper
+        # for its default request checksum; a retried PutObject then dies with
+        # UnseekableStreamError. ship.py uses the same uploader, so disable the
+        # default checksum here too (S3 does not require it).
+        { name = "AWS_REQUEST_CHECKSUM_CALCULATION", value = "when_required" },
       ]
       secrets = [
         for k in var.agency_secret_keys :
