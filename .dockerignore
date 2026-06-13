@@ -18,4 +18,8 @@ __pycache__/
 
 # secrets / local
 .env
-config/
+# config/feeds.yaml IS baked in (no secrets — only env-var names; agency keys come
+# from Secrets Manager / .env at runtime) so the Fargate rollup task, which has no
+# volume mount, can read it. The poller still mounts ./config over the baked copy.
+# Keep the large local-only candidate lists out of the image.
+config/feeds.candidates*.yaml
