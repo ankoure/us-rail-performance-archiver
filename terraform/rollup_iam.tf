@@ -52,10 +52,17 @@ resource "aws_iam_role_policy" "rollup_task_s3" {
         Resource = [aws_s3_bucket.landing.arn, "${aws_s3_bucket.landing.arn}/*"]
       },
       {
-        Sid      = "WriteScratchHot"
-        Effect   = "Allow"
-        Action   = ["s3:PutObject", "s3:HeadObject", "s3:ListBucket"]
-        Resource = [aws_s3_bucket.hot_scratch.arn, "${aws_s3_bucket.hot_scratch.arn}/*"]
+        Sid    = "WriteProdHotCold"
+        Effect = "Allow"
+        # Prod cutover: write curated parquet to the prod hot bucket and the
+        # DEEP_ARCHIVE tarball to the prod cold bucket (buckets are external, so
+        # ARNs are built from the names). GetObject (not the phantom
+        # s3:HeadObject) authorizes ship.py's exists() gate; PutObject writes.
+        Action = ["s3:PutObject", "s3:GetObject", "s3:ListBucket"]
+        Resource = [
+          "arn:aws:s3:::${var.hot_bucket}", "arn:aws:s3:::${var.hot_bucket}/*",
+          "arn:aws:s3:::${var.cold_bucket}", "arn:aws:s3:::${var.cold_bucket}/*",
+        ]
       },
     ]
   })

@@ -51,18 +51,20 @@ resource "aws_cloudwatch_log_group" "rollup" {
 }
 
 # --- Task command --------------------------------------------------------- #
-# Overlay rollup_source=s3 + the scratch hot bucket onto the baked feeds.yaml
-# (so there's no second config to keep in sync), then rollup + ship --hot-only.
+# Overlay rollup_source=s3 + the prod hot bucket onto the baked feeds.yaml (so
+# there's no second config to keep in sync), then rollup + ship (hot parquet AND
+# the cold DEEP_ARCHIVE tarball — cold_bucket is already prod in feeds.yaml).
 # ROLLUP_DAY can be set per run (override) to target a specific past day;
-# defaults to yesterday-UTC.
+# defaults to yesterday-UTC. No prune: the landing.tf 7-day lifecycle expires S3
+# landing, and the box no longer holds the curated tree.
 locals {
   rollup_script = <<-EOT
     set -e
     DAY="$${ROLLUP_DAY:-$(date -u -d yesterday +%F)}"
     echo "rollup day: $DAY"
-    python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_SCRATCH_BUCKET"]; c["telemetry"]["enabled"] = False; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
+    python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = False; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
     python rollup.py --config /tmp/fargate.yaml --day "$DAY"
-    python ship.py --config /tmp/fargate.yaml --day "$DAY" --hot-only
+    python ship.py --config /tmp/fargate.yaml --day "$DAY"
   EOT
 }
 
@@ -88,7 +90,7 @@ resource "aws_ecs_task_definition" "rollup" {
       essential = true
       command   = ["sh", "-c", local.rollup_script]
       environment = [
-        { name = "HOT_SCRATCH_BUCKET", value = var.hot_scratch_bucket },
+        { name = "HOT_BUCKET", value = var.hot_bucket },
       ]
       secrets = [
         for k in var.agency_secret_keys :

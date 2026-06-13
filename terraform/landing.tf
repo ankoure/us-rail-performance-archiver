@@ -36,8 +36,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "landing" {
   }
 }
 
-# Grant the poller box's instance role write access to the landing bucket.
-# Attached to the EXISTING role by name — Terraform does not own the role.
+# Grant the poller box's instance role access to the landing bucket: PutObject
+# for the LandingUploader/backfill writes, GetObject for the backfill's exists()
+# idempotency gate (HeadObject is authorized by s3:GetObject — there is NO
+# s3:HeadObject IAM action; naming it grants nothing), and ListBucket for parity
+# verification. Attached to the EXISTING role by name — Terraform does not own it.
 resource "aws_iam_role_policy" "box_landing_write" {
   name = "rail-archiver-landing-write"
   role = var.instance_role_name
@@ -50,7 +53,7 @@ resource "aws_iam_role_policy" "box_landing_write" {
         Effect = "Allow"
         Action = [
           "s3:PutObject",
-          "s3:HeadObject",
+          "s3:GetObject", # authorizes HeadObject too; s3:HeadObject is not real
           "s3:ListBucket",
         ]
         Resource = [

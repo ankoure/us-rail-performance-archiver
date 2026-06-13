@@ -222,3 +222,106 @@ single lifecycle rule saves more long-term than the entire compute split does.
   depending on plan; confirm before assuming the ~$15 stays flat.
 - **Metadata object strategy** (§2 a vs b) — pick before step 1; it sets the PUT
   cost and the rollup join shape.
+
+## 8. Decoupling the landing upload (outbox)
+
+> Status: designed 2026-06-11, **not yet built**. Supersedes step-1's synchronous
+> `S3Sink`-in-`TeeSink` for the `dual`/`s3` write path, and resolves the §7
+> "size the scratch buffer to survive an S3 outage" risk.
+
+**Problem (measured).** In `landing_mode: dual` the `BatchingWriter` flush writes S3
+inline: `_write_buckets` calls `TeeSink.put` sequentially per object, and each S3 leg
+is a blocking boto3 PUT. The flush is `await`ed on the poll dispatch loop (`main.py`,
+fired on the 300 s window-index change), so the loop freezes for the whole flush.
+Measured on prod 2026-06-11: ~150 sequential PUTs/shard ⇒ **14–20 s of blocked
+dispatch every window**, on both shards, exactly at the wall-clock boundary. The
+stall bunches the schedule; reschedule jitter takes ~150 s to re-disperse, so
+`poll.skipped` stays elevated for ~half of every window (the ~208/15min the "Ingest
+saturated" monitor fired on). Confirmed three independent ways: code path →
+`.heartbeat` staleness (14 s/19 s peaks at the boundary, both shards) → DogStatsd UDP
+capture (every `s3.request:put` and every `poll.skipped` landed within 20 s of the
+one boundary, zero elsewhere). **Not a capacity problem** — `--workers` only masks it.
+
+**Decision: an outbox.** The S3 write leaves the flush entirely.
+
+- The poller flush writes **local only** (`LocalSink`). A local-only flush is tens of
+  ms, so the dispatch stall disappears immediately — before any S3 work happens.
+- **Disk *is* the queue.** A separate long-running `LandingUploader` (a peer service,
+  *not* a `Sink` — "watch a dir and drain it" isn't a `put`) scans the landing dir,
+  ships each object via the existing sync `InstrumentedUploader.upload`, and deletes
+  on success (end state only). Pending == present-on-disk, so restart recovery is just
+  a boot scan and a write is **never lost** (durable on disk before we ever touch S3).
+- **Plain worker thread** — not an event-loop coroutine (boto3 blocks → would
+  re-freeze the loop) and not `aioboto3` (buys concurrency this throughput, ~1.5
+  PUT/s steady, doesn't need, while splitting the S3 layer in two). Runs off the loop,
+  shares only the disk, reuses the `s3.request` instrumentation.
+
+**Why it's safe, and its scope.** Enqueue-and-return weakens `put`'s durability
+postcondition — valid only because another authoritative copy exists. The uploader is a
+**single-consumer** drainer: it owns the local landing and drains it by deleting on
+ship, so "present on disk" means "unshipped." That model holds only with one reader —
+see "Collapsing `dual`" for why continuous dual-write was dropped. During the migration
+soak the poller runs `local` (local is authoritative; S3 is populated out-of-band by the
+backfill job); at cutover (`s3`, §3) S3 becomes authoritative and local is 30 GiB
+scratch, so the outbox must **never drop** — the disk buffer absorbs an S3 outage
+(~1.4 days at 30 GiB / 21 GiB-day) and the alarms below are the safety net.
+
+**Config mapping.** `landing_mode` is `{local, s3}` (the old continuous `dual` is
+collapsed — see below):
+
+| mode | flush sink | uploader |
+|---|---|---|
+| `local` | `LocalSink` | — |
+| `s3` | `LocalSink` | `LandingUploader` (single consumer; **always** deletes on ship) |
+
+There is **no `delete_after_ship` flag**: the uploader is only ever wired as a single
+consumer, so deleting on ship is its defining invariant — made structural rather than
+configurable (a `False` setting would re-ship every resident object every scan, a money
+fire). Wiring: `build_sink` returns a bare `LocalSink` for `s3` (not `S3Sink`);
+`build_writer` constructs the `LandingUploader` when `landing_mode == "s3"`; `main.run`
+enters it into the `AsyncExitStack`.
+
+**Collapsing `dual`.** Continuous dual-write (flush tees local+S3) is dropped: with the
+async outbox, local and S3 become *two consumers* of the landing dir and neither can
+delete (each may still need the file), so disk-as-queue breaks — every resident object
+re-ships every scan. Instead, S3 parity during the soak is verified by a separate
+**one-shot, `exists()`-gated landing-backfill job** (reusing `ship.py`'s idempotency
+idiom at batch cadence, where per-object HEADs are cheap): walk local windows, skip what
+is already in S3, upload the rest, diff. Run it periodically through the soak for ongoing
+parity, then flip `local`→`s3` at cutover. The backfill is a separate script, **not**
+part of `LandingUploader` — which stays a dumb single-consumer drainer. (This supersedes
+§6 step 1's continuous-`dual` mechanism.)
+
+**Lifecycle (RAII).** `LandingUploader` is an async context manager entered into the
+poller's `AsyncExitStack` alongside the agency clients: start the thread on enter,
+signal-stop + finish-current-PUT + join on exit. The stack unwinds *after* the loop's
+`finally` (drain inflight → `flush_all`), so the last windows are on disk before the
+uploader's final drain runs — correct ordering for free. Shutdown leaves un-shipped
+files for the next boot's scan (safe, durable); an optional bounded drain ships what
+it can first.
+
+**Scan cadence.** A plain fixed interval (~30 s), decoupled from the flush. Latency is
+irrelevant (Fargate rollup runs daily — hours of margin), and the interval has
+negligible effect on disk: when uploads keep up the on-disk backlog is
+`interval × 0.25 MiB/s` (~7 MiB at 30 s, vs 30 GiB scratch); when they *don't*, disk
+fills at the landing rate regardless of how often you scan. So the interval is a
+simplicity knob, not a safety knob. An optional `threading.Event` set by the flush can
+wake the scan sooner if low ship-latency is ever wanted.
+
+**Observability.** Two layers: a **`landing.pending` gauge** (count of un-shipped
+objects — the *leading* indicator; backlog climbs long before disk fills if S3 stalls)
+plus oldest-pending age for lag; and a **disk-capacity alarm** as the *lagging*
+backstop. These would be the first monitors actually deployed (today the Datadog
+monitors aren't live and the notify target is a placeholder — an alert that never
+pages is the failure mode to avoid; the box has wedged on disk/IO once already). Also
+closes the gap that `s3.request` is counted but never timed, so flush/upload health
+was previously invisible.
+
+**Atomic writes** are already satisfied — `LocalSink.put` writes `*.tmp` then
+`rename`s (`archiver/sink.py`), so the scanner never sees a partial object.
+
+**Open implementation question.** The scan must select only *shippable* window objects
+(`raw/*.bin`, `metadata/window=*.jsonl`) and skip local-only artifacts (the daily
+`data.jsonl` the on-box rollup reads, plus any `*.tmp`). Simplest is to glob the
+window-object key pattern; a dedicated pending subtree is the cleaner-but-more-invasive
+alternative. Decide before building `_scan_once`.

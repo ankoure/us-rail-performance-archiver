@@ -47,7 +47,36 @@ variable "rollup_image" {
 variable "hot_scratch_bucket" {
   type        = string
   default     = "rail-performance-archiver-hot-scratch"
-  description = "Scratch bucket the SHADOW rollup writes parquet to (diffed against prod hot, never prod)."
+  description = "Scratch bucket the SHADOW rollup wrote parquet to (kept for re-shadowing; the prod task now writes hot_bucket)."
+}
+
+# Prod curated buckets — created out-of-band (not Terraform-managed), referenced
+# by name. These match config/feeds.yaml s3.hot_bucket / s3.cold_bucket so the
+# Fargate rollup ships to the same place the on-box batch did.
+variable "hot_bucket" {
+  type        = string
+  default     = "rail-performance-archiver-hot"
+  description = "Prod hot bucket the rollup writes curated parquet to (must match feeds.yaml s3.hot_bucket)."
+}
+
+variable "cold_bucket" {
+  type        = string
+  default     = "rail-performance-archiver-cold"
+  description = "Prod cold bucket the rollup ships the DEEP_ARCHIVE tarball to (must match feeds.yaml s3.cold_bucket)."
+}
+
+# Schedule is created DISABLED so the first prod run is the manual, verified
+# run-task in Phase D; flip to true (terraform apply) once that run checks out.
+variable "rollup_schedule_enabled" {
+  type        = bool
+  default     = false
+  description = "Whether the daily EventBridge schedule that runs the rollup is ENABLED."
+}
+
+variable "rollup_schedule_expression" {
+  type        = string
+  default     = "cron(30 3 * * ? *)"
+  description = "EventBridge Scheduler expression (UTC) for the daily rollup — ~03:30Z per the design doc."
 }
 
 variable "hot_scratch_retention_days" {
