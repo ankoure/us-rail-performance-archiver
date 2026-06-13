@@ -22,6 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # arm64 is built under emulation so the same manifest serves the amd64
+      # Fargate rollup task and the arm64 (t4g) poller box.
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -37,6 +41,7 @@ jobs:
         with:
           context: .
           file: ./dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE }}:latest
