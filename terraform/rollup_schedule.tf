@@ -67,12 +67,11 @@ resource "aws_scheduler_schedule" "rollup" {
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.rollup.arn
       task_count          = 1
-
-      capacity_provider_strategy {
-        capacity_provider = "FARGATE_SPOT"
-        weight            = 1
-        base              = 0
-      }
+      # On-demand, NOT FARGATE_SPOT: the rollup reads the day from S3 object by
+      # object (~2.5h) and EventBridge fires once daily with no retry, so a Spot
+      # reclaim mid-run would silently drop that day. On-demand for ~2.5h/day is
+      # a few $/mo — cheap insurance for a job that must complete.
+      launch_type = "FARGATE"
 
       # Same networking the run-task SG comment assumes: default public subnets,
       # the egress-only rollup SG, and a public IP so the task reaches S3 + GHCR.

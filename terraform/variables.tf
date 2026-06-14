@@ -68,13 +68,12 @@ variable "cold_bucket" {
   description = "Prod cold bucket the rollup ships the DEEP_ARCHIVE tarball to (must match feeds.yaml s3.cold_bucket)."
 }
 
-# Kept DISABLED: the Fargate rollup produces curated parquet but ship.py still
-# discovers/tarballs from the LOCAL landing zone, which is empty on Fargate, so it
-# ships nothing. Re-enable (default true) only after Shipper is made S3-aware AND
-# the task moves to on-demand FARGATE (Spot can't survive the ~2.5h rollup).
+# Re-enabled 2026-06-14: Shipper is now S3-aware (ships hot+cold from the S3
+# landing, verified on 6/11+6/12) and the schedule runs on-demand FARGATE (not
+# Spot). The end-to-end Fargate rollup+ship pipeline works, so the daily job is live.
 variable "rollup_schedule_enabled" {
   type        = bool
-  default     = false
+  default     = true
   description = "Whether the daily EventBridge schedule that runs the rollup is ENABLED."
 }
 
