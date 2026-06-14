@@ -17,7 +17,10 @@ variable "landing_bucket" {
 
 variable "landing_retention_days" {
   type        = number
-  default     = 7
+  # Bumped 7->30 on 2026-06-14: the Fargate ship path is temporarily broken
+  # (Shipper not yet S3-aware), so un-rolled-up raw must survive in S3 longer
+  # than a week. Drop back to ~7 once the rollup+ship pipeline is reliably daily.
+  default     = 30
   description = <<-EOT
     Days to keep landing objects in S3 before lifecycle expiry. The rollup only
     needs yesterday; this is a buffer. Landing is ~21 GiB/day, so this caps the
@@ -65,8 +68,10 @@ variable "cold_bucket" {
   description = "Prod cold bucket the rollup ships the DEEP_ARCHIVE tarball to (must match feeds.yaml s3.cold_bucket)."
 }
 
-# Schedule is created DISABLED so the first prod run is the manual, verified
-# run-task in Phase D; flip to true (terraform apply) once that run checks out.
+# Kept DISABLED: the Fargate rollup produces curated parquet but ship.py still
+# discovers/tarballs from the LOCAL landing zone, which is empty on Fargate, so it
+# ships nothing. Re-enable (default true) only after Shipper is made S3-aware AND
+# the task moves to on-demand FARGATE (Spot can't survive the ~2.5h rollup).
 variable "rollup_schedule_enabled" {
   type        = bool
   default     = false

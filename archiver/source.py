@@ -13,6 +13,9 @@ class Source(Protocol):
     def iter_bins(
         self, feed: str, day: date
     ) -> Iterator[tuple[str, bytes]]: ...  # (name, bytes)
+    def iter_metadata(
+        self, feed: str, day: date
+    ) -> Iterator[tuple[str, bytes]]: ...  # (name, bytes) per metadata file
 
 
 class LocalSource:
@@ -59,6 +62,16 @@ class LocalSource:
             f"year={day.year}/month={day.month}/day={day.day}/*.bin"
         )
         for path in bin_files:
+            yield (path.name, path.read_bytes())
+
+    def iter_metadata(self, feed: str, day: date) -> Iterator[tuple[str, bytes]]:
+        """Yield (name, bytes) for every metadata file (data.jsonl and/or
+        window=*.jsonl) for the given feed and day — the per-file form the cold
+        tarball needs, vs read_metadata's concatenated stream the rollup needs."""
+        meta_files = (self.landing_dir / feed / "metadata").glob(
+            f"year={day.year}/month={day.month}/day={day.day}/*.jsonl"
+        )
+        for path in meta_files:
             yield (path.name, path.read_bytes())
 
 
@@ -122,3 +135,10 @@ class S3Source:
         )
         chunks = [self._uploader.get_bytes(self._bucket, k) for k in keys]
         return b"".join(chunks)
+
+    def iter_metadata(self, feed, day):
+        prefix = self._day_prefix(feed, "metadata", day)
+        for key in self._list_keys(self._bucket, prefix):
+            if key.endswith(".jsonl"):
+                name = key.rsplit("/", 1)[-1]  # window=*.jsonl — keep the ext
+                yield name, self._uploader.get_bytes(self._bucket, key)

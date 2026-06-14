@@ -196,7 +196,7 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
     telemetry = build_telemetry(config.telemetry)
     uploader = build_uploader(config.s3, telemetry)
     return Shipper(
-        landing_dir=config.writer.landing_dir,
+        source=build_source(config),  # local or S3 per writer.rollup_source
         curated_dir=config.writer.curated_dir,
         uploader=uploader,
         cold_bucket=config.s3.cold_bucket,
@@ -204,6 +204,10 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
         cold_prefix=config.s3.cold_prefix,
         hot_prefix=config.s3.hot_prefix,
         telemetry=telemetry,
+        feed_names=[f.name for f in build_feeds(config)],
+        # Local landing only — used by prune. On the S3 path the lifecycle rule
+        # handles expiry, so a stale value here is never read by the ship path.
+        landing_dir=config.writer.landing_dir,
     )
 
 

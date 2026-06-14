@@ -1,12 +1,14 @@
+import io
 import shutil
 import tarfile
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Iterable, Iterator
 
+from archiver.source import Source
 from archiver.uploader import Uploader
 from archiver.telemetry import Telemetry, NoOpTelemetry
 from archiver.logger import logger
@@ -17,7 +19,7 @@ class Shipper:
 
     def __init__(
         self,
-        landing_dir: Path,
+        source: Source,
         curated_dir: Path,
         uploader: Uploader,
         cold_bucket: str,
@@ -25,8 +27,15 @@ class Shipper:
         cold_prefix: str = "",
         hot_prefix: str = "",
         telemetry: Telemetry | None = None,
+        *,
+        feed_names: Iterable[str] = (),
+        landing_dir: Path | None = None,
     ) -> None:
-        self.landing_dir = landing_dir
+        # Landing reads (discovery + the cold tarball's raw/metadata) go through
+        # the Source seam, so ship works whether landing is local (on-box) or in
+        # S3 (Fargate) — the same seam the rollup uses. curated_dir stays local:
+        # the rollup writes parquet there in the same container before ship runs.
+        self.source = source
         self.curated_dir = curated_dir
         self.uploader = uploader
         self.cold_bucket = cold_bucket
@@ -34,6 +43,13 @@ class Shipper:
         self.cold_prefix = cold_prefix
         self.hot_prefix = hot_prefix
         self.telemetry = telemetry or NoOpTelemetry()
+        # When ship is called without a specific --feed, discover narrows S3 list
+        # calls to one feed's day-prefix at a time instead of listing the whole
+        # landing; that needs the configured feed list.
+        self.feed_names = list(feed_names)
+        # Local-only; used by prune (which deletes the on-box landing tree). None
+        # on Fargate, where prune isn't run (S3 landing expires via lifecycle).
+        self.landing_dir = landing_dir
 
     def run(self, feed=None, day=None, *, force=False, hot_only=False, workers=4):
         pairs = list(self._discover(feed, day))
@@ -119,21 +135,20 @@ class Shipper:
             # ship saturated both cores at gzip-9, the slowest level. Level 6 is ~2-3x
             # faster for a few % larger tarball — negligible in DEEP_ARCHIVE, where these
             # cold tarballs land. CPU is the box's scarce resource, storage is not.
+            base = f"year={day.year}/month={day.month}/day={day.day}"
             with tarfile.open(tar_path, "w:gz", compresslevel=6) as tar:
-                for sub in ("raw", "metadata"):
-                    src = (
-                        self.landing_dir
-                        / feed_name
-                        / sub
-                        / f"year={day.year}"
-                        / f"month={day.month}"
-                        / f"day={day.day}"
-                    )
-                    if src.exists():
-                        tar.add(
-                            src,
-                            arcname=f"{sub}/year={day.year}/month={day.month}/day={day.day}",
-                        )
+                # Pull raw + metadata objects through the Source (local files or S3
+                # objects) and add each under its raw/<part> | metadata/<part>
+                # arcname, preserving the on-box tarball layout so a restore is
+                # backend-agnostic.
+                for sub, items in (
+                    ("raw", self.source.iter_bins(feed_name, day)),
+                    ("metadata", self.source.iter_metadata(feed_name, day)),
+                ):
+                    for name, data in items:
+                        info = tarfile.TarInfo(name=f"{sub}/{base}/{name}")
+                        info.size = len(data)
+                        tar.addfile(info, io.BytesIO(data))
             yield tar_path
         finally:
             tar_path.unlink(missing_ok=True)
@@ -150,31 +165,26 @@ class Shipper:
         yield from self.curated_dir.glob(pattern)
 
     def _discover(self, feed=None, day=None):
+        # Discovery goes through the Source (local or S3). Iterate one feed at a
+        # time so the S3 backend lists a single feed's day-prefix per call rather
+        # than the whole landing; when --feed is given, just that one.
         today = datetime.now(tz=timezone.utc).date()
-        feed_glob = feed if feed else "*"
-        for metadata_file in self.landing_dir.glob(
-            f"{feed_glob}/metadata/year=*/month=*/day=*/data.jsonl"
-        ):
-            rel_parts = metadata_file.relative_to(self.landing_dir).parts
-            # rel_parts: <feed>/metadata/year=Y/month=M/day=D/data.jsonl
-            try:
-                feed_name = rel_parts[0]
-                partition_day = date(
-                    int(rel_parts[2].removeprefix("year=")),
-                    int(rel_parts[3].removeprefix("month=")),
-                    int(rel_parts[4].removeprefix("day=")),
-                )
-            except (ValueError, IndexError):
-                continue
-            if partition_day >= today:
-                continue
-            if day is not None and partition_day != day:
-                continue
-            yield feed_name, partition_day
+        feeds = [feed] if feed is not None else self.feed_names
+        seen: set[tuple[str, date]] = set()
+        for feed_name in feeds:
+            for fn, partition_day in self.source.discover(feed_name, day):
+                if partition_day >= today:  # today is still being written
+                    continue
+                if (fn, partition_day) in seen:
+                    continue
+                seen.add((fn, partition_day))
+                yield fn, partition_day
 
     def _discover_partitions(self) -> set[tuple[str, date]]:
         """Every (feed, day) raw/metadata day-partition currently on disk."""
         found: set[tuple[str, date]] = set()
+        if self.landing_dir is None:
+            return found
         for sub in ("raw", "metadata"):
             for p in self.landing_dir.glob(f"*/{sub}/year=*/month=*/day=*"):
                 rel = p.relative_to(self.landing_dir).parts
@@ -204,6 +214,11 @@ class Shipper:
         many recent days as a buffer for re-rollups; `day` restricts to one day;
         `dry_run` logs what it would delete without touching disk.
         """
+        if self.landing_dir is None:
+            raise RuntimeError(
+                "prune requires a local landing_dir; the S3 landing is expired by "
+                "an S3 lifecycle rule, not by prune."
+            )
         cutoff = datetime.now(tz=timezone.utc).date() - timedelta(days=keep_days)
         deleted = skipped = 0
         for feed_name, partition_day in sorted(self._discover_partitions()):

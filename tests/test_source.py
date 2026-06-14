@@ -148,6 +148,19 @@ def test_iter_bins_no_bins_is_empty(source):
     assert list(source.iter_bins("feedA", date(1999, 1, 1))) == []
 
 
+def test_iter_metadata_concats_to_read_metadata(source):
+    # Per-file form (for the cold tarball) must contain the same bytes as the
+    # concatenated stream (for the rollup), regardless of backend file naming.
+    got = dict(source.iter_metadata("feedA", D_A1))
+    assert got, "iter_metadata yielded nothing"
+    joined = b"".join(got[k] for k in sorted(got))
+    assert joined == source.read_metadata("feedA", D_A1)
+
+
+def test_iter_metadata_no_metadata_is_empty(source):
+    assert list(source.iter_metadata("feedA", date(1999, 1, 1))) == []
+
+
 # --------------------------------------------------------------------------- #
 # LocalSource-specific tests
 # --------------------------------------------------------------------------- #
