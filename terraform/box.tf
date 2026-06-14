@@ -40,9 +40,28 @@ locals {
   poller_user_data = <<-EOT
     #!/bin/bash
     set -euxo pipefail
+    # Everything here runs as root under cloud-init. NOTE: do NOT reference
+    # ssm-user — the SSM agent creates it lazily on first session connect, so it
+    # does not exist at boot (an earlier `usermod ssm-user` aborted the script).
     dnf install -y docker git
     systemctl enable --now docker
-    usermod -aG docker ssm-user
+
+    # The base AL2023 `docker` package ships the engine but NOT the compose v2
+    # plugin, so `docker compose` just prints help. Install the arm64 plugin.
+    mkdir -p /usr/libexec/docker/cli-plugins
+    curl -sSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64 \
+      -o /usr/libexec/docker/cli-plugins/docker-compose
+    chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+    mkdir -p /opt/rail-archiver
+    cd /opt/rail-archiver
+    git clone https://github.com/ankoure/us-rail-performance-archiver.git .
+
+    # The poller containers run as uid 1000 and bind-mount ./archive (landing
+    # outbox) and ./poll_state/shard-N; pre-create them owned by 1000 (config is
+    # mounted read-only). Avoid `make` — not installed on a base AL2023.
+    mkdir -p poll_state/shard-0 poll_state/shard-1 archive
+    chown -R 1000:1000 poll_state archive
 
     # 4 GiB swap on root (no data volume now). Safety net for any memory spike in
     # the poller; low swappiness so it's not eager. dd, not fallocate (see README).
@@ -54,16 +73,9 @@ locals {
     echo "vm.swappiness=10" > /etc/sysctl.d/99-swappiness.conf
     sysctl --system
 
-    mkdir -p /opt/rail-archiver
-    chown ssm-user:ssm-user /opt/rail-archiver
-    cd /opt/rail-archiver
-    sudo -u ssm-user git clone https://github.com/ankoure/us-rail-performance-archiver.git .
-    sudo -u ssm-user make shard-dirs
-    chown -R 1000:1000 poll_state/
-
     # Bootstrap done. Pollers are NOT started here: that waits until .env is
-    # added (SSM session) and the operator runs `docker compose up`, so the new
-    # box doesn't dual-poll the old one mid-cutover.
+    # added (SSM session, with sudo) and the operator runs `docker compose up`,
+    # so the new box doesn't dual-poll the old one mid-cutover.
     touch /opt/rail-archiver/.bootstrap-complete
   EOT
 }
@@ -89,6 +101,9 @@ resource "aws_instance" "poller" {
 
   tags = {
     Name = "rail-archiver-poller"
+    # Required: the deploy role's ssm:SendCommand is scoped to instances tagged
+    # Application=rail-archiver, so deploy.yml can only reach the box if it's tagged.
+    Application = "rail-archiver"
   }
 }
 
