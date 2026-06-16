@@ -53,14 +53,19 @@ class APIClient:
         auth: Optional[httpx.Auth] = None,
         timeout: int = 10,
         limiter: RateLimiter | None = None,
+        default_headers: dict[str, str] | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         # Per-agency rate limiter (one client per agency). The poll loop consults
         # it as a non-blocking admission gate; None => unlimited.
         self.limiter = limiter or NullRateLimiter()
+        headers = {"User-Agent": self.DEFAULT_USER_AGENT}
+        if default_headers:
+            headers.update(default_headers)
+
         self.client = httpx.AsyncClient(
-            headers={"User-Agent": self.DEFAULT_USER_AGENT},
+            headers=headers,
             auth=auth,
         )
 

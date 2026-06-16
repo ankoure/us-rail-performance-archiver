@@ -675,6 +675,198 @@ agencies:
         decoder: marta_json
         poll_interval_seconds: 15
 
+  # MyLIRR exposes a non-standard JSON locations API (not GTFS-RT protobuf).
+  # Requires two static request headers (default_headers) and JSON response handling.
+  # Raw JSON is landed at collection; normalization is deferred to the rollup/gold layer.
+  - agency_id: LIRR
+    name: MTA Long Island Rail Road
+    region: New York City
+    timezone: America/New_York
+    base_url: https://backend-unified.mylirr.org
+    auth:
+      type: none
+    default_headers:
+      accept-version: "3.0"
+      origin: "https://radar.mta.info"
+    feeds:
+      - name: lirr-locations
+        path: /locations?geometry=TRACK_TURF&railroad=LIRR
+        expected_format: json
+        decoder: mta_lirr_json
+        poll_interval_seconds: 15
+
+  # MWRTA (MetroWest RTA) exposes a non-standard JSON vehicle API. The CCRTA feed
+  # below uses the same wire format (shared decoder), with minor key differences.
+  # Raw JSON is landed at collection; normalization is deferred to the gold layer.
+  - agency_id: MWRTA
+    name: MetroWest Regional Transit Authority
+    region: MetroWest Boston
+    timezone: America/New_York
+    base_url: https://vc.mwrta.com
+    auth:
+      type: none
+    feeds:
+      - name: mwrta-vehicles
+        path: /api/FR/0
+        expected_format: json
+        decoder: mwrta_json
+        poll_interval_seconds: 15
+
+  - agency_id: CCRTA
+    name: Cape Cod Regional Transit Authority
+    region: Cape Cod
+    timezone: America/New_York
+    base_url: https://tracker.capecodrta.org
+    auth:
+      type: none
+    feeds:
+      - name: ccrta-vehicles
+        path: /api/CCRTAFR_AVL
+        expected_format: json
+        decoder: mwrta_json
+        poll_interval_seconds: 15
+
+  # BRTA (Berkshire RTA) uses a RouteMatch JSON feed: the vehicle list is wrapped
+  # in a {"data": [...]} envelope. The route list is baked into the byRoutes path.
+  # Raw JSON is landed at collection; normalization is deferred to the gold layer.
+  - agency_id: BRTA
+    name: Berkshire Regional Transit Authority
+    region: Berkshire
+    timezone: America/New_York
+    base_url: https://brta.routematch.io
+    auth:
+      type: none
+    feeds:
+      - name: brta-vehicles
+        path: /feed/vehicle/byRoutes/Wk%20Rt%2001%2CWk%20Rt%2002%2CWk%20Rt%2003%2CWk%20Rt%2004%2CRoute%205%20Loop%2CWk%20Rt%2011%2CWk%20Rt%2012%2CWk%20Rt%2014%2CWk%20Rt%2015%2CWk%20Rt%2021%2CRte%2034%2CRte%2021%20Express?templates%5B%5D=title&templates%5B%5D=body&title=%7B%40internalVehicleId%7D&body=Heading+%7B%40tripDirection%7D+on+%7B%40masterRouteLongName%7D&timeHorizon=30&timeSensitive=true
+        expected_format: json
+        decoder: routematch_json
+        poll_interval_seconds: 15
+
+  # MeVa (Merrimack Valley Transit) uses a Trillium JSON feed: vehicles wrapped in
+  # a {"status", "data": [...]} envelope (some Trillium endpoints return a bare array).
+  # Raw JSON is landed at collection; normalization is deferred to the gold layer.
+  - agency_id: MEVA
+    name: Merrimack Valley Transit (MeVa)
+    region: Merrimack Valley
+    timezone: America/New_York
+    base_url: https://maps.trilliumtransit.com
+    auth:
+      type: none
+    feeds:
+      - name: meva-vehicles
+        path: /gtfsmap-realtime/feed/merrimackvalley-ma-us/vehicles
+        expected_format: json
+        decoder: trillium_json
+        poll_interval_seconds: 15
+
+  # GATRA, LRTA, WRTA use the Swiv (cadavl) JSON feed: vehicles wrapped in a
+  # {"vehicule": [...]} envelope, with nested localisation/conduite objects. The
+  # route-name (topo) lookup is normalization, deferred to the gold layer, so this
+  # stays a single GET. Raw JSON is landed at collection; these three share one decoder.
+  - agency_id: GATRA
+    name: Greater Attleboro Taunton Regional Transit Authority
+    region: Attleboro-Taunton
+    timezone: America/New_York
+    base_url: https://swiv.gatra.cadavl.com
+    auth:
+      type: none
+    feeds:
+      - name: gatra-vehicles
+        path: /SWIV/GATRA/proxy/restWS/topo/vehicules
+        expected_format: json
+        decoder: swiv_json
+        poll_interval_seconds: 15
+
+  - agency_id: LRTA
+    name: Lowell Regional Transit Authority
+    region: Lowell
+    timezone: America/New_York
+    base_url: https://swiv.lrta.cadavl.com
+    auth:
+      type: none
+    feeds:
+      - name: lrta-vehicles
+        path: /SWIV/LRTA/proxy/restWS/topo/vehicules
+        expected_format: json
+        decoder: swiv_json
+        poll_interval_seconds: 15
+
+  - agency_id: WRTA
+    name: Worcester Regional Transit Authority
+    region: Worcester
+    timezone: America/New_York
+    base_url: https://swiv.wrta.cadavl.com
+    auth:
+      type: none
+    feeds:
+      - name: wrta-vehicles
+        path: /SWIV/WRTA/proxy/restWS/topo/vehicules
+        expected_format: json
+        decoder: swiv_json
+        poll_interval_seconds: 15
+
+  # Vineyard Transit Authority uses a MyTransitRide JSON feed: a direct array of
+  # vehicle objects. The route patterns to fetch are baked into the patternIds query
+  # param. Raw JSON is landed at collection; normalization deferred to gold.
+  # NOTE: agency_id is VINEYARD_VTA to avoid colliding with Santa Clara "VTA" (agency=SC
+  # under BAY_AREA_511), which already owns the vta-vehicles feed name.
+  - agency_id: VINEYARD_VTA
+    name: Vineyard Transit Authority
+    region: Martha's Vineyard
+    timezone: America/New_York
+    base_url: https://vta.mytransitride.com
+    auth:
+      type: none
+    feeds:
+      - name: vineyard-vta-vehicles
+        path: /api/VehicleStatuses?patternIds=1394,1395,1396,1398,1399,1400,1420,1424,1401,1405,1432,1435,1408,1410,1412,1413,1416,1417,1438,1440,1442,1443,1445,1446,1459,1460,1456,1457,1447,1453
+        expected_format: json
+        decoder: vta_json
+        poll_interval_seconds: 15
+
+  # FRTA and MART use Passio GO!, a POST JSON API: the system id is sent in the
+  # request body ({"s0": <system_id>, "sA": 1}) to mapGetData.php?getBuses=2. The
+  # response nests vehicles under "buses" as {vehicleId: [obj]}. The routes endpoint
+  # (myid->name lookup) is normalization, deferred to gold, so we only POST getBuses.
+  # Raw JSON is landed at collection; FRTA and MART share one decoder.
+  # (BAT also uses Passio but its system id is credential-gated and unavailable here.)
+  - agency_id: FRTA
+    name: Franklin Regional Transit Authority
+    region: Franklin County
+    timezone: America/New_York
+    base_url: https://passiogo.com
+    auth:
+      type: none
+    feeds:
+      - name: frta-vehicles
+        path: /mapGetData.php?getBuses=2
+        method: POST
+        body:
+          s0: "2771"
+          sA: 1
+        expected_format: json
+        decoder: passio_json
+        poll_interval_seconds: 15
+
+  - agency_id: MART
+    name: Montachusett Regional Transit Authority
+    region: Montachusett
+    timezone: America/New_York
+    base_url: https://passiogo.com
+    auth:
+      type: none
+    feeds:
+      - name: mart-vehicles
+        path: /mapGetData.php?getBuses=2
+        method: POST
+        body:
+          s0: "2173"
+          sA: 1
+        expected_format: json
+        decoder: passio_json
+        poll_interval_seconds: 15
+
   - agency_id: METRO_HOUSTON
     name: Houston METRO (METRORail)
     region: Houston

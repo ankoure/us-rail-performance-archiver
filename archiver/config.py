@@ -73,9 +73,22 @@ class FeedConfig(BaseModel):
     name: str
     path: str
     expected_format: Literal["protobuf", "json", "auto"] = "protobuf"
-    decoder: Literal["standard", "mta_nyct", "marta_json"] = "standard"
+    decoder: Literal[
+        "standard",
+        "mta_nyct",
+        "marta_json",
+        "mta_lirr_json",
+        "mwrta_json",
+        "routematch_json",
+        "trillium_json",
+        "swiv_json",
+        "vta_json",
+        "passio_json",
+    ] = "standard"
     poll_interval_seconds: int | None = Field(default=None, gt=0)
     mdb_feed_id: str | None = None
+    method: Literal["GET", "POST"] = "GET"
+    body: dict | None = None
 
 
 class RateLimitConfig(BaseModel):
@@ -94,6 +107,7 @@ class AgencyConfig(BaseModel):
     base_url: HttpUrl
     auth: AuthConfig
     feeds: list[FeedConfig]
+    default_headers: dict[str, str] = Field(default_factory=dict)
     rate_limit: RateLimitConfig | None = None  # None => unlimited (NullRateLimiter)
     mdb_feed_id: str | None = None
 

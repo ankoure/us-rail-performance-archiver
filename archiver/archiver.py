@@ -16,7 +16,6 @@ import httpx
 from archiver.logger import logger
 from archiver.telemetry import Telemetry, NoOpTelemetry
 
-
 # Feeds polling less often than this are tagged interval_class:slow so the
 # dark-feed monitor can give them a longer "gone dark" window (a 15-min window
 # would false-positive on a feed that only polls every ~17-30 min, e.g. the
@@ -57,7 +56,14 @@ class FeedArchiver:
                     tags={"feed": feed.name, "interval_class": interval_class},
                 ):
                     start = time.monotonic()
-                    http = await feed.client.get(feed.path, headers=conditional_headers)
+                    if feed.method == "POST":
+                        http = await feed.client.post(
+                            feed.path, json=feed.body, headers=conditional_headers
+                        )
+                    else:
+                        http = await feed.client.get(
+                            feed.path, headers=conditional_headers
+                        )
 
                     if http.status_code == 304:
                         self.telemetry.incr(

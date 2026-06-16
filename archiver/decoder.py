@@ -59,6 +59,258 @@ class MartaPredictionRow(Row):
     longitude: float | None
 
 
+@dataclass
+class LirrTrainRow(Row):
+    required_input_keys: ClassVar[frozenset[str]] = frozenset(
+        {"train_num", "realtime", "location", "status", "details"}
+    )
+    optional_input_keys: ClassVar[frozenset[str]] = frozenset(
+        {"train_id", "railroad", "run_date", "consist", "alerts"}
+    )
+    feed_timestamp: int  # = fetched_at (poll time), like MARTA
+    train_num: str  # RAW
+    realtime: bool
+    canceled: bool  # from status["canceled"]
+    latitude: float | None
+    longitude: float | None
+    heading: float | None
+    speed_mph: float | None  # RAW mph
+    location_timestamp: int | None
+    current_stop_code: str | None  # RAW code
+    current_stop_status: str | None  # RAW status string
+    current_stop_seq: int | None
+    act_arrive_time: int | None
+    act_depart_time: int | None
+
+
+@dataclass
+class MwrtaVehicleRow(Row):
+    required_input_keys: ClassVar[frozenset[str]] = frozenset(
+        {"ID", "Route", "Lat", "Long", "Speed", "Heading", "DateTime", "VehiclePlate"}
+    )
+    optional_input_keys: ClassVar[frozenset[str]] = frozenset(
+        {
+            "RouteName",
+            "DirectionName",
+            "Destination",
+            "Active",
+            "ScheduleDelta",
+            "SequenceId",
+            "NumberOfSatelites",
+            "FixStrength",
+            "Mode",
+            "AddressStreet",
+            "AddressCity",
+        }
+    )
+
+    feed_timestamp: int  # fetched_at
+    vehicle_id: str  # str(ID)
+    route: str | None  # str(Route) — NOTE: int for CCRTA (604), str for MWRTA ("RT04S")
+    route_name: str | None  # RouteName (CCRTA only)
+    destination: str | None  # Destination (MWRTA only)
+    direction_name: str | None  # DirectionName (CCRTA only)
+    latitude: float | None  # Lat
+    longitude: float | None  # Long
+    speed: float | None  # Speed — RAW, no unit conversion
+    heading: float | None  # Heading
+    vehicle_datetime: (
+        str | None
+    )  # DateTime — keep the RAW naive ISO string; tz interpretation is gold's job
+    active: bool | None  # Active (MWRTA only); default None when absent
+
+
+@dataclass
+class RouteMatchVehicleRow(Row):
+    required_input_keys = frozenset(
+        {
+            "vehicleId",
+            "latitude",
+            "longitude",
+            "heading",
+            "speed",
+            "masterRouteId",
+            "tripId",
+            "lastUpdate",
+            "deadhead",
+        }
+    )
+    optional_input_keys = frozenset(
+        {
+            "blockId",
+            "currentPassengers",
+            "headingName",
+            "internalDriverId",
+            "internalVehicleId",
+            "landRouteId",
+            "lastTimePointCrossedDate",
+            "lastTimePointCrossedId",
+            "masterRouteDescription",
+            "masterRouteLongName",
+            "masterRouteShortName",
+            "onRouteEdgeId",
+            "onRouteEdgePercent",
+            "onRouteLatitude",
+            "onRouteLongitude",
+            "percentFull",
+            "scheduleAdherence",
+            "showVehicleCapacity",
+            "subRouteDescription",
+            "subRouteLongName",
+            "subRouteShortName",
+            "templates",
+            "totalCapacity",
+            "tripDirection",
+        }
+    )
+
+    feed_timestamp: int  # fetched_at
+    vehicle_id: str  # str(vehicleId)
+    internal_vehicle_id: str | None  # internalVehicleId
+    route_id: str | None  # masterRouteId — RAW ("Wk Rt 01"), no normalization
+    route_short_name: str | None  # masterRouteShortName
+    trip_id: str | None  # tripId — RAW
+    trip_direction: str | None  # tripDirection
+    latitude: float | None
+    longitude: float | None
+    speed: float | None  # RAW
+    heading: float | None
+    heading_name: str | None  # headingName
+    last_update: str | None  # lastUpdate — RAW ISO string (has tz offset), kept as-is
+    deadhead: bool | None
+    schedule_adherence: int | None  # scheduleAdherence
+    current_passengers: int | None  # currentPassengers
+
+
+@dataclass
+class TrilliumVehicleRow(Row):
+    required_input_keys = frozenset(
+        {
+            "id",
+            "lat",
+            "lon",
+            "lastUpdated",
+            "route_id",
+            "route_short_name",
+            "headingDegrees",
+            "speed",
+            "name",
+        }
+    )
+
+    optional_input_keys = frozenset(
+        {
+            "patternId",
+            "capacity",
+            "passengerLoad",
+            "heading",
+            "shapeDistanceTraveled",
+            "vehicleType",
+        }
+    )
+    feed_timestamp: int  # fetched_at
+    vehicle_id: str  # str(id)
+    vehicle_name: str | None  # name
+    route_id: str | None  # route_id — RAW ("10730")
+    route_short_name: str | None  # route_short_name ("18")
+    pattern_id: int | None  # patternId
+    latitude: float | None  # lat
+    longitude: float | None  # lon
+    speed: float | None  # RAW
+    heading: str | None  # cardinal string, e.g. "SE"
+    heading_degrees: float | None  # headingDegrees — the numeric bearing
+    last_updated: str | None  # lastUpdated — RAW ISO-Z string
+    vehicle_type: str | None  # vehicleType
+    passenger_load: float | None  # passengerLoad
+    capacity: int | None
+
+
+@dataclass
+class SwivVehicleRow(Row):
+    required_input_keys = frozenset(
+        {"id", "numeroEquipement", "type", "vehiculeLoad", "localisation", "conduite"}
+    )
+    optional_input_keys = frozenset({"tauxRemplissage", "estAffichable"})
+    feed_timestamp: int  # fetched_at
+    vehicle_id: str  # str(id)
+    equipment_number: str | None  # numeroEquipement
+    vehicle_type: str | None  # type
+    vehicle_load: str | None  # vehiculeLoad ("10%")
+    fill_rate: int | None  # tauxRemplissage (GATRA/WRTA only)
+    latitude: float | None  # localisation.lat
+    longitude: float | None  # localisation.lng
+    heading: float | None  # localisation.cap
+    route_line_id: int | None  # conduite.idLigne — RAW int, no topo lookup
+    speed: float | None  # conduite.vitesse — RAW, no km/h→m/s
+    destination: str | None  # conduite.destination
+    delay_status: str | None  # conduite.avanceRetard ("6 min late")
+    next_stop_name: str | None  # conduite.arretSuiv.nomCommercial
+    next_stop_eta: int | None  # conduite.arretSuiv.estimationTemps
+
+
+@dataclass
+class VtaVehicleRow(Row):
+    required_input_keys = frozenset(
+        {"vehicleId", "lat", "lng", "velocity", "bearing", "lastUpdate", "headsignText"}
+    )
+    optional_input_keys = frozenset(
+        {"name", "patternId", "vehicleStateId", "bypassDailyTripId"}
+    )
+
+    feed_timestamp: int  # fetched_at
+    vehicle_id: str  # str(vehicleId)
+    vehicle_name: str | None  # name
+    pattern_id: int | None  # patternId
+    headsign_text: str | None  # headsignText — RAW (route normalization deferred)
+    latitude: float | None  # lat
+    longitude: float | None  # lng
+    velocity: float | None  # RAW mph, no m/s conversion
+    bearing: float | None
+    last_update: str | None  # lastUpdate — RAW naive ISO string
+    vehicle_state_id: int | None  # vehicleStateId
+
+
+@dataclass
+class PassioVehicleRow(Row):
+    required_input_keys = frozenset(
+        {"busId", "latitude", "longitude", "calculatedCourse", "routeId", "tripId"}
+    )
+    optional_input_keys = frozenset(
+        {
+            "deviceId",
+            "created",
+            "createdTime",
+            "paxLoad",
+            "bus",
+            "userId",
+            "routeBlockId",
+            "outOfService",
+            "more",
+            "totalCap",
+            "color",
+            "busName",
+            "busType",
+            "route",
+            "outdated",
+        }
+    )
+    feed_timestamp: int  # fetched_at
+    vehicle_id: str  # str(busId)
+    device_id: int | None  # deviceId
+    bus_name: str | None  # busName — RAW (may contain padding like "  32  ")
+    route_id: str | None  # routeId — RAW ("30848"); myid->name lookup deferred
+    route_name: str | None  # route — RAW human name ("Rt. 32 Orange/Greenfield")
+    trip_id: str | None  # tripId — RAW
+    route_block_id: str | None  # routeBlockId
+    latitude: float | None  # _f(latitude)  -- string -> float
+    longitude: float | None  # _f(longitude)
+    calculated_course: float | None  # _f(calculatedCourse) -- the bearing
+    pax_load: int | None  # paxLoad
+    total_cap: int | None  # totalCap
+    out_of_service: int | None  # outOfService
+    created: str | None  # created -- RAW "03:41 PM"
+
+
 @dataclass(frozen=True)
 class DriftReport:
     missing_required: frozenset[str] = frozenset()
@@ -483,3 +735,512 @@ class MartaJsonDecoder(Decoder):
         if (event_dt - candidate).total_seconds() > 12 * 3600:
             candidate += timedelta(days=1)
         return candidate.astimezone(timezone.utc)
+
+
+@Decoder.register("mta_lirr_json")
+class LirrJsonDecoder(Decoder):
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        LirrTrainRow: TableSpec(
+            "lirr_trains", dedup_keys=("train_num", "location_timestamp")
+        )
+    }
+
+    def validate(self, parsed: list) -> DriftReport | None:
+        if not parsed:
+            return None
+        return validate_record_keys(parsed[0], LirrTrainRow)
+
+    def decode(self, parsed: list, *, fetched_at: int | None = None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("LirrJsonDecoder requires fetched_at")
+        for t in parsed:
+            drift = validate_record_keys(t, LirrTrainRow)
+            if drift and drift.has_missing_required:
+                continue
+            loc = t.get("location") or {}
+            status = t.get("status") or {}
+            stops = (t.get("details") or {}).get("stops") or []
+            cur = next((s for s in stops if s.get("stop_status") != "DEPARTED"), None)
+            yield LirrTrainRow(
+                feed_timestamp=fetched_at,
+                train_num=str(t.get("train_num") or ""),  # RAW, no rewrite
+                realtime=bool(t.get("realtime")),
+                canceled=bool(status.get("canceled")),
+                latitude=loc.get("latitude"),
+                longitude=loc.get("longitude"),
+                heading=loc.get("heading"),
+                speed_mph=loc.get("speed"),  # RAW mph, no conversion
+                location_timestamp=loc.get("timestamp"),
+                current_stop_code=(cur or {}).get("code"),  # RAW code
+                current_stop_status=(cur or {}).get("stop_status"),
+                current_stop_seq=(stops.index(cur) + 1) if cur else None,
+                act_arrive_time=(cur or {}).get("act_arrive_time"),
+                act_depart_time=(cur or {}).get("act_depart_time"),
+            )
+
+    @staticmethod
+    def _parse_delay(delay: str | None) -> int | None:
+        if delay is None:
+            return None
+        return int(delay.removeprefix("T").removesuffix("S"))
+
+    @staticmethod
+    def _parse_event_time(s: str) -> datetime:
+        # "05/08/2026 4:35:20 PM" in America/New_York
+        local = datetime.strptime(s, "%m/%d/%Y %I:%M:%S %p")
+        return local.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(
+            timezone.utc
+        )
+
+    @staticmethod
+    def _combine_date_and_time(event_dt: datetime, time_str: str) -> datetime:
+        # "04:36:34 PM" — combine with event_dt's date, handle midnight rollover
+        t = datetime.strptime(time_str, "%I:%M:%S %p").time()
+        candidate = datetime.combine(
+            event_dt.astimezone(ZoneInfo("America/New_York")).date(),
+            t,
+            tzinfo=ZoneInfo("America/New_York"),
+        )
+        # If candidate is more than ~12h before event, roll forward a day (midnight rollover)
+        if (event_dt - candidate).total_seconds() > 12 * 3600:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+
+@Decoder.register("mwrta_json")
+class MwrtaJsonDecoder(Decoder):
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        MwrtaVehicleRow: TableSpec(
+            "mwrta_vehicles", dedup_keys=("vehicle_id", "vehicle_datetime")
+        )
+    }
+
+    def validate(self, parsed: list) -> DriftReport | None:
+        if not parsed:
+            return None
+        return validate_record_keys(parsed[0], MwrtaVehicleRow)
+
+    def decode(self, parsed: list, *, fetched_at: int | None = None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("MwrtaJsonDecoder requires fetched_at")
+        for r in parsed:
+            drift = validate_record_keys(r, MwrtaVehicleRow)
+            if drift and drift.has_missing_required:
+                continue
+            yield MwrtaVehicleRow(
+                feed_timestamp=fetched_at,
+                vehicle_id=str(r["ID"]),
+                route=str(r["Route"]) if "Route" in r else None,
+                route_name=r.get("RouteName"),
+                destination=r.get("Destination"),
+                direction_name=r.get("DirectionName"),
+                latitude=float(r["Lat"]) if "Lat" in r else None,
+                longitude=float(r["Long"]) if "Long" in r else None,
+                speed=float(r["Speed"]) if "Speed" in r else None,
+                heading=float(r["Heading"]) if "Heading" in r else None,
+                vehicle_datetime=r.get("DateTime"),
+                active=bool(r["Active"]) if "Active" in r else None,
+            )
+
+    @staticmethod
+    def _parse_delay(delay: str | None) -> int | None:
+        if delay is None:
+            return None
+        return int(delay.removeprefix("T").removesuffix("S"))
+
+    @staticmethod
+    def _parse_event_time(s: str) -> datetime:
+        # "05/08/2026 4:35:20 PM" in America/New_York
+        local = datetime.strptime(s, "%m/%d/%Y %I:%M:%S %p")
+        return local.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(
+            timezone.utc
+        )
+
+    @staticmethod
+    def _combine_date_and_time(event_dt: datetime, time_str: str) -> datetime:
+        # "04:36:34 PM" — combine with event_dt's date, handle midnight rollover
+        t = datetime.strptime(time_str, "%I:%M:%S %p").time()
+        candidate = datetime.combine(
+            event_dt.astimezone(ZoneInfo("America/New_York")).date(),
+            t,
+            tzinfo=ZoneInfo("America/New_York"),
+        )
+        # If candidate is more than ~12h before event, roll forward a day (midnight rollover)
+        if (event_dt - candidate).total_seconds() > 12 * 3600:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+
+@Decoder.register("routematch_json")
+class RouteMatchJsonDecoder(Decoder):
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        RouteMatchVehicleRow: TableSpec(
+            "routematch_vehicles", dedup_keys=("vehicle_id", "last_update")
+        )
+    }
+
+    def validate(self, parsed: dict) -> DriftReport | None:
+        records = parsed.get("data") or []  # <- unwrap the envelope
+        if not records:
+            return None
+        return validate_record_keys(records[0], RouteMatchVehicleRow)
+
+    def decode(self, parsed: dict, *, fetched_at=None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("RouteMatchJsonDecoder requires fetched_at")
+        for r in parsed.get("data") or []:  # <- iterate the records, not the dict
+            drift = validate_record_keys(r, RouteMatchVehicleRow)
+            if drift and drift.has_missing_required:
+                continue
+            yield RouteMatchVehicleRow(
+                feed_timestamp=fetched_at,
+                vehicle_id=str(r["vehicleId"]),
+                internal_vehicle_id=r.get("internalVehicleId"),
+                route_id=r.get("masterRouteId"),
+                route_short_name=r.get("masterRouteShortName"),
+                trip_id=r.get("tripId"),
+                trip_direction=r.get("tripDirection"),
+                latitude=r.get("latitude"),
+                longitude=r.get("longitude"),
+                speed=r.get("speed"),
+                heading=r.get("heading"),
+                schedule_adherence=r.get("scheduleAdherence"),
+                current_passengers=r.get("currentPassengers"),
+                heading_name=r.get("headingName"),
+                last_update=r.get("lastUpdate"),
+                deadhead=bool(r["deadhead"]) if "deadhead" in r else None,
+            )
+
+    @staticmethod
+    def _parse_delay(delay: str | None) -> int | None:
+        if delay is None:
+            return None
+        return int(delay.removeprefix("T").removesuffix("S"))
+
+    @staticmethod
+    def _parse_event_time(s: str) -> datetime:
+        # "05/08/2026 4:35:20 PM" in America/New_York
+        local = datetime.strptime(s, "%m/%d/%Y %I:%M:%S %p")
+        return local.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(
+            timezone.utc
+        )
+
+    @staticmethod
+    def _combine_date_and_time(event_dt: datetime, time_str: str) -> datetime:
+        # "04:36:34 PM" — combine with event_dt's date, handle midnight rollover
+        t = datetime.strptime(time_str, "%I:%M:%S %p").time()
+        candidate = datetime.combine(
+            event_dt.astimezone(ZoneInfo("America/New_York")).date(),
+            t,
+            tzinfo=ZoneInfo("America/New_York"),
+        )
+        # If candidate is more than ~12h before event, roll forward a day (midnight rollover)
+        if (event_dt - candidate).total_seconds() > 12 * 3600:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+
+@Decoder.register("trillium_json")
+class TrilliumJsonDecoder(Decoder):
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        TrilliumVehicleRow: TableSpec(
+            "trillium_vehicles", dedup_keys=("vehicle_id", "last_updated")
+        )
+    }
+
+    def validate(self, parsed: dict) -> DriftReport | None:
+        records = self._records(parsed)
+        if not records:
+            return None
+        return validate_record_keys(records[0], TrilliumVehicleRow)
+
+    def decode(self, parsed: dict, *, fetched_at=None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("TrilliumJsonDecoder requires fetched_at")
+        for r in self._records(parsed):
+            drift = validate_record_keys(r, TrilliumVehicleRow)
+            if drift and drift.has_missing_required:
+                continue
+            yield TrilliumVehicleRow(
+                feed_timestamp=fetched_at,
+                vehicle_id=str(r["id"]),
+                vehicle_name=r.get("name"),
+                route_id=r.get("route_id"),
+                route_short_name=r.get("route_short_name"),
+                pattern_id=r.get("patternId"),
+                latitude=r.get("lat"),
+                longitude=r.get("lon"),
+                speed=r.get("speed"),
+                heading=r.get("heading"),
+                heading_degrees=r.get("headingDegrees"),
+                last_updated=r.get("lastUpdated"),
+                vehicle_type=r.get("vehicleType"),
+                passenger_load=r.get("passengerLoad"),
+                capacity=r.get("capacity"),
+            )
+
+    @staticmethod
+    def _parse_delay(delay: str | None) -> int | None:
+        if delay is None:
+            return None
+        return int(delay.removeprefix("T").removesuffix("S"))
+
+    @staticmethod
+    def _parse_event_time(s: str) -> datetime:
+        # "05/08/2026 4:35:20 PM" in America/New_York
+        local = datetime.strptime(s, "%m/%d/%Y %I:%M:%S %p")
+        return local.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(
+            timezone.utc
+        )
+
+    @staticmethod
+    def _combine_date_and_time(event_dt: datetime, time_str: str) -> datetime:
+        # "04:36:34 PM" — combine with event_dt's date, handle midnight rollover
+        t = datetime.strptime(time_str, "%I:%M:%S %p").time()
+        candidate = datetime.combine(
+            event_dt.astimezone(ZoneInfo("America/New_York")).date(),
+            t,
+            tzinfo=ZoneInfo("America/New_York"),
+        )
+        # If candidate is more than ~12h before event, roll forward a day (midnight rollover)
+        if (event_dt - candidate).total_seconds() > 12 * 3600:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+    @staticmethod
+    def _records(parsed):
+        return (parsed.get("data") if isinstance(parsed, dict) else parsed) or []
+
+
+@Decoder.register("swiv_json")
+class SwivJsonDecoder(Decoder):
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        SwivVehicleRow: TableSpec(
+            "swiv_vehicles", dedup_keys=("vehicle_id", "feed_timestamp")
+        )
+    }
+
+    def validate(self, parsed: dict) -> DriftReport | None:
+        records = self._records(parsed)
+        if not records:
+            return None
+        return validate_record_keys(records[0], SwivVehicleRow)
+
+    def decode(self, parsed: dict, *, fetched_at=None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("SwivJsonDecoder requires fetched_at")
+        for r in self._records(parsed):
+            drift = validate_record_keys(r, SwivVehicleRow)
+            if drift and drift.has_missing_required:
+                continue
+            yield SwivVehicleRow(
+                feed_timestamp=fetched_at,
+                vehicle_id=str(r["id"]),
+                equipment_number=r.get("numeroEquipement"),
+                vehicle_type=r.get("type"),
+                vehicle_load=r.get("vehiculeLoad"),
+                fill_rate=int(r["tauxRemplissage"]) if "tauxRemplissage" in r else None,
+                latitude=(
+                    float(r["localisation"]["lat"])
+                    if "localisation" in r and "lat" in r["localisation"]
+                    else None
+                ),
+                longitude=(
+                    float(r["localisation"]["lng"])
+                    if "localisation" in r and "lng" in r["localisation"]
+                    else None
+                ),
+                heading=(
+                    float(r["localisation"]["cap"])
+                    if "localisation" in r and "cap" in r["localisation"]
+                    else None
+                ),
+                route_line_id=(
+                    int(r["conduite"]["idLigne"])
+                    if "conduite" in r and "idLigne" in r["conduite"]
+                    else None
+                ),
+                speed=(
+                    float(r["conduite"]["vitesse"])
+                    if "conduite" in r and "vitesse" in r["conduite"]
+                    else None
+                ),
+                destination=(
+                    r["conduite"]["destination"]
+                    if "conduite" in r and "destination" in r["conduite"]
+                    else None
+                ),
+                delay_status=(
+                    r["conduite"]["avanceRetard"]
+                    if "conduite" in r and "avanceRetard" in r["conduite"]
+                    else None
+                ),
+                next_stop_name=(
+                    r["conduite"]["arretSuiv"]["nomCommercial"]
+                    if "conduite" in r
+                    and "arretSuiv" in r["conduite"]
+                    and "nomCommercial" in r["conduite"]["arretSuiv"]
+                    else None
+                ),
+                next_stop_eta=(
+                    int(r["conduite"]["arretSuiv"]["estimationTemps"])
+                    if "conduite" in r
+                    and "arretSuiv" in r["conduite"]
+                    and "estimationTemps" in r["conduite"]["arretSuiv"]
+                    else None
+                ),
+            )
+
+    @staticmethod
+    def _parse_delay(delay: str | None) -> int | None:
+        if delay is None:
+            return None
+        return int(delay.removeprefix("T").removesuffix("S"))
+
+    @staticmethod
+    def _parse_event_time(s: str) -> datetime:
+        # "05/08/2026 4:35:20 PM" in America/New_York
+        local = datetime.strptime(s, "%m/%d/%Y %I:%M:%S %p")
+        return local.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(
+            timezone.utc
+        )
+
+    @staticmethod
+    def _combine_date_and_time(event_dt: datetime, time_str: str) -> datetime:
+        # "04:36:34 PM" — combine with event_dt's date, handle midnight rollover
+        t = datetime.strptime(time_str, "%I:%M:%S %p").time()
+        candidate = datetime.combine(
+            event_dt.astimezone(ZoneInfo("America/New_York")).date(),
+            t,
+            tzinfo=ZoneInfo("America/New_York"),
+        )
+        # If candidate is more than ~12h before event, roll forward a day (midnight rollover)
+        if (event_dt - candidate).total_seconds() > 12 * 3600:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+    @staticmethod
+    def _records(parsed):
+        return (parsed.get("vehicule") if isinstance(parsed, dict) else parsed) or []
+
+
+@Decoder.register("vta_json")
+class VtaJsonDecoder(Decoder):
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        VtaVehicleRow: TableSpec(
+            "vta_vehicles", dedup_keys=("vehicle_id", "last_update")
+        )
+    }
+
+    def validate(self, parsed: dict) -> DriftReport | None:
+        records = self._records(parsed)
+        if not records:
+            return None
+        return validate_record_keys(records[0], VtaVehicleRow)
+
+    def decode(self, parsed: dict, *, fetched_at=None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("VtaJsonDecoder requires fetched_at")
+        for r in self._records(parsed):
+            drift = validate_record_keys(r, VtaVehicleRow)
+            if drift and drift.has_missing_required:
+                continue
+            yield VtaVehicleRow(
+                feed_timestamp=fetched_at,
+                vehicle_id=str(r["vehicleId"]),
+                vehicle_name=r.get("name"),
+                pattern_id=r.get("patternId"),
+                headsign_text=r.get("headsignText"),
+                latitude=r.get("lat"),
+                longitude=r.get("lng"),
+                velocity=r.get("velocity"),
+                bearing=r.get("bearing"),
+                last_update=r.get("lastUpdate"),
+                vehicle_state_id=r.get("vehicleStateId"),
+            )
+
+    @staticmethod
+    def _parse_delay(delay: str | None) -> int | None:
+        if delay is None:
+            return None
+        return int(delay.removeprefix("T").removesuffix("S"))
+
+    @staticmethod
+    def _parse_event_time(s: str) -> datetime:
+        # "05/08/2026 4:35:20 PM" in America/New_York
+        local = datetime.strptime(s, "%m/%d/%Y %I:%M:%S %p")
+        return local.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(
+            timezone.utc
+        )
+
+    @staticmethod
+    def _combine_date_and_time(event_dt: datetime, time_str: str) -> datetime:
+        # "04:36:34 PM" — combine with event_dt's date, handle midnight rollover
+        t = datetime.strptime(time_str, "%I:%M:%S %p").time()
+        candidate = datetime.combine(
+            event_dt.astimezone(ZoneInfo("America/New_York")).date(),
+            t,
+            tzinfo=ZoneInfo("America/New_York"),
+        )
+        # If candidate is more than ~12h before event, roll forward a day (midnight rollover)
+        if (event_dt - candidate).total_seconds() > 12 * 3600:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+    @staticmethod
+    def _records(parsed):
+        return (parsed.get("vehicule") if isinstance(parsed, dict) else parsed) or []
+
+
+@Decoder.register("passio_json")
+class PassioGoDecoder(Decoder):
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        PassioVehicleRow: TableSpec(
+            "passio_vehicles", dedup_keys=("vehicle_id", "feed_timestamp")
+        )
+    }
+
+    def validate(self, parsed: dict) -> DriftReport | None:
+        records = self._records(parsed)
+        if not records:
+            return None
+        return validate_record_keys(records[0], PassioVehicleRow)
+
+    def decode(self, parsed: dict, *, fetched_at=None) -> Iterator[Row]:
+        if fetched_at is None:
+            raise ValueError("PassioGoDecoder requires fetched_at")
+        for r in self._records(parsed):
+            drift = validate_record_keys(r, PassioVehicleRow)
+            if drift and drift.has_missing_required:
+                continue
+            yield PassioVehicleRow(
+                feed_timestamp=fetched_at,
+                vehicle_id=str(r["busId"]),
+                device_id=r.get("deviceId"),
+                bus_name=r.get("busName"),
+                route_id=r.get("routeId"),
+                route_name=r.get("route"),
+                trip_id=r.get("tripId"),
+                route_block_id=r.get("routeBlockId"),
+                latitude=self._f(r.get("latitude")),
+                longitude=self._f(r.get("longitude")),
+                calculated_course=self._f(r.get("calculatedCourse")),
+                pax_load=r.get("paxLoad"),
+                total_cap=r.get("totalCap"),
+                out_of_service=r.get("outOfService"),
+                created=r.get("created"),
+            )
+
+    @staticmethod
+    def _records(parsed):
+        buses = (parsed.get("buses") if isinstance(parsed, dict) else {}) or {}
+        out = []
+        for vid, entries in buses.items():
+            if vid == "-1":  # sentinel, not a vehicle
+                continue
+            out.extend(entries or [])  # each value is a list of vehicle objs
+        return out
+
+    @staticmethod
+    def _f(v):
+        return float(v) if v not in (None, "") else None

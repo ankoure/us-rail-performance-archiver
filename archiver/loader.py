@@ -55,21 +55,33 @@ def build_limiter(cfg: RateLimitConfig | None) -> RateLimiter:
 def build_client(agency: AgencyConfig) -> APIClient:
     base_url = str(agency.base_url)
     limiter = build_limiter(agency.rate_limit)
+    headers = agency.default_headers
     match agency.auth:
         case NoAuthConfig():
-            return APIClient(base_url, limiter=limiter)
+            return APIClient(base_url, limiter=limiter, default_headers=headers)
         case APIKeyAuthConfig() as a:
             if a.header is not None:
                 return APIClient.with_api_key(
-                    base_url, key=_read_env(a.env), header=a.header, limiter=limiter
+                    base_url,
+                    key=_read_env(a.env),
+                    header=a.header,
+                    limiter=limiter,
+                    default_headers=headers,
                 )
             else:
                 return APIClient.with_api_key_query(
-                    base_url, key=_read_env(a.env), param=a.param, limiter=limiter
+                    base_url,
+                    key=_read_env(a.env),
+                    param=a.param,
+                    limiter=limiter,
+                    default_headers=headers,
                 )
         case BearerAuthConfig() as a:
             return APIClient.with_bearer(
-                base_url, token=_read_env(a.env), limiter=limiter
+                base_url,
+                token=_read_env(a.env),
+                limiter=limiter,
+                default_headers=headers,
             )
         case BasicAuthConfig() as a:
             return APIClient.with_basic(
@@ -77,6 +89,7 @@ def build_client(agency: AgencyConfig) -> APIClient:
                 username=_read_env(a.username_env),
                 password=_read_env(a.password_env),
                 limiter=limiter,
+                default_headers=headers,
             )
 
 
@@ -98,6 +111,8 @@ def build_feeds(
                     decoder=Decoder.from_name(feed_cfg.decoder),
                     poll_interval_seconds=feed_cfg.poll_interval_seconds,
                     agency_id=agency.agency_id,
+                    method=feed_cfg.method,
+                    body=feed_cfg.body,
                 )
             )
     return feeds

@@ -42,3 +42,16 @@ def test_apiclient_sets_default_user_agent():
     ua = client.client.headers["User-Agent"]
     assert "us-rail-archiver" in ua
     assert "github.com" in ua
+
+
+def test_apiclient_merges_default_headers():
+    client = APIClient(
+        "https://example.com",
+        default_headers={"accept-version": "3.0", "origin": "https://radar.mta.info"},
+    )
+    headers = client.client.headers
+    # agency headers are present...
+    assert headers["accept-version"] == "3.0"
+    assert headers["origin"] == "https://radar.mta.info"
+    # ...and the default User-Agent survives the merge (not replaced)
+    assert "us-rail-archiver" in headers["User-Agent"]

@@ -5,15 +5,31 @@ import pytest
 from google.transit import gtfs_realtime_pb2 as gtfs
 
 from archiver.decoder import (
+    Decoder,
     GtfsRtDecoder,
+    LirrJsonDecoder,
+    LirrTrainRow,
     MartaJsonDecoder,
     MartaPredictionRow,
+    MwrtaJsonDecoder,
+    MwrtaVehicleRow,
+    RouteMatchJsonDecoder,
+    RouteMatchVehicleRow,
     StandardDecoder,
+    SwivJsonDecoder,
+    SwivVehicleRow,
+    TrilliumJsonDecoder,
+    TrilliumVehicleRow,
+    VtaJsonDecoder,
+    VtaVehicleRow,
+    PassioGoDecoder,
+    PassioVehicleRow,
     StopTimeUpdateRow,
     MTADecoder,
     VehicleRow,
     validate_record_keys,
 )
+from dataclasses import fields as _dc_fields
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -467,6 +483,542 @@ class TestMartaJsonDecoderSkipsDriftedRecords:
         assert list(self.decoder.decode([broken, broken], fetched_at=ts)) == []
 
 
+# ---------------------------------------------------------------------------
+# LIRR (MyLIRR locations JSON) decoder
+# ---------------------------------------------------------------------------
+
+# Mirrors the real backend-unified.mylirr.org/locations shape: all ten top-level
+# keys present, nested location/status/details, native (non-string) values, and a
+# stops list with a DEPARTED stop followed by the current (EN_ROUTE) one.
+_LIRR_BASELINE = {
+    "train_id": "LIRR_2026-06-16_64",
+    "railroad": "LIRR",
+    "run_date": "2026-06-16",
+    "train_num": "64",
+    "realtime": True,
+    "consist": {"fleet": "LIRR_DIESEL", "cars": []},
+    "alerts": [],
+    "location": {
+        "latitude": 40.70894,
+        "longitude": -73.299726,
+        "heading": 71.6,
+        "speed": 51.7,  # mph, raw
+        "timestamp": 1781620580,
+        "source": "GPS",
+    },
+    "status": {"canceled": False, "held": False, "otp": -97, "otp_location": "BAB"},
+    "details": {
+        "headsign": "Patchogue",
+        "branch": "Montauk",
+        "stops": [
+            {
+                "code": "BTA",
+                "stop_status": "DEPARTED",
+                "sched_time": 1781620320,
+                "act_depart_time": 1781620362,
+            },
+            {"code": "BSR", "stop_status": "EN_ROUTE", "sched_time": 1781620680},
+        ],
+    },
+}
+
+
+def test_lirr_decode_smoke():
+    ts = 1781620580
+    rows = list(LirrJsonDecoder().decode([_LIRR_BASELINE], fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, LirrTrainRow)
+    assert row.feed_timestamp == ts
+    # raw fidelity: identifiers and units are passed through untouched
+    assert row.train_num == "64"  # raw string, not rewritten to a static trip_id
+    assert row.speed_mph == 51.7  # raw mph, NOT converted to m/s (~23.1)
+    assert row.realtime is True
+    assert row.canceled is False
+    assert row.latitude == 40.70894
+    assert row.longitude == -73.299726
+    assert row.heading == 71.6
+    assert row.location_timestamp == 1781620580
+    # current stop = first non-DEPARTED stop, raw code/status preserved
+    assert row.current_stop_code == "BSR"
+    assert row.current_stop_status == "EN_ROUTE"
+    assert row.current_stop_seq == 2
+    assert row.act_arrive_time is None
+    assert row.act_depart_time is None
+
+
+def test_lirr_decode_all_stops_departed_has_no_current_stop():
+    train = {
+        **_LIRR_BASELINE,
+        "details": {
+            "stops": [{"code": "BTA", "stop_status": "DEPARTED"}],
+        },
+    }
+    rows = list(LirrJsonDecoder().decode([train], fetched_at=1781620580))
+    assert rows[0].current_stop_code is None
+    assert rows[0].current_stop_seq is None
+
+
+def test_lirr_decode_requires_fetched_at():
+    with pytest.raises(ValueError):
+        list(LirrJsonDecoder().decode([_LIRR_BASELINE]))
+
+
+class TestLirrValidateRecordKeys:
+    def test_baseline_returns_none(self):
+        assert validate_record_keys(_LIRR_BASELINE, LirrTrainRow) is None
+
+    def test_extra_key_reported(self):
+        record = {**_LIRR_BASELINE, "new_field": "x"}
+        report = validate_record_keys(record, LirrTrainRow)
+        assert report is not None
+        assert report.extras == frozenset({"new_field"})
+        assert not report.has_missing_required
+
+    def test_missing_required_reported(self):
+        record = {k: v for k, v in _LIRR_BASELINE.items() if k != "location"}
+        report = validate_record_keys(record, LirrTrainRow)
+        assert report is not None
+        assert report.missing_required == frozenset({"location"})
+        assert report.has_missing_required
+
+    def test_missing_optional_returns_none(self):
+        record = {k: v for k, v in _LIRR_BASELINE.items() if k != "alerts"}
+        assert validate_record_keys(record, LirrTrainRow) is None
+
+
+class TestLirrJsonDecoderValidate:
+    decoder = LirrJsonDecoder()
+
+    def test_empty_payload(self):
+        assert self.decoder.validate([]) is None
+
+    def test_valid_payload(self):
+        assert self.decoder.validate([_LIRR_BASELINE]) is None
+
+    def test_drifted_first_record(self):
+        record = {k: v for k, v in _LIRR_BASELINE.items() if k != "details"}
+        report = self.decoder.validate([record])
+        assert report is not None
+        assert report.missing_required == frozenset({"details"})
+
+
+class TestLirrJsonDecoderSkipsDriftedRecords:
+    decoder = LirrJsonDecoder()
+
+    def test_drifted_record_skipped(self):
+        broken = {k: v for k, v in _LIRR_BASELINE.items() if k != "status"}
+        rows = list(
+            self.decoder.decode([broken, _LIRR_BASELINE], fetched_at=1781620580)
+        )
+        assert len(rows) == 1
+        assert rows[0].train_num == "64"
+
+
+# ---------------------------------------------------------------------------
+# MWRTA vehicle JSON decoder (shared by MWRTA and CCRTA, which have divergent
+# key sets: required_input_keys is their intersection, optional their union)
+# ---------------------------------------------------------------------------
+
+# MWRTA-shaped record: has Active/Destination/Address*, no RouteName/Direction.
+_MWRTA_BASELINE = {
+    "ID": 999903293,
+    "ScheduleDelta": None,
+    "Route": "RT04S",  # MWRTA sends Route as a string
+    "Destination": None,
+    "Lat": 42.2743123,
+    "Long": -71.4135038,
+    "Speed": 20.383,  # raw units, no conversion
+    "Heading": 109.59,
+    "DateTime": "2026-06-16T11:14:40",  # naive local ISO string, kept raw
+    "VehiclePlate": "174",
+    "SequenceId": None,
+    "Active": True,
+    "NumberOfSatelites": 4,
+    "FixStrength": 4,
+    "Mode": None,
+    "AddressStreet": "171 Irving St",
+    "AddressCity": "Framingham",
+}
+
+# CCRTA-shaped record: has RouteName/DirectionName, no Active/Destination, and
+# Route is an int (604) rather than a string.
+_CCRTA_BASELINE = {
+    "ID": 10942780,
+    "Route": 604,
+    "Lat": 41.7883,
+    "Long": -69.9914,
+    "Speed": 0.0,
+    "Heading": 0.0,
+    "DateTime": "2026-06-16T11:13:55",
+    "VehiclePlate": "110",
+    "NumberOfSatelites": 4,
+    "FixStrength": 4,
+    "Mode": None,
+    "SequenceId": None,
+    "RouteName": "Flex",
+    "DirectionName": "in",
+}
+
+
+def test_mwrta_decode_smoke():
+    ts = 1781622000
+    rows = list(MwrtaJsonDecoder().decode([_MWRTA_BASELINE], fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, MwrtaVehicleRow)
+    assert row.feed_timestamp == ts
+    assert row.vehicle_id == "999903293"
+    assert row.route == "RT04S"
+    assert row.speed == 20.383  # raw, not converted
+    assert row.vehicle_datetime == "2026-06-16T11:14:40"  # raw string, not parsed
+    assert row.latitude == 42.2743123
+    assert row.active is True
+
+
+def test_mwrta_decoder_handles_ccrta_shape():
+    rows = list(MwrtaJsonDecoder().decode([_CCRTA_BASELINE], fetched_at=1781622000))
+    row = rows[0]
+    assert row.route == "604"  # int coerced to str so the column type is stable
+    assert row.route_name == "Flex"
+    assert row.direction_name == "in"
+    assert row.active is None  # CCRTA omits Active
+
+
+def test_mwrta_decode_requires_fetched_at():
+    with pytest.raises(ValueError):
+        list(MwrtaJsonDecoder().decode([_MWRTA_BASELINE]))
+
+
+class TestMwrtaValidateRecordKeys:
+    def test_mwrta_baseline_returns_none(self):
+        assert validate_record_keys(_MWRTA_BASELINE, MwrtaVehicleRow) is None
+
+    def test_ccrta_baseline_returns_none(self):
+        # The divergent CCRTA shape must also validate against the shared row.
+        assert validate_record_keys(_CCRTA_BASELINE, MwrtaVehicleRow) is None
+
+    def test_missing_required_reported(self):
+        record = {k: v for k, v in _MWRTA_BASELINE.items() if k != "Lat"}
+        report = validate_record_keys(record, MwrtaVehicleRow)
+        assert report is not None
+        assert report.missing_required == frozenset({"Lat"})
+
+    def test_extra_key_reported(self):
+        record = {**_MWRTA_BASELINE, "NewField": "x"}
+        report = validate_record_keys(record, MwrtaVehicleRow)
+        assert report is not None
+        assert report.extras == frozenset({"NewField"})
+
+
+class TestMwrtaJsonDecoderValidate:
+    decoder = MwrtaJsonDecoder()
+
+    def test_empty_payload(self):
+        assert self.decoder.validate([]) is None
+
+    def test_valid_payloads(self):
+        assert self.decoder.validate([_MWRTA_BASELINE]) is None
+        assert self.decoder.validate([_CCRTA_BASELINE]) is None
+
+    def test_drifted_record_skipped(self):
+        broken = {k: v for k, v in _MWRTA_BASELINE.items() if k != "ID"}
+        rows = list(
+            self.decoder.decode([broken, _MWRTA_BASELINE], fetched_at=1781622000)
+        )
+        assert len(rows) == 1
+        assert rows[0].vehicle_id == "999903293"
+
+
+# ---------------------------------------------------------------------------
+# RouteMatch (BRTA) JSON decoder — payload is a {"data": [...]} envelope, and
+# fields arrive as native numbers (heading can be present-but-null)
+# ---------------------------------------------------------------------------
+
+_BRTA_RECORD = {
+    "blockId": None,
+    "currentPassengers": 5,
+    "deadhead": False,
+    "heading": None,  # present but null — must not crash
+    "headingName": "NORTH",
+    "internalDriverId": "0257",
+    "internalVehicleId": "1959",
+    "landRouteId": 1935,
+    "lastTimePointCrossedDate": "2026-06-16T11:54:36.000-04:00",
+    "lastTimePointCrossedId": "Cheshire Ctr on Railroad St ",
+    "lastUpdate": "2026-06-16T12:06:50.000-04:00",
+    "latitude": 42.46828842163086,
+    "longitude": -73.2047119140625,
+    "masterRouteDescription": "Rte 01 ",
+    "masterRouteId": "Wk Rt 01",
+    "masterRouteLongName": "Rte 01 ",
+    "masterRouteShortName": "Rte 01 ",
+    "onRouteEdgeId": 0,
+    "onRouteEdgePercent": 0.0,
+    "onRouteLatitude": 0.0,
+    "onRouteLongitude": 0.0,
+    "percentFull": 16,
+    "scheduleAdherence": -4,
+    "showVehicleCapacity": False,
+    "speed": 0,
+    "subRouteDescription": "Walmart North Adams",
+    "subRouteLongName": "Wk Rt 01 inbound standard",
+    "subRouteShortName": "Wk Rt 01 inbound standard",
+    "templates": {"body": "Heading Inbound on Rte 01 ", "title": "1959"},
+    "totalCapacity": 30,
+    "tripDirection": "Inbound",
+    "tripId": "Rte 01 1130 in",
+    "vehicleId": "1959",
+}
+_BRTA_ENVELOPE = {"data": [_BRTA_RECORD], "feedVersion": "1", "fromCache": False}
+
+
+def test_routematch_decode_smoke():
+    ts = 1781622000
+    rows = list(RouteMatchJsonDecoder().decode(_BRTA_ENVELOPE, fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, RouteMatchVehicleRow)
+    assert row.feed_timestamp == ts
+    assert row.vehicle_id == "1959"
+    assert row.route_id == "Wk Rt 01"  # raw, no normalization
+    assert row.trip_id == "Rte 01 1130 in"  # raw
+    assert row.last_update == "2026-06-16T12:06:50.000-04:00"  # raw string
+    assert row.heading is None  # present-but-null handled
+    assert row.deadhead is False
+
+
+def test_routematch_decode_requires_fetched_at():
+    with pytest.raises(ValueError):
+        list(RouteMatchJsonDecoder().decode(_BRTA_ENVELOPE))
+
+
+class TestRouteMatchJsonDecoderValidate:
+    decoder = RouteMatchJsonDecoder()
+
+    def test_empty_data_returns_none(self):
+        assert self.decoder.validate({"data": []}) is None
+
+    def test_valid_envelope_returns_none(self):
+        # Validation must look INSIDE data, not at the envelope keys.
+        assert self.decoder.validate(_BRTA_ENVELOPE) is None
+
+    def test_drifted_record_reported(self):
+        broken = {k: v for k, v in _BRTA_RECORD.items() if k != "vehicleId"}
+        report = self.decoder.validate({"data": [broken]})
+        assert report is not None
+        assert report.missing_required == frozenset({"vehicleId"})
+
+
+# ---------------------------------------------------------------------------
+# Trillium (MeVa) JSON decoder — {"status","data":[...]} envelope OR bare array;
+# heading is a cardinal string, headingDegrees is the numeric bearing
+# ---------------------------------------------------------------------------
+
+_MEVA_RECORD = {
+    "patternId": 28965,
+    "capacity": 31,
+    "id": 8841,
+    "lat": 42.76293055062878,
+    "lon": -71.03979440703363,
+    "name": "1504",
+    "passengerLoad": 0.29,
+    "lastUpdated": "2026-06-16T15:14:54Z",
+    "heading": "SE",  # cardinal string
+    "speed": 9,
+    "headingDegrees": 151.48535020255446,  # numeric bearing
+    "shapeDistanceTraveled": 5069.048978752347,
+    "route_short_name": "18",
+    "vehicleType": "bus",
+    "route_id": "10730",
+}
+_MEVA_ENVELOPE = {"status": "OK", "data": [_MEVA_RECORD]}
+
+
+def test_trillium_decode_smoke():
+    ts = 1781622000
+    rows = list(TrilliumJsonDecoder().decode(_MEVA_ENVELOPE, fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, TrilliumVehicleRow)
+    assert row.feed_timestamp == ts
+    assert row.vehicle_id == "8841"
+    assert row.route_id == "10730"  # raw
+    assert row.heading == "SE"  # cardinal string, kept distinct from...
+    assert row.heading_degrees == 151.48535020255446  # ...the numeric bearing
+    assert row.last_updated == "2026-06-16T15:14:54Z"  # raw
+
+
+def test_trillium_decode_accepts_bare_array():
+    # Some Trillium endpoints return a bare list rather than the envelope.
+    rows = list(TrilliumJsonDecoder().decode([_MEVA_RECORD], fetched_at=1781622000))
+    assert len(rows) == 1
+    assert rows[0].vehicle_id == "8841"
+
+
+def test_trillium_decode_requires_fetched_at():
+    with pytest.raises(ValueError):
+        list(TrilliumJsonDecoder().decode(_MEVA_ENVELOPE))
+
+
+class TestTrilliumJsonDecoderValidate:
+    decoder = TrilliumJsonDecoder()
+
+    def test_empty_returns_none(self):
+        assert self.decoder.validate({"data": []}) is None
+        assert self.decoder.validate([]) is None
+
+    def test_valid_envelope_and_array(self):
+        assert self.decoder.validate(_MEVA_ENVELOPE) is None
+        assert self.decoder.validate([_MEVA_RECORD]) is None
+
+    def test_drifted_record_reported(self):
+        broken = {k: v for k, v in _MEVA_RECORD.items() if k != "id"}
+        report = self.decoder.validate({"data": [broken]})
+        assert report is not None
+        assert report.missing_required == frozenset({"id"})
+
+    def test_drifted_record_skipped_in_decode(self):
+        broken = {k: v for k, v in _MEVA_RECORD.items() if k != "id"}
+        rows = list(
+            self.decoder.decode({"data": [broken, _MEVA_RECORD]}, fetched_at=1781622000)
+        )
+        assert len(rows) == 1
+        assert rows[0].vehicle_id == "8841"
+
+
+# ---------------------------------------------------------------------------
+# Cross-cutting checks for the new JSON decoders
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name,row_cls",
+    [
+        ("mta_lirr_json", LirrTrainRow),
+        ("mwrta_json", MwrtaVehicleRow),
+        ("routematch_json", RouteMatchVehicleRow),
+        ("trillium_json", TrilliumVehicleRow),
+        ("swiv_json", SwivVehicleRow),
+        ("vta_json", VtaVehicleRow),
+    ],
+)
+def test_new_json_decoders_registered(name, row_cls):
+    decoder = Decoder.from_name(name)
+    # the decoder name resolves and advertises the expected output row/table
+    assert row_cls in decoder.produces
+    assert decoder.produces[row_cls].name  # a non-empty parquet table name
+
+
+def test_routematch_drifted_record_skipped_in_decode():
+    broken = {k: v for k, v in _BRTA_RECORD.items() if k != "vehicleId"}
+    rows = list(
+        RouteMatchJsonDecoder().decode(
+            {"data": [broken, _BRTA_RECORD]}, fetched_at=1781622000
+        )
+    )
+    assert len(rows) == 1
+    assert rows[0].vehicle_id == "1959"
+
+
+# ---------------------------------------------------------------------------
+# Swiv (GATRA/LRTA/WRTA) JSON decoder — {"vehicule":[...]} envelope with nested
+# localisation/conduite objects; LRTA omits tauxRemplissage/estAffichable
+# ---------------------------------------------------------------------------
+
+# GATRA-shaped: has tauxRemplissage + estAffichable.
+_GATRA_RECORD = {
+    "localisation": {"lat": 41.972609774719324, "lng": -70.71297321335793, "cap": 191},
+    "conduite": {
+        "idLigne": 16103,
+        "vitesse": 13,
+        "destination": "Plymouth Center",
+        "avanceRetard": "on time",
+        "arretSuiv": {"nomCommercial": "KingstonCollect", "estimationTemps": 1},
+    },
+    "id": 1017,
+    "tauxRemplissage": 10,
+    "estAffichable": True,
+    "vehiculeLoad": "10%",
+    "type": "NEW FLYER",
+    "numeroEquipement": "1590",
+}
+# LRTA-shaped: no tauxRemplissage / estAffichable.
+_LRTA_RECORD = {
+    "localisation": {"lat": 42.582055142084734, "lng": -71.19561524469265, "cap": 327},
+    "conduite": {
+        "idLigne": 27302,
+        "vitesse": 0,
+        "destination": "Kennedy Center",
+        "avanceRetard": "6 min late",
+        "arretSuiv": {"nomCommercial": "Main&Hill", "estimationTemps": 1},
+    },
+    "id": 6007,
+    "vehiculeLoad": "27%",
+    "type": "Bus",
+    "numeroEquipement": "2508",
+}
+
+
+def test_swiv_decode_smoke():
+    ts = 1781622000
+    rows = list(SwivJsonDecoder().decode({"vehicule": [_GATRA_RECORD]}, fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, SwivVehicleRow)
+    assert row.feed_timestamp == ts
+    assert row.vehicle_id == "1017"
+    assert row.route_line_id == 16103  # raw int, no topo name lookup
+    assert row.speed == 13.0  # raw, no km/h->m/s
+    assert row.heading == 191.0  # localisation.cap
+    assert row.destination == "Plymouth Center"
+    assert row.delay_status == "on time"
+    assert row.next_stop_name == "KingstonCollect"  # conduite.arretSuiv.nomCommercial
+    assert row.fill_rate == 10
+
+
+def test_swiv_decode_handles_lrta_shape():
+    rows = list(
+        SwivJsonDecoder().decode({"vehicule": [_LRTA_RECORD]}, fetched_at=1781622000)
+    )
+    row = rows[0]
+    assert row.route_line_id == 27302
+    assert row.next_stop_name == "Main&Hill"
+    assert row.fill_rate is None  # LRTA omits tauxRemplissage
+
+
+def test_swiv_decode_requires_fetched_at():
+    with pytest.raises(ValueError):
+        list(SwivJsonDecoder().decode({"vehicule": [_GATRA_RECORD]}))
+
+
+class TestSwivJsonDecoderValidate:
+    decoder = SwivJsonDecoder()
+
+    def test_empty_returns_none(self):
+        assert self.decoder.validate({"vehicule": []}) is None
+
+    def test_both_shapes_validate(self):
+        assert self.decoder.validate({"vehicule": [_GATRA_RECORD]}) is None
+        assert self.decoder.validate({"vehicule": [_LRTA_RECORD]}) is None
+
+    def test_drifted_record_reported(self):
+        broken = {k: v for k, v in _GATRA_RECORD.items() if k != "conduite"}
+        report = self.decoder.validate({"vehicule": [broken]})
+        assert report is not None
+        assert report.missing_required == frozenset({"conduite"})
+
+    def test_drifted_record_skipped_in_decode(self):
+        broken = {k: v for k, v in _GATRA_RECORD.items() if k != "id"}
+        rows = list(
+            self.decoder.decode(
+                {"vehicule": [broken, _GATRA_RECORD]}, fetched_at=1781622000
+            )
+        )
+        assert len(rows) == 1
+        assert rows[0].vehicle_id == "1017"
+
+
 def test_parse_event_time_dst():
     result = MartaJsonDecoder._parse_event_time("05/08/2026 4:35:20 PM")
     expected = datetime(
@@ -570,3 +1122,171 @@ class TestStandardDecoderTripUpdates:
 
         rows = list(self.decoder.decode(feed))
         assert rows[0].trip_update_timestamp is None
+
+
+# ---------------------------------------------------------------------------
+# VTA (Vineyard Transit Authority) JSON decoder — flat array, single agency.
+# Live endpoint is often empty (seasonal/off-hours), so the baseline mirrors
+# nibble's adapter fixture shape.
+# ---------------------------------------------------------------------------
+
+_VTA_RECORD = {
+    "vehicleId": 22,
+    "name": "103",
+    "patternId": 1401,
+    "headsignText": "3",
+    "lat": 41.455,
+    "lng": -70.601,
+    "velocity": 18,
+    "bearing": 279,
+    "lastUpdate": "2026-03-18T15:46:58",
+    "vehicleStateId": 1,
+    "bypassDailyTripId": None,
+}
+
+
+def test_vta_decode_smoke():
+    ts = 1781622000
+    rows = list(VtaJsonDecoder().decode([_VTA_RECORD], fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, VtaVehicleRow)
+    assert row.feed_timestamp == ts
+    assert row.vehicle_id == "22"  # str of int id
+    assert row.headsign_text == "3"  # raw (route normalization deferred)
+    assert row.velocity == 18  # raw mph, no m/s conversion
+    assert row.last_update == "2026-03-18T15:46:58"  # raw naive string
+    assert row.bearing == 279
+
+
+def test_vta_empty_array_decodes_to_nothing():
+    # The live feed is frequently an empty array; that must land cleanly.
+    assert list(VtaJsonDecoder().decode([], fetched_at=1781622000)) == []
+
+
+def test_vta_decode_requires_fetched_at():
+    with pytest.raises(ValueError):
+        list(VtaJsonDecoder().decode([_VTA_RECORD]))
+
+
+class TestVtaJsonDecoderValidate:
+    decoder = VtaJsonDecoder()
+
+    def test_empty_payload(self):
+        assert self.decoder.validate([]) is None
+
+    def test_valid_payload(self):
+        assert self.decoder.validate([_VTA_RECORD]) is None
+
+    def test_drifted_record_reported(self):
+        broken = {k: v for k, v in _VTA_RECORD.items() if k != "vehicleId"}
+        report = self.decoder.validate([broken])
+        assert report is not None
+        assert report.missing_required == frozenset({"vehicleId"})
+
+    def test_drifted_record_skipped_in_decode(self):
+        broken = {k: v for k, v in _VTA_RECORD.items() if k != "lat"}
+        rows = list(self.decoder.decode([broken, _VTA_RECORD], fetched_at=1781622000))
+        assert len(rows) == 1
+        assert rows[0].vehicle_id == "22"
+
+
+# ---------------------------------------------------------------------------
+# Passio GO! JSON decoder — POST feed; vehicles nested under "buses" as a
+# dict-of-lists with a "-1" sentinel key; numerics arrive as strings
+# ---------------------------------------------------------------------------
+
+_PASSIO_RECORD = {
+    "deviceId": 422718,
+    "created": "03:41 PM",
+    "createdTime": "03:41 PM",
+    "paxLoad": 4,
+    "bus": "  32  ",
+    "busId": 11253,
+    "userId": "2771",
+    "routeBlockId": "82704",
+    "latitude": "42.588739500",  # string -> float
+    "longitude": "-72.315955300",
+    "calculatedCourse": "93.95947015171777",
+    "tripId": "399959",
+    "outOfService": 0,
+    "more": "102",
+    "totalCap": 22,
+    "color": "#ed9119",
+    "busName": "  32  ",
+    "busType": "",
+    "routeId": "30848",
+    "route": "Rt. 32 Orange/Greenfield",
+    "outdated": 0,
+}
+
+
+def _passio_payload(*records):
+    return {
+        "buses": {str(r["deviceId"]): [r] for r in records},
+        "microtime": 0,
+        "time": 0,
+        "debug": [],
+    }
+
+
+def test_passio_decode_smoke():
+    ts = 1781622000
+    rows = list(PassioGoDecoder().decode(_passio_payload(_PASSIO_RECORD), fetched_at=ts))
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, PassioVehicleRow)
+    assert row.feed_timestamp == ts
+    assert row.vehicle_id == "11253"  # str(busId)
+    assert row.route_id == "30848"  # raw, no myid->name lookup
+    assert row.route_name == "Rt. 32 Orange/Greenfield"  # raw human name kept too
+    assert row.latitude == 42.5887395  # string -> float
+    assert row.calculated_course == 93.95947015171777
+    assert row.pax_load == 4
+
+
+def test_passio_skips_sentinel_minus_one():
+    payload = _passio_payload(_PASSIO_RECORD)
+    payload["buses"]["-1"] = [{"busId": -1, "latitude": "0", "longitude": "0",
+                               "calculatedCourse": "0", "routeId": "x", "tripId": "x"}]
+    rows = list(PassioGoDecoder().decode(payload, fetched_at=1781622000))
+    assert len(rows) == 1  # the -1 sentinel entry is skipped
+    assert rows[0].vehicle_id == "11253"
+
+
+def test_passio_decode_requires_fetched_at():
+    with pytest.raises(ValueError):
+        list(PassioGoDecoder().decode(_passio_payload(_PASSIO_RECORD)))
+
+
+class TestPassioGoDecoderValidate:
+    decoder = PassioGoDecoder()
+
+    def test_empty_buses_returns_none(self):
+        assert self.decoder.validate({"buses": {}}) is None
+
+    def test_valid_payload_returns_none(self):
+        assert self.decoder.validate(_passio_payload(_PASSIO_RECORD)) is None
+
+    def test_drifted_record_reported(self):
+        broken = {k: v for k, v in _PASSIO_RECORD.items() if k != "busId"}
+        report = self.decoder.validate(_passio_payload({**broken, "deviceId": 1}))
+        assert report is not None
+        assert report.missing_required == frozenset({"busId"})
+
+
+# ---------------------------------------------------------------------------
+# Invariant: every decoder's TableSpec.dedup_keys must name real Row fields,
+# so the rollup never dedups on a column that doesn't exist.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", sorted(Decoder._registry))
+def test_dedup_keys_reference_real_row_fields(name):
+    decoder = Decoder.from_name(name)
+    for row_cls, spec in decoder.produces.items():
+        row_fields = {f.name for f in _dc_fields(row_cls)}
+        missing = set(spec.dedup_keys) - row_fields
+        assert not missing, (
+            f"{name}: dedup_keys {sorted(missing)} not in {row_cls.__name__} fields"
+        )

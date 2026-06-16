@@ -13,3 +13,5 @@ class Feed:
     decoder: Decoder  # resolved at config-load from decoder name
     agency_id: str
     poll_interval_seconds: int | None = None
+    method: str = "GET"
+    body: dict | None = None

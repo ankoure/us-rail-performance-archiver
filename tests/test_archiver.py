@@ -6,6 +6,7 @@ from archiver.feed import Feed
 from archiver.parser import Parser
 from archiver.poll_state import PollStateStore
 from archiver.writer import LocalWriter
+from tests.conftest import _FakeResponse
 from tests.fakes.client import _ConditionalFakeClient, _FakeClient, _SequenceFakeClient
 
 
@@ -46,6 +47,57 @@ async def test_duplicate_poll_writes_no_bin(
         assert records[1]["response_type"] == "DuplicateResponse", (
             "second poll should indicate DuplicateResponse"
         )
+
+
+async def test_lirr_json_lands_raw(tmp_path):
+    """A non-standard JSON feed lands its raw payload exactly like MARTA: one .bin
+    of the untouched bytes, JsonResponse metadata, and digest dedup on re-poll."""
+    train = {
+        "train_id": "LIRR_2026-06-16_64",
+        "railroad": "LIRR",
+        "run_date": "2026-06-16",
+        "train_num": "64",
+        "realtime": True,
+        "consist": {"fleet": "LIRR_DIESEL", "cars": []},
+        "alerts": [],
+        "location": {
+            "latitude": 40.70894,
+            "longitude": -73.299726,
+            "speed": 51.7,
+            "timestamp": 1781620580,
+        },
+        "status": {"canceled": False},
+        "details": {"stops": [{"code": "BSR", "stop_status": "EN_ROUTE"}]},
+    }
+    raw = json.dumps([train]).encode()
+
+    feed = Feed(
+        name="lirr-locations",
+        path="/locations",
+        client=_FakeClient(_FakeResponse(200, content=raw)),
+        parser=Parser.from_name("json"),
+        decoder=Decoder.from_name("mta_lirr_json"),
+        agency_id="LIRR",
+        poll_interval_seconds=15,
+    )
+    writer = LocalWriter(str(tmp_path))
+    archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
+
+    await archiver.archive_one(feed)  # first poll  -> lands raw bytes
+    await archiver.archive_one(feed)  # second poll -> identical -> DuplicateResponse
+
+    bins = list(tmp_path.rglob("*.bin"))
+    assert len(bins) == 1, "duplicate poll should not write a second .bin"
+    # raw fidelity: the landed bytes round-trip back to the exact input
+    assert json.loads(bins[0].read_bytes()) == [train]
+
+    metadata = list(tmp_path.rglob("*.jsonl"))
+    with open(metadata[0]) as f:
+        records = [json.loads(line) for line in f]
+    assert len(records) == 2
+    assert records[0]["status_code"] == 200
+    assert records[0]["response_type"] == "JsonResponse"
+    assert records[1]["response_type"] == "DuplicateResponse"
 
 
 async def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
