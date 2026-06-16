@@ -65,8 +65,7 @@ class APIClient:
             headers.update(default_headers)
 
         self.client = httpx.AsyncClient(
-            headers=headers,
-            auth=auth,
+            headers=headers, auth=auth, follow_redirects=True
         )
 
     def set_auth(self, auth: httpx.Auth):
