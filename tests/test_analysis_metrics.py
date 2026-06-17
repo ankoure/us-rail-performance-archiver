@@ -155,7 +155,9 @@ class TestStopDayMart:
         # trip_updates-derived visits: arrival == departure, vehicle_id "".
         visits = [
             _visit(arrival=NOON, departure=NOON, vehicle_id="", trip_id="T1"),
-            _visit(arrival=NOON + 300, departure=NOON + 300, vehicle_id="", trip_id="T2"),
+            _visit(
+                arrival=NOON + 300, departure=NOON + 300, vehicle_id="", trip_id="T2"
+            ),
         ]
         stop, _ = compute_marts(visits, "f", NY)
         row = _stop_row(stop, stop_id="S1")
@@ -203,9 +205,7 @@ class TestEventsMart:
         assert compute_events([_visit(route_id=None)], "f", NY) == []
 
     def test_null_direction_and_vehicle_preserved(self):
-        rows = compute_events(
-            [_visit(direction_id=None, vehicle_id="")], "f", NY
-        )
+        rows = compute_events([_visit(direction_id=None, vehicle_id="")], "f", NY)
         assert all(r["direction_id"] is None for r in rows)
         assert all(r["vehicle_id"] == "" for r in rows)
 
@@ -213,7 +213,9 @@ class TestEventsMart:
         # A visit whose ARR is before local midnight and DEP after it files its
         # two events on different service dates.
         before = 1_716_174_000  # 2024-05-19 23:00 local
-        rows = compute_events([_visit(arrival=before, departure=before + 7200)], "f", NY)
+        rows = compute_events(
+            [_visit(arrival=before, departure=before + 7200)], "f", NY
+        )
         dates = {r["event_type"]: r["service_date"] for r in rows}
         assert dates == {"ARR": "2024-05-19", "DEP": "2024-05-20"}
 

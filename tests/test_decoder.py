@@ -1232,7 +1232,9 @@ def _passio_payload(*records):
 
 def test_passio_decode_smoke():
     ts = 1781622000
-    rows = list(PassioGoDecoder().decode(_passio_payload(_PASSIO_RECORD), fetched_at=ts))
+    rows = list(
+        PassioGoDecoder().decode(_passio_payload(_PASSIO_RECORD), fetched_at=ts)
+    )
     assert len(rows) == 1
     row = rows[0]
     assert isinstance(row, PassioVehicleRow)
@@ -1247,8 +1249,16 @@ def test_passio_decode_smoke():
 
 def test_passio_skips_sentinel_minus_one():
     payload = _passio_payload(_PASSIO_RECORD)
-    payload["buses"]["-1"] = [{"busId": -1, "latitude": "0", "longitude": "0",
-                               "calculatedCourse": "0", "routeId": "x", "tripId": "x"}]
+    payload["buses"]["-1"] = [
+        {
+            "busId": -1,
+            "latitude": "0",
+            "longitude": "0",
+            "calculatedCourse": "0",
+            "routeId": "x",
+            "tripId": "x",
+        }
+    ]
     rows = list(PassioGoDecoder().decode(payload, fetched_at=1781622000))
     assert len(rows) == 1  # the -1 sentinel entry is skipped
     assert rows[0].vehicle_id == "11253"

@@ -147,7 +147,9 @@ class CuratedStore:
     filesystem=fs)`) are identical regardless of where the parquet lives.
     """
 
-    def __init__(self, filesystem: pafs.FileSystem, root: str, label: str, *, refresh=None):
+    def __init__(
+        self, filesystem: pafs.FileSystem, root: str, label: str, *, refresh=None
+    ):
         self.fs = filesystem
         self.root = root.rstrip("/")
         self.label = label  # human-readable source, for error messages
@@ -179,23 +181,30 @@ class CuratedStore:
                 if info.type == pafs.FileType.Directory
                 and info.base_name.startswith("feed=")
             ]
+
         return sorted(self._attempt(_list))
 
     def feed_days(self, feed: str, day: dt.date | None) -> dict[dt.date, list[str]]:
         """Map each day-partition to its parquet file paths for one feed."""
+
         def _list():
             sel = pafs.FileSelector(
-                f"{self._vehicles_root}/feed={feed}", recursive=True, allow_not_found=True
+                f"{self._vehicles_root}/feed={feed}",
+                recursive=True,
+                allow_not_found=True,
             )
             days: dict[dt.date, list[str]] = {}
             for info in self.fs.get_file_info(sel):
-                if info.type != pafs.FileType.File or not info.path.endswith(".parquet"):
+                if info.type != pafs.FileType.File or not info.path.endswith(
+                    ".parquet"
+                ):
                     continue
                 d = _path_day(info.path)
                 if d is None or (day is not None and d != day):
                     continue
                 days.setdefault(d, []).append(info.path)
             return days
+
         return self._attempt(_list)
 
     def scan_parquet(
@@ -211,6 +220,7 @@ class CuratedStore:
         an exact answer: a string column whose `min` is "" (empties exist, which
         `null_count` wouldn't subtract) or a column missing stats entirely.
         """
+
         def _do():
             pf = pq.ParquetFile(path, filesystem=self.fs)
             md = pf.metadata
@@ -235,13 +245,16 @@ class CuratedStore:
                 for field, col in need_read:
                     counts[field] = _count_set(table.column(col))
             return md.num_rows, resolved, counts
+
         return self._attempt(_do)
 
 
 def build_store(args: argparse.Namespace) -> CuratedStore:
     if not (args.s3 or args.bucket):
         return CuratedStore(
-            pafs.LocalFileSystem(), str(args.curated_dir), f"{args.curated_dir}/vehicles"
+            pafs.LocalFileSystem(),
+            str(args.curated_dir),
+            f"{args.curated_dir}/vehicles",
         )
 
     bucket, prefix, region = args.bucket, args.prefix, args.region
@@ -286,10 +299,15 @@ def _resolve_aws_credentials(profile: str | None) -> tuple[str, str, str | None]
     try:
         out = subprocess.run(
             ["aws", "configure", "export-credentials", "--format", "process"],
-            capture_output=True, text=True, env=env, check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
         ).stdout
     except FileNotFoundError:
-        raise SystemExit("the `aws` CLI is required to resolve S3 credentials; install it")
+        raise SystemExit(
+            "the `aws` CLI is required to resolve S3 credentials; install it"
+        )
     except subprocess.CalledProcessError as e:
         raise SystemExit(
             "could not resolve AWS credentials; set AWS_PROFILE (e.g. "
@@ -350,8 +368,17 @@ def write_csv(reports: list[FeedReport], path: Path) -> None:
     with path.open("w", newline="") as fd:
         w = csv.writer(fd)
         w.writerow(
-            ["feed", "days", "rows", "route_pct", "dir_pct", "stop_pct",
-             "status_pct", "scheme", "notes"]
+            [
+                "feed",
+                "days",
+                "rows",
+                "route_pct",
+                "dir_pct",
+                "stop_pct",
+                "status_pct",
+                "scheme",
+                "notes",
+            ]
         )
         for r in reports:
             w.writerow(
@@ -373,7 +400,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--feed", nargs="+", default=None, help="Feeds to scan (default: all).")
+    p.add_argument(
+        "--feed", nargs="+", default=None, help="Feeds to scan (default: all)."
+    )
     p.add_argument(
         "--day",
         type=dt.date.fromisoformat,
@@ -386,10 +415,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Read the S3 hot bucket instead of the local curated dir.",
     )
     p.add_argument(
-        "--bucket", default=None, help="S3 bucket (default: s3.hot_bucket from --config)."
+        "--bucket",
+        default=None,
+        help="S3 bucket (default: s3.hot_bucket from --config).",
     )
     p.add_argument(
-        "--prefix", default=None, help="S3 key prefix (default: s3.hot_prefix from --config)."
+        "--prefix",
+        default=None,
+        help="S3 key prefix (default: s3.hot_prefix from --config).",
     )
     p.add_argument(
         "--region", default=None, help="AWS region (default: s3.region from --config)."
