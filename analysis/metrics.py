@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 
-from analysis.event_export import _service_date
+from analysis.timeutil import service_date as _service_date
 from analysis.vehicle_day import Visit
 
 # The in-file schemas deliberately omit the hive partition keys (feed, year,

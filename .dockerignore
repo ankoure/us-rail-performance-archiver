@@ -1,6 +1,7 @@
 # data
 archive/
 curated/
+static_gtfs/  # ~300MB runtime GTFS-zip cache; gold.py downloads on demand
 *.parquet
 *.jsonl
 *.bin

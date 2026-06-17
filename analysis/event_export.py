@@ -26,6 +26,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from analysis.static_gtfs import StaticGtfs
+from analysis.timeutil import fmt_local as _fmt_local
+from analysis.timeutil import service_date as _service_date
 from analysis.vehicle_day import VehicleDay, Visit
 
 CSV_FIELDS = [
@@ -182,13 +184,3 @@ def _base_event(visit: Visit) -> dict:
         "occupancy_status": "",
         "occupancy_percentage": "",
     }
-
-
-def _service_date(unix_ts: int, local_tz: ZoneInfo) -> dt.date:
-    return dt.datetime.fromtimestamp(unix_ts, tz=local_tz).date()
-
-
-def _fmt_local(unix_ts: int, local_tz: ZoneInfo) -> str:
-    """ISO-ish local-time string matching gobble: '2026-03-23 06:30:39-04:00'."""
-    local = dt.datetime.fromtimestamp(unix_ts, tz=local_tz)
-    return local.isoformat(sep=" ", timespec="seconds")
