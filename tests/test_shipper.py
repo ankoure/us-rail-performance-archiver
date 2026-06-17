@@ -101,6 +101,24 @@ def test_ship_one_hot_upload(shipper):
     )
 
 
+def test_ship_one_hot_upload_includes_gold_marts(dirs, shipper):
+    """The gold marts nest two segments above feed= (metrics/stop_day/feed=...);
+    the hot glob must discover them, not just the one-segment silver layout."""
+    part = f"year={DAY.year}/month={DAY.month}/day={DAY.day}"
+    for mart in ("stop_day", "route_day"):
+        mart_dir = dirs / "curated" / "metrics" / mart / f"feed={FEED}" / part
+        mart_dir.mkdir(parents=True)
+        (mart_dir / "data.parquet").write_bytes(b"PAR1fake")
+
+    shipper.ship_one(FEED, DAY)
+    hot_keys = {u.key for u in shipper.uploader.uploads if u.bucket == "hot-bucket"}
+
+    assert f"curated/metrics/stop_day/feed={FEED}/{part}/data.parquet" in hot_keys
+    assert f"curated/metrics/route_day/feed={FEED}/{part}/data.parquet" in hot_keys
+    # the original silver parquet still ships too
+    assert f"curated/vehicles/feed={FEED}/{part}/data.parquet" in hot_keys
+
+
 # --- S3 landing source (the Fargate path) --------------------------------- #
 def test_ship_one_cold_and_hot_from_s3_source(tmp_path):
     """Regression: on Fargate the landing lives in S3, not on local disk. Ship

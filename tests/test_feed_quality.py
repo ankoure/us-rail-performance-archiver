@@ -77,7 +77,7 @@ def _write_vehicles(path: Path, columns: dict[str, pa.Array]) -> None:
     pq.write_table(pa.table(columns), path / "data.parquet")
 
 
-def _local_store(root: Path) -> "feed_quality.CuratedStore":
+def _local_store(root: Path):
     return feed_quality.CuratedStore(
         pafs.LocalFileSystem(), str(root), f"{root}/vehicles"
     )

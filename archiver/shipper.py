@@ -102,9 +102,10 @@ class Shipper:
 
     def _ship_hot(self, feed_name, day, *, force):
         for parquet in self._curated_parquets(feed_name, day):
-            kind = parquet.relative_to(self.curated_dir).parts[
-                0
-            ]  # first path segment is <kind>
+            parts = parquet.relative_to(self.curated_dir).parts
+            # First path segment is <kind>; gold marts nest one deeper
+            # (metrics/stop_day, metrics/route_day) so keep both for telemetry.
+            kind = "/".join(parts[:2]) if parts[0] == "metrics" else parts[0]
             key = self._hot_key(parquet)
 
             if not force and self.uploader.exists(self.hot_bucket, key):
@@ -161,8 +162,13 @@ class Shipper:
         return f"{self.hot_prefix}{rel}"
 
     def _curated_parquets(self, feed_name: str, day: date) -> Iterator[Path]:
-        pattern = f"*/feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.parquet"
-        yield from self.curated_dir.glob(pattern)
+        # Silver datasets live one segment above feed= (e.g. vehicles/feed=...);
+        # the gold marts live two segments above (metrics/stop_day/feed=...).
+        # Glob both layouts explicitly rather than with ** to avoid matching any
+        # deeper, unintended trees.
+        partition = f"feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.parquet"
+        yield from self.curated_dir.glob(f"*/{partition}")
+        yield from self.curated_dir.glob(f"metrics/*/{partition}")
 
     def _discover(self, feed=None, day=None):
         # Discovery goes through the Source (local or S3). Iterate one feed at a

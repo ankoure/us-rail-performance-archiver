@@ -66,6 +66,7 @@ locals {
     # datadog-agent sidecar at 127.0.0.1:8125; env=prod matches the dashboard filter.
     python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
     python rollup.py --config /tmp/fargate.yaml --day "$DAY"
+    python gold.py --config /tmp/fargate.yaml --day "$DAY"
     python ship.py --config /tmp/fargate.yaml --day "$DAY"
     # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
     # interval, so pause before the essential container exits (which SIGTERMs the

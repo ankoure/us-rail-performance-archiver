@@ -388,6 +388,18 @@ One row per `InformedEntity` (a single alert may produce many rows). `feed_times
 
 MARTA exposes its own JSON prediction API (not GTFS-RT). See [MartaPredictionRow](archiver/decoder.py#L27).
 
+### `metrics/stop_day` (gold, written by [gold.py](gold.py))
+
+One row per (route, direction, stop, service_date). `route_id`, `direction_id` (nullable), `stop_id`, `service_date`, `visit_count`, `trip_count`, `distinct_vehicle_count`, `headway_p50_s`, `headway_p90_s`, `headway_mean_s`, `headway_cov`, `dwell_p50_s`, `dwell_p90_s`, `first_service_unix`, `last_service_unix`, `service_span_s`. Headway/dwell percentiles are null when there's too little data (e.g. a single visit yields no headway). See [STOP_DAY_SCHEMA](analysis/metrics.py).
+
+### `metrics/route_day` (gold, written by [gold.py](gold.py))
+
+One row per (route, direction, service_date). Same throughput / span columns as `stop_day` plus `distinct_stop_count`, minus `stop_id`. `headway_p50_s` is the median of the route's per-stop headway medians (pooling raw inter-arrivals across stops would mix unrelated cadences); dwell is pooled. See [ROUTE_DAY_SCHEMA](analysis/metrics.py).
+
+### `metrics/events` (gold, written by [gold.py](gold.py))
+
+One row per ARR/DEP — each stop visit explodes into an `ARR` at its arrival and a `DEP` at its departure. Every route shares one time-ordered parquet per (feed, day). `route_id`, `direction_id` (nullable), `stop_id`, `stop_sequence` (nullable), `trip_id`, `vehicle_id`, `event_type` (`ARR`/`DEP`), `event_unix`, `service_date`. Same universe as the day marts (null `route_id` dropped, null `direction_id` kept). This is the queryable, single-file-per-day counterpart to the fanned-out gobble `events/feed=…/{route}-{dir}-{stop}/…/events.csv` tree from [event_export.py](analysis/event_export.py). See [EVENTS_SCHEMA](analysis/metrics.py).
+
 ---
 
 ## Analysis layer
@@ -402,6 +414,7 @@ The [analysis/](analysis/) package turns curated parquet into the metrics a ride
 | [analysis/alert_snapshot.py](analysis/alert_snapshot.py) | aggregate a day's GTFS-RT alerts into a last-write-wins snapshot keyed by alert v3 id |
 | [analysis/alert_classifier.py](analysis/alert_classifier.py) | classify alerts (TransitMatters delays/process.py port) |
 | [analysis/event_export.py](analysis/event_export.py) | emit gobble-style per-stop ARR/DEP `events.csv` |
+| [analysis/metrics.py](analysis/metrics.py) | fold a `Visit` stream into the gold-tier stop-day / route-day metric marts (headway, dwell, throughput, regularity, service span) |
 | [analysis/static_gtfs.py](analysis/static_gtfs.py) | load a static GTFS zip for scheduled travel-time / headway lookups |
 | [analysis/gtfs_fetcher.py](analysis/gtfs_fetcher.py) | resolve a service date to the right archived static GTFS zip |
 
@@ -411,7 +424,23 @@ Driver scripts in [scripts/](scripts/) wrap these for CLI use:
 - [scripts/export_marta_events.py](scripts/export_marta_events.py) — ARR-only events from MARTA predictions
 - [scripts/build_alert_snapshot.py](scripts/build_alert_snapshot.py) — daily alert snapshot JSON.gz for one feed
 - [scripts/fetch_static_gtfs.py](scripts/fetch_static_gtfs.py) — resolve + cache a static GTFS zip for a service date
+- [scripts/feed_quality.py](scripts/feed_quality.py) — per-feed field coverage in the silver `vehicles` parquet (route / direction / stop / current_status), to see which feeds can drive which gold analyses
 - [scripts/sync_datadog.py](scripts/sync_datadog.py) — idempotently upsert the committed monitors/dashboard into Datadog
+
+### Gold tier
+
+[gold.py](gold.py) is the daily aggregation runner (alongside [rollup.py](rollup.py) and [ship.py](ship.py)). For each (feed, day) it derives Visits from the silver `vehicles` (or `trip_updates`, via `--source trip-updates`) parquet, folds them with [analysis/metrics.py](analysis/metrics.py), and writes two partitioned parquet marts:
+
+- `curated/metrics/stop_day/feed=…/year=…/month=…/day=…/data.parquet` — one row per (route, direction, stop, service_date)
+- `curated/metrics/route_day/…` — one row per (route, direction, service_date)
+- `curated/metrics/events/…` — one row per ARR/DEP, every route in one partition per day (the columnar counterpart to the gobble `events/*.csv` tree)
+
+Metrics are **schedule-free**: headway p50/p90, headway mean + coefficient of variation (regularity), dwell p50/p90, trip / visit / distinct-vehicle counts, and service span. Visits without a `route_id` are dropped; a null `direction_id` is kept as its own bucket. On-time performance (a GTFS-timetable join) is a planned v2. Partition keys (`feed`, `year`, `month`, `day`) live in the path only, matching the silver layout. [notebooks/gold_metrics.ipynb](notebooks/gold_metrics.ipynb) validates the marts against the raw visits.
+
+```bash
+uv run python gold.py --feed wmata-vehicles --day 2026-05-24   # one feed, one day
+uv run python gold.py --all-days                               # every feed, every day on disk
+```
 
 ---
 
@@ -454,7 +483,7 @@ Production runs on a single EC2 box via Docker Compose (`compose.prod.yml`):
 
 - **`app`** — the poller, pulled from `ghcr.io/ankoure/us-rail-performance-archiver`, labeled `autoheal=true`.
 - **`autoheal`** — a sidecar that watches the container `HEALTHCHECK` (which stats `poll_state/.heartbeat`) and restarts the poller if the loop goes stale.
-- **`batch`** — a daily loop that runs `rollup.py --day yesterday && ship.py --day yesterday` (its inherited healthcheck is disabled since it never writes the heartbeat).
+- **`batch`** — a daily loop that runs `rollup.py --day yesterday && gold.py --day yesterday && ship.py --day yesterday` (its inherited healthcheck is disabled since it never writes the heartbeat).
 - **`datadog-agent`** — receives DogStatsD metrics/spans.
 
 CI deploys on every push to `main`: GitHub Actions builds the image, pushes to GHCR, assumes an AWS role via OIDC (no static keys), and triggers `docker compose up -d` on the instance over SSM. Full one-time setup (IAM, OIDC, EC2 bootstrap, secrets) is in [deploy/README.md](deploy/README.md).

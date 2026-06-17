@@ -6,6 +6,13 @@ from analysis.alert_snapshot import (
 )
 from analysis.event_export import export_events_csv
 from analysis.gtfs_fetcher import GtfsResolver
+from analysis.metrics import (
+    EVENTS_SCHEMA,
+    ROUTE_DAY_SCHEMA,
+    STOP_DAY_SCHEMA,
+    compute_events,
+    compute_marts,
+)
 from analysis.marta_day import (
     MartaArrival,
     MartaDay,
@@ -22,6 +29,11 @@ __all__ = [
     "VehicleDay",
     "TripUpdatesDay",
     "Visit",
+    "compute_marts",
+    "compute_events",
+    "STOP_DAY_SCHEMA",
+    "ROUTE_DAY_SCHEMA",
+    "EVENTS_SCHEMA",
     "StaticGtfs",
     "GtfsResolver",
     "MartaArrival",

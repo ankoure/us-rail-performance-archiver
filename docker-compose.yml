@@ -47,4 +47,4 @@ services:
       - .env
     depends_on:
       - datadog-agent
-    command: sh -c "while true; do DAY=$$(date -u -d yesterday +%F); python rollup.py --day $$DAY && python ship.py --day $$DAY; sleep 86400; done"
+    command: sh -c "while true; do DAY=$$(date -u -d yesterday +%F); python rollup.py --day $$DAY && python gold.py --day $$DAY && python ship.py --day $$DAY; sleep 86400; done"
