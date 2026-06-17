@@ -62,9 +62,15 @@ locals {
     set -e
     DAY="$${ROLLUP_DAY:-$(date -u -d yesterday +%F)}"
     echo "rollup day: $DAY"
-    python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = False; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
+    # awsvpc puts every container in one netns, so the rollup reaches the
+    # datadog-agent sidecar at 127.0.0.1:8125; env=prod matches the dashboard filter.
+    python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
     python rollup.py --config /tmp/fargate.yaml --day "$DAY"
     python ship.py --config /tmp/fargate.yaml --day "$DAY"
+    # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
+    # interval, so pause before the essential container exits (which SIGTERMs the
+    # agent) to let the run's final ship.* metrics reach Datadog.
+    sleep 15
   EOT
 }
 
@@ -101,6 +107,11 @@ resource "aws_ecs_task_definition" "rollup" {
         for k in var.agency_secret_keys :
         { name = k, valueFrom = "${aws_secretsmanager_secret.env.arn}:${k}::" }
       ]
+      # Start the sidecar before the rollup so early metrics aren't dropped onto a
+      # dead UDP socket (DogStatsD fails silently). START, not HEALTHY — no healthcheck.
+      dependsOn = [
+        { containerName = "datadog-agent", condition = "START" }
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -109,6 +120,31 @@ resource "aws_ecs_task_definition" "rollup" {
           "awslogs-stream-prefix" = "rollup"
         }
       }
+    },
+    {
+      name      = "datadog-agent"
+      image     = "gcr.io/datadoghq/agent:7" # same major as the box
+      essential = false                      # task lifecycle follows `rollup`, not the agent
+      memory    = 512                        # hard cap so the agent can't starve the rollup's working set
+      environment = [
+        { name = "DD_SITE", value = "datadoghq.com" },
+        { name = "DD_DOGSTATSD_NON_LOCAL_TRAFFIC", value = "true" },
+        { name = "DD_APM_ENABLED", value = "false" }, # we only use dogstatsd
+        { name = "ECS_FARGATE", value = "true" },
+      ]
+      secrets = [
+        { name = "DD_API_KEY", valueFrom = "${aws_secretsmanager_secret.env.arn}:DD_API_KEY::" }
+      ]
+      stopTimeout = 120 # Fargate max — lets SIGTERM trigger a final flush
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.rollup.name
+          "awslogs-region"        = var.region
+          "awslogs-stream-prefix" = "dd-agent"
+        }
+      }
     }
+
   ])
 }

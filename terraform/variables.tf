@@ -16,7 +16,7 @@ variable "landing_bucket" {
 }
 
 variable "landing_retention_days" {
-  type        = number
+  type = number
   # Bumped 7->30 on 2026-06-14: the Fargate ship path is temporarily broken
   # (Shipper not yet S3-aware), so un-rolled-up raw must survive in S3 longer
   # than a week. Drop back to ~7 once the rollup+ship pipeline is reliably daily.
@@ -96,7 +96,8 @@ variable "rollup_cpu" {
 
 variable "rollup_memory" {
   type    = string
-  default = "8192" # 8 GiB (valid with 4 vCPU)
+  default = "10240" # 10 GiB (valid with 4 vCPU): 8 GiB for the rollup's working set
+  # (OOM history) + headroom for the 512 MiB datadog-agent sidecar.
 }
 
 variable "env_secret_name" {
