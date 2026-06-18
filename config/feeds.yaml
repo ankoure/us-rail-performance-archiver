@@ -684,6 +684,7 @@ agencies:
     region: New York City
     timezone: America/New_York
     base_url: https://backend-unified.mylirr.org
+    mdb_feed_id: mdb-507
     auth:
       type: none
     default_headers:
@@ -704,6 +705,7 @@ agencies:
     region: MetroWest Boston
     timezone: America/New_York
     base_url: https://vc.mwrta.com
+    mdb_feed_id: mdb-439
     auth:
       type: none
     feeds:
@@ -718,6 +720,7 @@ agencies:
     region: Cape Cod
     timezone: America/New_York
     base_url: https://tracker.capecodrta.org
+    mdb_feed_id: mdb-2446
     auth:
       type: none
     feeds:
@@ -735,6 +738,7 @@ agencies:
     region: Berkshire
     timezone: America/New_York
     base_url: https://brta.routematch.io
+    mdb_feed_id: mdb-537
     auth:
       type: none
     feeds:
@@ -752,6 +756,7 @@ agencies:
     region: Merrimack Valley
     timezone: America/New_York
     base_url: https://maps.trilliumtransit.com
+    mdb_feed_id: mdb-445
     auth:
       type: none
     feeds:
@@ -770,6 +775,7 @@ agencies:
     region: Attleboro-Taunton
     timezone: America/New_York
     base_url: https://swiv.gatra.cadavl.com
+    mdb_feed_id: mdb-418
     auth:
       type: none
     feeds:
@@ -784,6 +790,7 @@ agencies:
     region: Lowell
     timezone: America/New_York
     base_url: https://swiv.lrta.cadavl.com
+    mdb_feed_id: mdb-444
     auth:
       type: none
     feeds:
@@ -798,6 +805,7 @@ agencies:
     region: Worcester
     timezone: America/New_York
     base_url: https://swiv.wrta.cadavl.com
+    mdb_feed_id: mdb-432
     auth:
       type: none
     feeds:
@@ -817,6 +825,7 @@ agencies:
     region: Martha's Vineyard
     timezone: America/New_York
     base_url: https://vta.mytransitride.com
+    mdb_feed_id: mdb-420
     auth:
       type: none
     feeds:
@@ -837,6 +846,7 @@ agencies:
     region: Franklin County
     timezone: America/New_York
     base_url: https://passiogo.com
+    mdb_feed_id: mdb-429
     auth:
       type: none
     feeds:
@@ -855,6 +865,7 @@ agencies:
     region: Montachusett
     timezone: America/New_York
     base_url: https://passiogo.com
+    mdb_feed_id: mdb-433
     auth:
       type: none
     feeds:
