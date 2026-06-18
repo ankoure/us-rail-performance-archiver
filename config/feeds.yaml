@@ -637,6 +637,7 @@ agencies:
     timezone: America/New_York
     base_url: https://gtfsr.tri-rail.com
     mdb_feed_id: mdb-333
+    tls_verify: false # cert expired 2026-06-09
     auth:
       type: none
     feeds:
@@ -1868,33 +1869,40 @@ agencies:
       poll_interval_seconds: 30
       mdb_feed_id: mdb-1796
     mdb_feed_id: mdb-994
-  - agency_id: SPORTRAN
-    name: Shreveport Area Transit System (SporTran)
-    region: Louisiana
-    timezone: America/Chicago
-    base_url: https://sportranbus.com/
-    auth:
-      type: none
-    feeds:
-    - name: shreveport-area-transit-system-sportran-trips-1473
-      path: /gtfs-rt/tripupdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1473
-    - name: shreveport-area-transit-system-sportran-vehicles-1474
-      path: /gtfs-rt/vehiclepositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1474
-    - name: shreveport-area-transit-system-sportran-alerts-1475
-      path: /gtfs-rt/alerts
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1475
-    mdb_feed_id: mdb-1060
+  # Disabled 2026-06-17: SporTran's /gtfs-rt/* endpoints 301-redirect to the
+  # marketing site (www.sportranbus.com, then a blog post) and return HTML 200,
+  # not protobuf — the GTFS-RT endpoint was retired. Because it answers 200
+  # (not >=400) it never trips is_transient_failure, so it doesn't quarantine;
+  # it just silently lands undecodable HTML every poll. tls_verify won't help
+  # (it's a redirect, not a cert failure). Find a current GTFS-RT endpoint
+  # before re-enabling.
+  #   - agency_id: SPORTRAN
+  #     name: Shreveport Area Transit System (SporTran)
+  #     region: Louisiana
+  #     timezone: America/Chicago
+  #     base_url: https://sportranbus.com/
+  #     auth:
+  #       type: none
+  #     feeds:
+  #     - name: shreveport-area-transit-system-sportran-trips-1473
+  #       path: /gtfs-rt/tripupdates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #       mdb_feed_id: mdb-1473
+  #     - name: shreveport-area-transit-system-sportran-vehicles-1474
+  #       path: /gtfs-rt/vehiclepositions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #       mdb_feed_id: mdb-1474
+  #     - name: shreveport-area-transit-system-sportran-alerts-1475
+  #       path: /gtfs-rt/alerts
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #       mdb_feed_id: mdb-1475
+  #     mdb_feed_id: mdb-1060
   - agency_id: KING_COUNTY_METRO
     name: King County Metro
     region: Washington

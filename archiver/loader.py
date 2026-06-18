@@ -56,9 +56,12 @@ def build_client(agency: AgencyConfig) -> APIClient:
     base_url = str(agency.base_url)
     limiter = build_limiter(agency.rate_limit)
     headers = agency.default_headers
+    verify = agency.tls_verify
     match agency.auth:
         case NoAuthConfig():
-            return APIClient(base_url, limiter=limiter, default_headers=headers)
+            return APIClient(
+                base_url, limiter=limiter, default_headers=headers, verify=verify
+            )
         case APIKeyAuthConfig() as a:
             if a.header is not None:
                 return APIClient.with_api_key(
@@ -67,6 +70,7 @@ def build_client(agency: AgencyConfig) -> APIClient:
                     header=a.header,
                     limiter=limiter,
                     default_headers=headers,
+                    verify=verify,
                 )
             else:
                 return APIClient.with_api_key_query(
@@ -75,6 +79,7 @@ def build_client(agency: AgencyConfig) -> APIClient:
                     param=a.param,
                     limiter=limiter,
                     default_headers=headers,
+                    verify=verify,
                 )
         case BearerAuthConfig() as a:
             return APIClient.with_bearer(
@@ -82,6 +87,7 @@ def build_client(agency: AgencyConfig) -> APIClient:
                 token=_read_env(a.env),
                 limiter=limiter,
                 default_headers=headers,
+                verify=verify,
             )
         case BasicAuthConfig() as a:
             return APIClient.with_basic(
@@ -90,6 +96,7 @@ def build_client(agency: AgencyConfig) -> APIClient:
                 password=_read_env(a.password_env),
                 limiter=limiter,
                 default_headers=headers,
+                verify=verify,
             )
 
 

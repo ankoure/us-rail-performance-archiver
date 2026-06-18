@@ -3,11 +3,11 @@
     "name": "[rail-archiver] Feed went dark",
     "type": "metric alert",
     "query": "sum(last_15m):sum:feed.poll.duration.count{env:prod, service:rail-archiver, interval_class:fast} by {feed}.as_count() < 1",
-    "message": "Feed `{{feed.name}}` (normal cadence) has not polled in the last 15+ minutes. Slow feeds (interval_class:slow, e.g. Bay Area 511) are covered separately by `Slow feed went dark`.\n\nMost common causes:\n- Upstream URL changed (check agency dev portal)\n- API key expired (check `.env`)\n- DNS / network issue\n\nInvestigate:\n```\ndocker compose logs app --since 30m | grep {{feed.name}}\n```\n\n@<your-notification-target>",
+    "message": "Feed `{{feed.name}}` (normal cadence) has emitted no polls for ~90 minutes. Slow feeds (interval_class:slow, e.g. Bay Area 511) are covered separately by `Slow feed went dark`.\n\nNOTE on the 90-min window: this monitor fires on no-data, and the window is deliberately long (not 15 min). A feed that fails repeatedly is *quarantined* and dropped to an hourly fallback poll — it is NOT dark, just degraded, and is covered by the `Feed quarantined` monitor. A 30-min no-data window flapped on that hourly cadence (alert → next poll lands → recover → repeat). 90 min clears the 60-min quarantine cadence, so this monitor now means \"genuinely producing nothing,\" and a fast feed that dies abruptly is still caught within minutes by `Feed quarantined` (5 consecutive failures).\n\nMost common causes:\n- Upstream URL changed (check agency dev portal)\n- API key expired (check `.env`)\n- DNS / network issue\n\nInvestigate:\n```\ndocker compose logs app --since 2h | grep {{feed.name}}\n```\n\n@<your-notification-target>",
     "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": true,
-      "no_data_timeframe": 30,
+      "no_data_timeframe": 90,
       "renotify_interval": 60,
       "thresholds": { "critical": 1 },
       "include_tags": true,

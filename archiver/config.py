@@ -110,6 +110,7 @@ class AgencyConfig(BaseModel):
     default_headers: dict[str, str] = Field(default_factory=dict)
     rate_limit: RateLimitConfig | None = None  # None => unlimited (NullRateLimiter)
     mdb_feed_id: str | None = None
+    tls_verify: bool = True
 
     @field_validator("feeds")
     @classmethod

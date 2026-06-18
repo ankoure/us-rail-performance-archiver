@@ -54,6 +54,7 @@ class APIClient:
         timeout: int = 10,
         limiter: RateLimiter | None = None,
         default_headers: dict[str, str] | None = None,
+        verify: bool = True,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -65,7 +66,7 @@ class APIClient:
             headers.update(default_headers)
 
         self.client = httpx.AsyncClient(
-            headers=headers, auth=auth, follow_redirects=True
+            headers=headers, auth=auth, follow_redirects=True, verify=verify
         )
 
     def set_auth(self, auth: httpx.Auth):
