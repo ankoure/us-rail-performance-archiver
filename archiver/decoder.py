@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Iterator
 from zoneinfo import ZoneInfo
 import pyarrow as pa
 from google.transit import gtfs_realtime_pb2 as gtfs
+from archiver.logger import logger
 
 
 @dataclass
@@ -246,6 +247,19 @@ class SwivVehicleRow(Row):
     delay_status: str | None  # conduite.avanceRetard ("6 min late")
     next_stop_name: str | None  # conduite.arretSuiv.nomCommercial
     next_stop_eta: int | None  # conduite.arretSuiv.estimationTemps
+
+
+@dataclass
+class SwivLigneRow(Row):
+    required_input_keys = frozenset({"idLigne", "nomCommercial"})
+    optional_input_keys = frozenset(
+        {"libCommercial", "mnemo", "couleur", "itineraire", "messageIVExiste"}
+    )
+    feed_timestamp: int  # fetched_at
+    id_ligne: int  # should be: idLigne
+    nom_commercial: str  # nomCommercial (short name, e.g. "1")
+    lib_commercial: str | None  # libCommercial (long name)
+    mnemo: str | None  # mnemo
 
 
 @dataclass
@@ -816,14 +830,20 @@ class MwrtaJsonDecoder(Decoder):
     }
 
     def validate(self, parsed: list) -> DriftReport | None:
-        if not parsed:
+        records = self._records(parsed)
+        if not records:
             return None
-        return validate_record_keys(parsed[0], MwrtaVehicleRow)
+        return validate_record_keys(records[0], MwrtaVehicleRow)
 
     def decode(self, parsed: list, *, fetched_at: int | None = None) -> Iterator[Row]:
         if fetched_at is None:
             raise ValueError("MwrtaJsonDecoder requires fetched_at")
-        for r in parsed:
+        records = self._records(parsed)
+        dropped = len(parsed or []) - len(records)
+        if dropped:
+            logger.warning("MWRTA: dropped %d non-dict record(s)", dropped)
+
+        for r in records:
             drift = validate_record_keys(r, MwrtaVehicleRow)
             if drift and drift.has_missing_required:
                 continue
@@ -869,6 +889,10 @@ class MwrtaJsonDecoder(Decoder):
         if (event_dt - candidate).total_seconds() > 12 * 3600:
             candidate += timedelta(days=1)
         return candidate.astimezone(timezone.utc)
+
+    @staticmethod
+    def _records(parsed):
+        return [r for r in (parsed or []) if isinstance(r, dict)]
 
 
 @Decoder.register("routematch_json")
@@ -1033,60 +1057,51 @@ class SwivJsonDecoder(Decoder):
             drift = validate_record_keys(r, SwivVehicleRow)
             if drift and drift.has_missing_required:
                 continue
+            conduite = r.get("conduite") or {}
+            arret = conduite.get("arretSuiv") or {}
+            localisation = r.get("localisation") or {}
             yield SwivVehicleRow(
                 feed_timestamp=fetched_at,
                 vehicle_id=str(r["id"]),
                 equipment_number=r.get("numeroEquipement"),
                 vehicle_type=r.get("type"),
                 vehicle_load=r.get("vehiculeLoad"),
-                fill_rate=int(r["tauxRemplissage"]) if "tauxRemplissage" in r else None,
+                fill_rate=(
+                    int(r["tauxRemplissage"])
+                    if r.get("tauxRemplissage") is not None
+                    else None
+                ),
                 latitude=(
-                    float(r["localisation"]["lat"])
-                    if "localisation" in r and "lat" in r["localisation"]
+                    float(localisation["lat"])
+                    if localisation.get("lat") is not None
                     else None
                 ),
                 longitude=(
-                    float(r["localisation"]["lng"])
-                    if "localisation" in r and "lng" in r["localisation"]
+                    float(localisation["lng"])
+                    if localisation.get("lng") is not None
                     else None
                 ),
                 heading=(
-                    float(r["localisation"]["cap"])
-                    if "localisation" in r and "cap" in r["localisation"]
+                    float(localisation["cap"])
+                    if localisation.get("cap") is not None
                     else None
                 ),
                 route_line_id=(
-                    int(r["conduite"]["idLigne"])
-                    if "conduite" in r and "idLigne" in r["conduite"]
+                    int(conduite["idLigne"])
+                    if conduite.get("idLigne") is not None
                     else None
                 ),
                 speed=(
-                    float(r["conduite"]["vitesse"])
-                    if "conduite" in r and "vitesse" in r["conduite"]
+                    float(conduite["vitesse"])
+                    if conduite.get("vitesse") is not None
                     else None
                 ),
-                destination=(
-                    r["conduite"]["destination"]
-                    if "conduite" in r and "destination" in r["conduite"]
-                    else None
-                ),
-                delay_status=(
-                    r["conduite"]["avanceRetard"]
-                    if "conduite" in r and "avanceRetard" in r["conduite"]
-                    else None
-                ),
-                next_stop_name=(
-                    r["conduite"]["arretSuiv"]["nomCommercial"]
-                    if "conduite" in r
-                    and "arretSuiv" in r["conduite"]
-                    and "nomCommercial" in r["conduite"]["arretSuiv"]
-                    else None
-                ),
+                destination=conduite.get("destination"),
+                delay_status=conduite.get("avanceRetard"),
+                next_stop_name=arret.get("nomCommercial"),
                 next_stop_eta=(
-                    int(r["conduite"]["arretSuiv"]["estimationTemps"])
-                    if "conduite" in r
-                    and "arretSuiv" in r["conduite"]
-                    and "estimationTemps" in r["conduite"]["arretSuiv"]
+                    int(arret["estimationTemps"])
+                    if arret.get("estimationTemps") is not None
                     else None
                 ),
             )

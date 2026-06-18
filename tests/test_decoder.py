@@ -685,6 +685,12 @@ def test_mwrta_decoder_handles_ccrta_shape():
     assert row.active is None  # CCRTA omits Active
 
 
+def test_mwrta_decode_skips_null_elements():
+    ts = 1781622000  # same fetched_at the smoke test uses
+    rows = list(MwrtaJsonDecoder().decode([_MWRTA_BASELINE, None], fetched_at=ts))
+    assert len(rows) == 1  # the null is dropped, the real record survives
+
+
 def test_mwrta_decode_requires_fetched_at():
     with pytest.raises(ValueError):
         list(MwrtaJsonDecoder().decode([_MWRTA_BASELINE]))
@@ -990,6 +996,24 @@ def test_swiv_decode_handles_lrta_shape():
 def test_swiv_decode_requires_fetched_at():
     with pytest.raises(ValueError):
         list(SwivJsonDecoder().decode({"vehicule": [_GATRA_RECORD]}))
+
+
+def test_swiv_decode_handles_null_arret_suiv():
+    # A bus with no next stop sends arretSuiv: null — the prod crash.
+    rec = {
+        **_GATRA_RECORD,
+        "conduite": {**_GATRA_RECORD["conduite"], "arretSuiv": None},
+    }
+    rows = list(SwivJsonDecoder().decode({"vehicule": [rec]}, fetched_at=1781622000))
+    assert len(rows) == 1
+    assert rows[0].next_stop_name is None
+    assert rows[0].next_stop_eta is None
+
+
+def test_swiv_decode_zero_fill_rate():
+    rec = {**_GATRA_RECORD, "tauxRemplissage": 0}
+    rows = list(SwivJsonDecoder().decode({"vehicule": [rec]}, fetched_at=1781622000))
+    assert rows[0].fill_rate == 0  # not None, not a crash
 
 
 class TestSwivJsonDecoderValidate:
