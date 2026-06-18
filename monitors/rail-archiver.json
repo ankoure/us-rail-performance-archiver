@@ -122,5 +122,33 @@
       "include_tags": true,
       "require_full_window": false
     }
+  },
+  {
+    "name": "[rail-archiver] TLS cert expiring or expired",
+    "type": "metric alert",
+    "query": "min(last_2d):min:cert.days_remaining{env:prod, service:rail-archiver} by {agency} < 14",
+    "message": "Agency `{{agency.name}}`'s TLS certificate is at {{value}} days remaining (negative = already expired).\n\nEmitted daily by `cert_check.py`, which probes each agency's HTTPS endpoint out-of-band (independent of `tls_verify`, so it sees the cert even on feeds where we've disabled verification). An expired cert breaks the poller's verified HTTPS and the feed goes dark — this is exactly how TRI_RAIL lost 8 days before this monitor existed.\n\nAct before it hits zero:\n- Most agencies auto-renew; if one lapses, contact them.\n- Stopgap to keep collecting through a lapse: set `tls_verify: false` on the agency in `config/feeds.yaml` (only acceptable for no-auth feeds — it disables MITM protection).\n\nRECOVERY: when the agency renews, `days_remaining` jumps back up and this monitor clears on its own — that recovery notification is your cue to flip any `tls_verify: false` back to true.\n\n@andkoure@gmail.com @slack-rail-alerts",
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
+    "options": {
+      "notify_no_data": false,
+      "thresholds": { "critical": 3, "warning": 14 },
+      "renotify_interval": 1440,
+      "include_tags": true,
+      "new_group_delay": 300
+    }
+  },
+  {
+    "name": "[rail-archiver] TLS verification disabled but cert is healthy",
+    "type": "metric alert",
+    "query": "min(last_2d):min:cert.days_remaining{env:prod, service:rail-archiver, tls_verify:false} by {agency} > 21",
+    "message": "Agency `{{agency.name}}` has `tls_verify: false` in `config/feeds.yaml`, but its TLS certificate is currently healthy ({{value}} days remaining). The reason to disable verification — an expired or broken cert — no longer applies, so the feed is polling without MITM protection for no benefit.\n\nAction: flip `tls_verify` back to `true` for this agency and let verified HTTPS resume. Then this clears.\n\nThis is the recovery half of the cert lifecycle: it catches a feed you patched with `tls_verify: false` once its cert is valid again (e.g. the agency renewed, or you set it preemptively and the expiry you feared never happened). The 21-day floor (vs the 14-day expiry warning) is intentional hysteresis so a cert hovering near expiry doesn't flap between the two monitors.\n\n@andkoure@gmail.com @slack-rail-alerts",
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
+    "options": {
+      "notify_no_data": false,
+      "thresholds": { "critical": 21 },
+      "renotify_interval": 10080,
+      "include_tags": true,
+      "new_group_delay": 300
+    }
   }
 ]
