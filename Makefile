@@ -1,10 +1,15 @@
-.PHONY: test feeds-generate feeds-validate feeds-merge feeds-onboard shard-dirs
+.PHONY: test deadcode feeds-generate feeds-validate feeds-merge feeds-onboard shard-dirs
 
 # Number of poller shards (must match --shard-count in compose.prod.yml).
 SHARDS ?= 2
 
 test:
 	uv run pytest -q
+
+# Find unused code (config in pyproject.toml [tool.vulture]). False positives go
+# in tests/vulture_whitelist.py, which is itself scanned to keep entries honest.
+deadcode:
+	uv run vulture
 
 # --- Feed onboarding pipeline (Mobility Database -> config/feeds.yaml) ---------
 # Each stage can be run alone; `feeds-onboard` chains them and validates.

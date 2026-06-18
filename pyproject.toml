@@ -25,6 +25,7 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.12",
+    "vulture>=2.14",
 ]
 
 [tool.pytest.ini_options]
@@ -32,3 +33,16 @@ pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "--strict-markers"
 asyncio_mode = "auto"
+
+[tool.vulture]
+# Dead-code finder. Scans the source packages + top-level entrypoints; data dirs,
+# notebooks, and tests are excluded (tests are entrypoints pytest calls by name,
+# so vulture would flag every test_* as unused). Run with `make deadcode`.
+paths = ["analysis", "archiver", "scripts", "backfill.py", "gold.py", "main.py", "prune.py", "rollup.py", "ship.py", "tests/vulture_whitelist.py"]
+exclude = ["notebooks/", "__pycache__/"]
+# pydantic hooks are called by the framework, not our code — don't report them.
+ignore_decorators = ["@field_validator", "@model_validator", "@field_serializer", "@cached_property"]
+# 60 flags unused attributes (noisy with pydantic field models); 80 keeps it to
+# unused functions/classes/imports/variables we can act on. Lower it to hunt harder.
+min_confidence = 80
+sort_by_size = true

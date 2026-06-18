@@ -27,3 +27,5 @@ jobs:
         run: |
           uv run ruff check archiver
           uv run ruff format --check archiver
+      - name: Dead code check with Vulture
+        run: make deadcode
