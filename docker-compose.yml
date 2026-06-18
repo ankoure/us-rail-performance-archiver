@@ -35,10 +35,10 @@ services:
     # rather than starving the box. Mirror of compose.prod.yml; tune via `docker stats`.
     mem_limit: 2560m
     environment:
-    - PYTHONUNBUFFERED=1
-    # 2 concurrent rollup processes — peak RAM scales with concurrent big feeds.
-    # Mirror of compose.prod.yml.
-    - ROLLUP_WORKERS=${ROLLUP_WORKERS:-2}
+      - PYTHONUNBUFFERED=1
+      # 2 concurrent rollup processes — peak RAM scales with concurrent big feeds.
+      # Mirror of compose.prod.yml.
+      - ROLLUP_WORKERS=${ROLLUP_WORKERS:-2}
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive
@@ -47,4 +47,4 @@ services:
       - .env
     depends_on:
       - datadog-agent
-    command: sh -c "while true; do DAY=$$(date -u -d yesterday +%F); python rollup.py --day $$DAY && python gold.py --day $$DAY && python ship.py --day $$DAY; sleep 86400; done"
+    command: sh -c "while true; do DAY=$$(date -u -d yesterday +%F); python rollup.py --day $$DAY && python gold.py --day $$DAY && python ship.py --day $$DAY && python cert_check.py; sleep 86400; done"

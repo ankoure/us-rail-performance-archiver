@@ -68,6 +68,12 @@ locals {
     python rollup.py --config /tmp/fargate.yaml --day "$DAY"
     python gold.py --config /tmp/fargate.yaml --day "$DAY"
     python ship.py --config /tmp/fargate.yaml --day "$DAY"
+    # Cert-expiry probe: emits cert.days_remaining per agency (drives the TLS
+    # monitors). Independent of --day. MUST use /tmp/fargate.yaml so telemetry is
+    # enabled — the baked config has it off, which would silently NoOp the metric.
+    # `|| true`: an auxiliary check must never abort the drain (set -e) and cost
+    # the run's ship.* metrics.
+    python cert_check.py --config /tmp/fargate.yaml || true
     # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
     # interval, so pause before the essential container exits (which SIGTERMs the
     # agent) to let the run's final ship.* metrics reach Datadog.
