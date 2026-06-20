@@ -126,7 +126,7 @@
   {
     "name": "[rail-archiver] TLS cert expiring or expired",
     "type": "metric alert",
-    "query": "min(last_2d):min:cert.days_remaining{env:prod, service:rail-archiver} by {agency} < 14",
+    "query": "min(last_2d):min:cert.days_remaining{env:prod, service:rail-archiver} by {agency} < 3",
     "message": "Agency `{{agency.name}}`'s TLS certificate is at {{value}} days remaining (negative = already expired).\n\nEmitted daily by `cert_check.py`, which probes each agency's HTTPS endpoint out-of-band (independent of `tls_verify`, so it sees the cert even on feeds where we've disabled verification). An expired cert breaks the poller's verified HTTPS and the feed goes dark — this is exactly how TRI_RAIL lost 8 days before this monitor existed.\n\nAct before it hits zero:\n- Most agencies auto-renew; if one lapses, contact them.\n- Stopgap to keep collecting through a lapse: set `tls_verify: false` on the agency in `config/feeds.yaml` (only acceptable for no-auth feeds — it disables MITM protection).\n\nRECOVERY: when the agency renews, `days_remaining` jumps back up and this monitor clears on its own — that recovery notification is your cue to flip any `tls_verify: false` back to true.\n\n@andkoure@gmail.com @slack-rail-alerts",
     "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
