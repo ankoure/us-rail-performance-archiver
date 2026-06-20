@@ -22,6 +22,7 @@ def build_gtfs_zip(
     trips: str | None = None,
     stop_times: str | None = None,
     routes: str | None = None,
+    stops: str | None = None,
 ) -> Path:
     """Write a minimal GTFS zip with whatever tables the caller cares to specify."""
     zip_path = tmp_path / "feed.zip"
@@ -36,7 +37,85 @@ def build_gtfs_zip(
             z.writestr("stop_times.txt", stop_times)
         if routes is not None:
             z.writestr("routes.txt", routes)
+        if stops is not None:
+            z.writestr("stops.txt", stops)
     return zip_path
+
+
+class TestResolutionIndexes:
+    """The raw-identifier -> canonical-GTFS-id indexes used by the gold normalizers."""
+
+    def test_route_short_names_indexes_short_and_long(self, tmp_path):
+        routes = (
+            "route_id,route_type,route_short_name,route_long_name\n"
+            "r1,3,06,Sealine Hyannis-Falmouth\n"
+            "r2,3,07,Barnstable Villager\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, routes=routes))
+        idx = gtfs.route_short_names
+        assert idx["06"] == "r1"
+        assert idx["Sealine Hyannis-Falmouth"] == "r1"
+        assert idx["07"] == "r2"
+
+    def test_route_short_names_keep_first_on_duplicate(self, tmp_path):
+        routes = (
+            "route_id,route_type,route_short_name,route_long_name\n"
+            "r1,3,X,First\n"
+            "r2,3,X,Second\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, routes=routes))
+        assert gtfs.route_short_names["X"] == "r1"  # first wins
+
+    def test_route_short_names_short_beats_colliding_long(self, tmp_path):
+        # A long name that collides with another route's short name must not
+        # shadow it, even when the long name comes FIRST in file order.
+        routes = (
+            "route_id,route_type,route_short_name,route_long_name\n"
+            "r2,3,Crosstown,9\n"  # r2's LONG name "9" appears first
+            "r1,3,9,Downtown\n"  # r1's SHORT name "9"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, routes=routes))
+        # "9" is r1's short name -> resolves to r1, not r2's long-name collision.
+        assert gtfs.route_short_names["9"] == "r1"
+
+    def test_indexes_empty_when_files_absent(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))  # no routes/stops/trips
+        assert gtfs.route_short_names == {}
+        assert gtfs.stop_codes == {}
+        assert gtfs.stop_names == {}
+
+    def test_stop_codes_and_names(self, tmp_path):
+        stops = "stop_id,stop_code,stop_name\nS1,0NY,Penn Station\nS2,BSR,Bay Shore\n"
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, stops=stops))
+        assert gtfs.stop_codes == {"0NY": "S1", "BSR": "S2"}
+        # stop_names keyed UPPERCASE
+        assert gtfs.stop_names["PENN STATION"] == "S1"
+        assert gtfs.stop_names["BAY SHORE"] == "S2"
+
+    def test_index_drops_rows_with_empty_id(self, tmp_path):
+        # A row whose canonical id is empty is never a usable mapping target.
+        stops = "stop_id,stop_code,stop_name\n,BAD,Nowhere\nS2,BSR,Bay Shore\n"
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, stops=stops))
+        assert gtfs.stop_codes == {"BSR": "S2"}  # empty-stop_id row dropped
+        assert "NOWHERE" not in gtfs.stop_names
+
+    def test_trip_short_names(self, tmp_path):
+        trips = (
+            "trip_id,route_id,service_id,direction_id,trip_short_name\n"
+            "T100,r1,WK,0,64\n"
+            "T200,r2,WK,1,8400\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
+        assert gtfs.trip_short_names == {"64": "T100", "8400": "T200"}
+
+    def test_route_modes_still_works_after_widening(self, tmp_path):
+        # Regression: widening routes usecols must not break route_modes.
+        routes = (
+            "route_id,route_type,route_short_name,route_long_name\n"
+            "r1,2,CR,Commuter Rail\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, routes=routes))
+        assert gtfs.route_modes == {"r1": "cr"}
 
 
 # Convenience constants used across tests

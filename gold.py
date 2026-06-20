@@ -168,6 +168,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "-f", "--force", action="store_true", help="Overwrite existing marts."
     )
+    p.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Instead of building metrics marts, normalize the JSON-feed curated "
+        "tables into curated/normalized_vehicles (resolve raw ids -> GTFS ids, "
+        "standardize units/time).",
+    )
     args = p.parse_args(argv)
     if not args.day and not args.all_days:
         p.error("provide --day YYYY-MM-DD or --all-days")
@@ -198,9 +205,9 @@ def load_feed_agency_map(config_path: Path) -> dict[str, tuple[str, str | None]]
     }
 
 
-def discover_dates(feed: str, curated_dir: Path, source: str) -> list[dt.date]:
-    """Every service_date with a partition for (feed, source) under curated_dir."""
-    feed_root = curated_dir / _SOURCE_SUBDIR[source] / f"feed={feed}"
+def discover_dates_for_dir(feed: str, root: Path) -> list[dt.date]:
+    """Every service_date partition under `root/feed={feed}` (any curated table)."""
+    feed_root = root / f"feed={feed}"
     if not feed_root.exists():
         return []
     found: list[dt.date] = []
@@ -219,17 +226,29 @@ def discover_dates(feed: str, curated_dir: Path, source: str) -> list[dt.date]:
     return sorted(set(found))
 
 
-def _mart_path(curated_dir: Path, mart: str, feed: str, day: dt.date) -> Path:
+def discover_dates(feed: str, curated_dir: Path, source: str) -> list[dt.date]:
+    """Every service_date with a partition for (feed, source) under curated_dir."""
+    return discover_dates_for_dir(feed, curated_dir / _SOURCE_SUBDIR[source])
+
+
+def _partition_path(root: Path, feed: str, day: dt.date) -> Path:
+    """`<root>/feed={feed}/year=/month=/day=/data.parquet` — the curated layout.
+
+    The single source of truth for the partition path shape; each caller supplies
+    its own `<root>` (table dir, metrics mart, normalized_vehicles, ...).
+    """
     return (
-        curated_dir
-        / "metrics"
-        / mart
+        root
         / f"feed={feed}"
         / f"year={day.year}"
         / f"month={day.month}"
         / f"day={day.day}"
         / "data.parquet"
     )
+
+
+def _mart_path(curated_dir: Path, mart: str, feed: str, day: dt.date) -> Path:
+    return _partition_path(curated_dir / "metrics" / mart, feed, day)
 
 
 def _write_parquet(rows: list[dict], schema: pa.Schema, path: Path) -> None:
@@ -404,6 +423,8 @@ def _make_gtfs_resolver(args: argparse.Namespace):
     each agency's mdb_feed_id, mirroring scripts/export_events.py.
     """
     try:
+        import requests
+
         from analysis.gtfs_fetcher import GtfsResolver
     except ImportError as e:
         print(
@@ -414,12 +435,18 @@ def _make_gtfs_resolver(args: argparse.Namespace):
 
     feed_agency_map = load_feed_agency_map(args.config)
     cache: dict[str, GtfsResolver] = {}
+    # Agencies whose archived-feeds catalog couldn't be fetched (e.g. the
+    # mdb_feed_id 404s). Cached so we skip OTP once per agency rather than
+    # re-hitting the network for every one of that feed's days.
+    failed_catalog: set[str] = set()
 
     def gtfs_for(feed: str, day: dt.date):
         info = feed_agency_map.get(feed)
         if info is None or not info[1]:
             return None
         agency_id, mdb_id = info
+        if agency_id in failed_catalog:
+            return None
         if agency_id not in cache:
             cache[agency_id] = GtfsResolver(
                 mdb_id,
@@ -427,13 +454,240 @@ def _make_gtfs_resolver(args: argparse.Namespace):
                 cache_dir=args.gtfs_cache_dir,
                 api_url=args.gtfs_api_url,
             )
-        return cache[agency_id].for_date(day)
+        try:
+            return cache[agency_id].for_date(day)
+        except requests.exceptions.RequestException as e:
+            # Catalog/zip fetch failed for the whole agency — skip OTP for it.
+            # (Per-date "no snapshot covers this day" raises LookupError, which
+            # the caller handles separately; don't poison the agency for that.)
+            print(
+                f"[{feed}] GTFS catalog unavailable ({e}) — "
+                f"skipping OTP for agency {agency_id}",
+                file=sys.stderr,
+            )
+            failed_catalog.add(agency_id)
+            return None
 
     return gtfs_for
 
 
+def _normalized_path(curated_dir: Path, feed: str, day: dt.date) -> Path:
+    return _partition_path(curated_dir / "normalized_vehicles", feed, day)
+
+
+def _raw_table_path(curated_dir: Path, table: str, feed: str, day: dt.date) -> Path:
+    return _partition_path(curated_dir / table, feed, day)
+
+
+def load_feed_table_map(config_path: Path) -> dict[str, str]:
+    """feed_name -> its single curated table, for feeds that have a Normalizer.
+
+    The table is derived from the feed's decoder (`Decoder.produces`), so there's
+    one source of truth. Feeds whose decoder emits multiple tables (the GTFS-RT
+    `standard` decoder) or whose table has no registered normalizer are omitted.
+    """
+    from archiver.decoder import Decoder
+    from analysis.normalize import Normalizer
+
+    config = load_config(str(config_path))
+    out: dict[str, str] = {}
+    for agency in config.agencies:
+        for feed in agency.feeds:
+            specs = list(Decoder.from_name(feed.decoder).produces.values())
+            if len(specs) != 1:
+                continue
+            table = specs[0].name
+            if table in Normalizer._registry:
+                out[feed.name] = table
+    return out
+
+
+_SWIV_LIGNE_TABLE = "swiv_ligne"
+
+
+def load_swiv_topo_feed_map(config_path: Path) -> dict[str, str]:
+    """agency_id -> the feed name whose decoder lands the swiv_ligne topo table.
+
+    The Swiv route-name sidecar is a separate feed from the vehicles feed.
+    Resolving its name from config (rather than assuming `{agency}-topo`) means
+    topo resolution starts working the moment that feed is onboarded, under
+    whatever name it's given. Empty until that feed exists.
+    """
+    from archiver.decoder import Decoder
+
+    config = load_config(str(config_path))
+    out: dict[str, str] = {}
+    for agency in config.agencies:
+        for feed in agency.feeds:
+            specs = Decoder.from_name(feed.decoder).produces.values()
+            if any(s.name == _SWIV_LIGNE_TABLE for s in specs):
+                out[agency.agency_id] = feed.name
+    return out
+
+
+def _make_topo_resolver(curated_dir: Path, config_path: Path):
+    """Build `topo_for(agency_id, day) -> {idLigne: nomCommercial} | None`.
+
+    Reads the landed Swiv topo table (curated/swiv_ligne/feed=<topo feed>/...),
+    with the topo feed name resolved from config. Best-effort: returns None when
+    no topo feed is configured yet, or its partition isn't on disk — so Swiv
+    routes degrade to unresolved, but with a one-time warning per agency rather
+    than silently.
+    """
+    topo_feeds = load_swiv_topo_feed_map(config_path)
+    cache: dict[tuple[str, dt.date], dict[str, str] | None] = {}
+    warned: set[str] = set()
+
+    def topo_for(agency_id: str, day: dt.date):
+        key = (agency_id, day)
+        if key in cache:
+            return cache[key]
+        topo_feed = topo_feeds.get(agency_id)
+        result: dict[str, str] | None = None
+        if topo_feed is not None:
+            path = _raw_table_path(curated_dir, _SWIV_LIGNE_TABLE, topo_feed, day)
+            if path.exists():
+                tbl = pq.read_table(path).to_pylist()
+                result = {
+                    str(r["id_ligne"]): r["nom_commercial"]
+                    for r in tbl
+                    if r.get("id_ligne") is not None and r.get("nom_commercial")
+                }
+        if result is None and agency_id not in warned:
+            warned.add(agency_id)
+            print(
+                f"[{agency_id}] Swiv topo table unavailable "
+                f"(feed: {topo_feed or 'none configured'}) — idLigne routes "
+                f"resolve by static map only",
+                file=sys.stderr,
+            )
+        cache[key] = result
+        return result
+
+    return topo_for
+
+
+def normalize_one(
+    feed: str,
+    day: dt.date,
+    agency_id: str,
+    tz: ZoneInfo,
+    table: str,
+    curated_dir: Path,
+    *,
+    gtfs_for,
+    topo_for,
+    force: bool,
+) -> int | None:
+    """Normalize one (feed, day) raw table into curated/normalized_vehicles.
+
+    Best-effort, mirroring _build_otp: missing partition -> skip; no resolvable
+    static GTFS -> skip. Returns the row count written, or None when skipped.
+    """
+    from analysis.normalize import NORMALIZED_VEHICLES_SCHEMA, Normalizer
+
+    out = _normalized_path(curated_dir, feed, day)
+    if out.exists() and not force:
+        print(
+            f"[{feed} {day}] normalized exists — skipping (use --force)",
+            file=sys.stderr,
+        )
+        return None
+
+    src = _raw_table_path(curated_dir, table, feed, day)
+    if not src.exists():
+        print(f"[{feed} {day}] SKIP normalize — no {table} partition", file=sys.stderr)
+        return None
+
+    try:
+        gtfs = gtfs_for(feed, day)
+    except (LookupError, FileNotFoundError) as e:
+        print(f"[{feed} {day}] SKIP normalize — GTFS lookup: {e}", file=sys.stderr)
+        return None
+    if gtfs is None:
+        print(
+            f"[{feed} {day}] no static GTFS source — skipping normalize",
+            file=sys.stderr,
+        )
+        return None
+
+    normalizer = Normalizer.from_table(table)
+    topo = topo_for(agency_id, day) if normalizer.needs_topo else None
+
+    rows = pq.read_table(src).to_pylist()
+    normalized = normalizer.normalize(
+        rows, gtfs, feed=feed, agency_id=agency_id, agency_tz=tz, topo_map=topo
+    )
+    _write_parquet(normalized, NORMALIZED_VEHICLES_SCHEMA, out)
+
+    # Count rows that landed at least one canonical GTFS id. Covers route feeds
+    # (route_id) and LIRR (trip_id/stop_id), which carries no route token and so
+    # would always read 0 against resolution_status alone.
+    resolved = sum(
+        1
+        for r in normalized
+        if r["route_id"] is not None
+        or r["trip_id"] is not None
+        or r["stop_id"] is not None
+    )
+    print(
+        f"[{feed} {day}] {len(normalized):>7,} normalized  ({resolved:,} id-resolved)"
+    )
+    return len(normalized)
+
+
+def _run_normalize(args: argparse.Namespace) -> int:
+    """The --normalize path: build curated/normalized_vehicles for the JSON feeds."""
+    feed_tz_map = load_feed_tz_map(args.config)
+    feed_table_map = load_feed_table_map(args.config)
+    feed_agency_map = load_feed_agency_map(args.config)
+    gtfs_for = _make_gtfs_resolver(args)
+    if gtfs_for is None:
+        print(
+            "[normalize] no GTFS resolver (pandas missing) — nothing to do",
+            file=sys.stderr,
+        )
+        return 0
+    topo_for = _make_topo_resolver(args.curated_dir, args.config)
+
+    feeds = args.feed if args.feed else sorted(feed_table_map)
+    base_dates = [args.day] if args.day else []
+    total = 0
+    for feed in feeds:
+        table = feed_table_map.get(feed)
+        if table is None:
+            print(f"[{feed}] no normalizer — skipping", file=sys.stderr)
+            continue
+        agency_id = feed_agency_map[feed][0]
+        tz = ZoneInfo(feed_tz_map[feed])
+        dates = set(base_dates)
+        if args.all_days:
+            dates |= set(discover_dates_for_dir(feed, args.curated_dir / table))
+        if not dates:
+            print(f"[{feed}] no dates to process — skipping", file=sys.stderr)
+            continue
+        for day in sorted(dates):
+            n = normalize_one(
+                feed,
+                day,
+                agency_id,
+                tz,
+                table,
+                args.curated_dir,
+                gtfs_for=gtfs_for,
+                topo_for=topo_for,
+                force=args.force,
+            )
+            if n is not None:
+                total += n
+    print(f"---\ntotal: {total:,} normalized vehicle rows")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.normalize:
+        return _run_normalize(args)
     feed_tz_map = load_feed_tz_map(args.config)
     feeds = args.feed if args.feed else sorted(feed_tz_map)
     base_dates = [args.day] if args.day else []

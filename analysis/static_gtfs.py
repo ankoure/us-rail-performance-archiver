@@ -73,9 +73,21 @@ class StaticGtfs:
         return self._read(
             "trips.txt",
             usecols=lambda c: (
-                c in {"trip_id", "route_id", "service_id", "direction_id"}
+                c
+                in {
+                    "trip_id",
+                    "route_id",
+                    "service_id",
+                    "direction_id",
+                    "trip_short_name",
+                }
             ),
-            dtype={"trip_id": str, "route_id": str, "service_id": str},
+            dtype={
+                "trip_id": str,
+                "route_id": str,
+                "service_id": str,
+                "trip_short_name": str,
+            },
         )
 
     @cached_property
@@ -83,11 +95,36 @@ class StaticGtfs:
         try:
             return self._read(
                 "routes.txt",
-                usecols=lambda c: c in {"route_id", "route_type"},
-                dtype={"route_id": str},
+                usecols=lambda c: (
+                    c
+                    in {"route_id", "route_type", "route_short_name", "route_long_name"}
+                ),
+                dtype={
+                    "route_id": str,
+                    "route_short_name": str,
+                    "route_long_name": str,
+                },
             )
         except KeyError:
-            return pd.DataFrame(columns=["route_id", "route_type"])
+            return pd.DataFrame(
+                columns=[
+                    "route_id",
+                    "route_type",
+                    "route_short_name",
+                    "route_long_name",
+                ]
+            )
+
+    @cached_property
+    def stops(self) -> pd.DataFrame:
+        try:
+            return self._read(
+                "stops.txt",
+                usecols=lambda c: c in {"stop_id", "stop_code", "stop_name"},
+                dtype={"stop_id": str, "stop_code": str, "stop_name": str},
+            )
+        except KeyError:
+            return pd.DataFrame(columns=["stop_id", "stop_code", "stop_name"])
 
     @cached_property
     def route_modes(self) -> dict[str, str]:
@@ -146,6 +183,84 @@ class StaticGtfs:
                     direction_id = int(raw)
             out[trip_id] = (route_id, direction_id)
         return out
+
+    # ------------------------------------------------------------------
+    # Resolution indexes — raw realtime identifier -> canonical GTFS id.
+    # Ported from nibble's StaticGTFS (keep-first semantics): they let the
+    # gold-layer normalizers resolve the raw tokens our JSON feeds land
+    # (route short/long names, stop codes/names, train numbers).
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _keepfirst_index(
+        df: pd.DataFrame,
+        value_col: str,
+        key_cols: tuple[str, ...],
+        *,
+        key_transform=None,
+    ) -> dict[str, str]:
+        """Build a keep-first ``{stripped key -> value}`` map from a GTFS table.
+
+        Key columns are scanned in order, so an earlier column's keys take
+        precedence over a later one's on collision (e.g. route_short_name beats
+        route_long_name) regardless of row order. A row is kept only when both
+        the value and the key are non-empty strings; ``key_transform`` (e.g.
+        ``str.upper``) is applied to the stripped key. Returns {} when
+        ``value_col`` is absent.
+        """
+        if value_col not in df.columns:
+            return {}
+        out: dict[str, str] = {}
+        for col in key_cols:
+            if col not in df.columns:
+                continue
+            for value, key in zip(df[value_col], df[col]):
+                if not isinstance(value, str) or not value:
+                    continue
+                if isinstance(key, str) and key.strip():
+                    k = key.strip()
+                    out.setdefault(key_transform(k) if key_transform else k, value)
+        return out
+
+    @cached_property
+    def route_short_names(self) -> dict[str, str]:
+        """Map route_short_name AND route_long_name -> route_id.
+
+        Indexing both names lets feeds that report either as their route
+        identifier (MWRTA short codes, CCRTA/Passio long names, VTA headsigns)
+        resolve through one dict. Precedence is independent of routes.txt row
+        order: short names are indexed before long names, so a long name can
+        never shadow another route's short name. Within a single tier, ties keep
+        the first route in file order.
+        """
+        return self._keepfirst_index(
+            self.routes, "route_id", ("route_short_name", "route_long_name")
+        )
+
+    @cached_property
+    def stop_codes(self) -> dict[str, str]:
+        """Map stop_code -> stop_id from stops.txt (LIRR-style raw codes)."""
+        return self._keepfirst_index(self.stops, "stop_id", ("stop_code",))
+
+    @cached_property
+    def stop_names(self) -> dict[str, str]:
+        """Map UPPER(stop_name) -> stop_id (MARTA station-name precedent)."""
+        return self._keepfirst_index(
+            self.stops, "stop_id", ("stop_name",), key_transform=str.upper
+        )
+
+    @cached_property
+    def trip_short_names(self) -> dict[str, str]:
+        """Map trip_short_name -> trip_id from trips.txt (LIRR train numbers)."""
+        return self._keepfirst_index(self.trips, "trip_id", ("trip_short_name",))
+
+    @cached_property
+    def route_ids(self) -> set[str]:
+        """Set of known GTFS route_ids — used to detect tokens that are already canonical."""
+        df = self.routes
+        if "route_id" not in df.columns:
+            return set()
+        return {r for r in df["route_id"] if isinstance(r, str) and r}
 
     @cached_property
     def stop_times(self) -> pd.DataFrame:
