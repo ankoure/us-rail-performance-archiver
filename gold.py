@@ -76,6 +76,7 @@ _SOURCE_SUBDIR = {"vehicles": "vehicles", "trip-updates": "trip_updates"}
 
 _SCHEDULE_FREE_MARTS = ("stop_day", "route_day", "events")
 _OTP_MARTS = ("adherence", "stop_day_otp", "route_day_otp")
+_SPEED_MARTS = ("segment_speed", "segment_day")
 
 # GTFS resolver defaults — duplicated from analysis.gtfs_fetcher rather than
 # imported, so gold.py's module import stays pandas-free. The on-time-performance
@@ -275,22 +276,27 @@ def build_one(
 ) -> dict | None:
     """Build the marts for one (feed, day). Returns a counts dict, or None.
 
-    Two independent, separately-idempotent steps off a single Visit load: the
-    schedule-free marts (stop_day / route_day / events) and — when `gtfs_for` is
-    supplied — the on-time-performance marts (adherence / stop_day_otp /
-    route_day_otp). Returns None when there's nothing to do (all marts already
-    built without --force, or no partition on disk).
+    Three independent, separately-idempotent steps off a single Visit load: the
+    schedule-free marts (stop_day / route_day / events), the on-time-performance
+    marts (adherence / stop_day_otp / route_day_otp), and the segment-speed marts
+    (segment_speed / segment_day). Both GTFS-gated steps share the same resolver.
+    Returns None when there's nothing to do (all marts already built without
+    --force, or no partition on disk).
 
     `gtfs_for(feed, day) -> StaticGtfs | None` resolves the schedule snapshot; it
-    is None when OTP is disabled. GTFS lookup failures skip only the OTP step.
+    is None when OTP is disabled. GTFS lookup failures skip only the OTP/speed steps.
     """
     sf_paths = {m: _mart_path(curated_dir, m, feed, day) for m in _SCHEDULE_FREE_MARTS}
     otp_paths = {m: _mart_path(curated_dir, m, feed, day) for m in _OTP_MARTS}
+    speed_paths = {m: _mart_path(curated_dir, m, feed, day) for m in _SPEED_MARTS}
     need_sf = force or not all(p.exists() for p in sf_paths.values())
     need_otp = gtfs_for is not None and (
         force or not all(p.exists() for p in otp_paths.values())
     )
-    if not need_sf and not need_otp:
+    need_speed = gtfs_for is not None and (
+        force or not all(p.exists() for p in speed_paths.values())
+    )
+    if not need_sf and not need_otp and not need_speed:
         print(f"[{feed} {day}] exists — skipping (use --force)", file=sys.stderr)
         return None
 
@@ -304,7 +310,14 @@ def build_one(
         print(f"[{feed} {day}] SKIP — {e}", file=sys.stderr)
         return None
 
-    result = {"stop": 0, "route": 0, "events": 0, "adherence": 0, "on_time": 0}
+    result = {
+        "stop": 0,
+        "route": 0,
+        "events": 0,
+        "adherence": 0,
+        "on_time": 0,
+        "segments": 0,
+    }
     if need_sf:
         stop_rows, route_rows = compute_marts(visits, feed, tz)
         event_rows = compute_events(visits, feed, tz)
@@ -335,6 +348,11 @@ def build_one(
         )
         if otp is not None:
             result.update(adherence=otp[0], on_time=otp[1])
+
+    if need_speed:
+        n = _build_speed(feed, day, tz, visits, gtfs_for, speed_paths)
+        if n is not None:
+            result["segments"] = n
 
     return result
 
@@ -412,6 +430,56 @@ def _build_otp(
         f"({rate:4.1f}% of {candidates:,} trip-visits matched schedule)"
     )
     return matched, on_time
+
+
+def _build_speed(
+    feed: str,
+    day: dt.date,
+    tz: ZoneInfo,
+    visits: list,
+    gtfs_for,
+    speed_paths: dict[str, Path],
+) -> int | None:
+    """Build the segment-speed marts for one (feed, day). Returns fact row count or None.
+
+    Resolves the same GTFS snapshot as OTP (so no extra network I/O when both run
+    together) and passes stop coordinates to compute_segment_speeds. Skips silently
+    when the feed has no mdb_feed_id, the GTFS lookup fails, or the zip carries no
+    stop coordinates.
+    """
+    from analysis.segment_speed import (
+        SEGMENT_DAY_SCHEMA,
+        SEGMENT_SPEED_SCHEMA,
+        compute_segment_speeds,
+    )
+
+    try:
+        gtfs_day = gtfs_for(feed, day)
+    except (LookupError, FileNotFoundError) as e:
+        print(f"[{feed} {day}] SKIP speed — GTFS lookup: {e}", file=sys.stderr)
+        return None
+    if gtfs_day is None:
+        return None
+
+    stop_coords = gtfs_day.stop_coords
+    if not stop_coords:
+        print(
+            f"[{feed} {day}] SKIP speed — no stop coordinates in GTFS", file=sys.stderr
+        )
+        return None
+
+    fact_rows, seg_day_rows = compute_segment_speeds(visits, stop_coords, feed, tz)
+    if not fact_rows:
+        print(f"[{feed} {day}] no segment speed rows", file=sys.stderr)
+        return None
+
+    _write_parquet(fact_rows, SEGMENT_SPEED_SCHEMA, speed_paths["segment_speed"])
+    _write_parquet(seg_day_rows, SEGMENT_DAY_SCHEMA, speed_paths["segment_day"])
+    print(
+        f"[{feed} {day}] {len(fact_rows):>8,} segment-speed  "
+        f"{len(seg_day_rows):>7,} segment-day"
+    )
+    return len(fact_rows)
 
 
 def _make_gtfs_resolver(args: argparse.Namespace):
@@ -693,7 +761,14 @@ def main(argv: list[str] | None = None) -> int:
     base_dates = [args.day] if args.day else []
     gtfs_for = None if args.no_otp else _make_gtfs_resolver(args)
 
-    totals = {"stop": 0, "route": 0, "events": 0, "adherence": 0, "on_time": 0}
+    totals = {
+        "stop": 0,
+        "route": 0,
+        "events": 0,
+        "adherence": 0,
+        "on_time": 0,
+        "segments": 0,
+    }
     for feed in feeds:
         tz_str = feed_tz_map.get(feed)
         if tz_str is None:
@@ -734,6 +809,7 @@ def main(argv: list[str] | None = None) -> int:
             else 0.0
         )
         summary += f", {totals['adherence']:,} adherence rows ({otp_pct:.1f}% on-time)"
+        summary += f", {totals['segments']:,} segment-speed rows"
     print(summary)
     return 0
 

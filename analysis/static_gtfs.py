@@ -120,11 +120,41 @@ class StaticGtfs:
         try:
             return self._read(
                 "stops.txt",
-                usecols=lambda c: c in {"stop_id", "stop_code", "stop_name"},
+                usecols=lambda c: (
+                    c in {"stop_id", "stop_code", "stop_name", "stop_lat", "stop_lon"}
+                ),
                 dtype={"stop_id": str, "stop_code": str, "stop_name": str},
             )
         except KeyError:
-            return pd.DataFrame(columns=["stop_id", "stop_code", "stop_name"])
+            return pd.DataFrame(
+                columns=["stop_id", "stop_code", "stop_name", "stop_lat", "stop_lon"]
+            )
+
+    @cached_property
+    def stop_coords(self) -> dict[str, tuple[float, float]]:
+        """Map stop_id → (latitude, longitude) from stops.txt.
+
+        Stops with missing or non-finite coordinates are omitted. Used by the
+        segment-speed mart to compute haversine distances between consecutive stops.
+        """
+        df = self.stops
+        if "stop_lat" not in df.columns or "stop_lon" not in df.columns:
+            return {}
+        out: dict[str, tuple[float, float]] = {}
+        for row in df.itertuples(index=False):
+            sid = getattr(row, "stop_id", None)
+            if not isinstance(sid, str) or not sid:
+                continue
+            lat_raw = getattr(row, "stop_lat", None)
+            lon_raw = getattr(row, "stop_lon", None)
+            if not (pd.notna(lat_raw) and pd.notna(lon_raw)):
+                continue
+            try:
+                lat, lon = float(lat_raw), float(lon_raw)
+            except (TypeError, ValueError):
+                continue
+            out[sid] = (lat, lon)
+        return out
 
     @cached_property
     def route_modes(self) -> dict[str, str]:
