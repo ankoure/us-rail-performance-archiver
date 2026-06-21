@@ -227,6 +227,11 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
         hot_prefix=config.s3.hot_prefix,
         telemetry=telemetry,
         feed_names=[f.name for f in build_feeds(config)],
+        feed_agency={
+            feed.name: agency.agency_id
+            for agency in config.agencies
+            for feed in agency.feeds
+        },
         # Local landing only — used by prune. On the S3 path the lifecycle rule
         # handles expiry, so a stale value here is never read by the ship path.
         landing_dir=config.writer.landing_dir,

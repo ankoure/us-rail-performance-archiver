@@ -29,6 +29,7 @@ class Shipper:
         telemetry: Telemetry | None = None,
         *,
         feed_names: Iterable[str] = (),
+        feed_agency: dict[str, str] | None = None,
         landing_dir: Path | None = None,
     ) -> None:
         # Landing reads (discovery + the cold tarball's raw/metadata) go through
@@ -47,6 +48,7 @@ class Shipper:
         # calls to one feed's day-prefix at a time instead of listing the whole
         # landing; that needs the configured feed list.
         self.feed_names = list(feed_names)
+        self.feed_agency: dict[str, str] = feed_agency or {}
         # Local-only; used by prune (which deletes the on-box landing tree). None
         # on Fargate, where prune isn't run (S3 landing expires via lifecycle).
         self.landing_dir = landing_dir
@@ -81,13 +83,14 @@ class Shipper:
 
     def _ship_cold(self, feed_name, day, *, force):
         key = self._cold_key(feed_name, day)
+        tags = {"feed": feed_name, "agency": self.feed_agency.get(feed_name, "unknown")}
         if not force and self.uploader.exists(self.cold_bucket, key):
-            self.telemetry.incr("ship.cold.skipped", tags={"feed": feed_name})
+            self.telemetry.incr("ship.cold.skipped", tags=tags)
             logger.debug("cold already exists, skipping: %s/%s", self.cold_bucket, key)
             return
 
         with self._build_tarball(feed_name, day) as tar_path:
-            with self.telemetry.span("ship.cold", tags={"feed": feed_name}):
+            with self.telemetry.span("ship.cold", tags=tags):
                 self.uploader.upload(
                     self.cold_bucket,
                     key,
@@ -97,34 +100,32 @@ class Shipper:
             self.telemetry.histogram(
                 "ship.cold.bytes",
                 tar_path.stat().st_size,
-                tags={"feed": feed_name},
+                tags=tags,
             )
 
     def _ship_hot(self, feed_name, day, *, force):
+        agency = self.feed_agency.get(feed_name, "unknown")
         for parquet in self._curated_parquets(feed_name, day):
             parts = parquet.relative_to(self.curated_dir).parts
             # First path segment is <kind>; gold marts nest one deeper
             # (metrics/stop_day, metrics/route_day) so keep both for telemetry.
             kind = "/".join(parts[:2]) if parts[0] == "metrics" else parts[0]
             key = self._hot_key(parquet)
+            tags = {"feed": feed_name, "kind": kind, "agency": agency}
 
             if not force and self.uploader.exists(self.hot_bucket, key):
-                self.telemetry.incr(
-                    "ship.hot.skipped", tags={"feed": feed_name, "kind": kind}
-                )
+                self.telemetry.incr("ship.hot.skipped", tags=tags)
                 logger.debug(
                     "hot already exists, skipping: %s/%s", self.hot_bucket, key
                 )
                 continue
 
-            with self.telemetry.span(
-                "ship.hot", tags={"feed": feed_name, "kind": kind}
-            ):
+            with self.telemetry.span("ship.hot", tags=tags):
                 self.uploader.upload(self.hot_bucket, key, parquet)
             self.telemetry.histogram(
                 "ship.hot.bytes",
                 parquet.stat().st_size,
-                tags={"feed": feed_name, "kind": kind},
+                tags=tags,
             )
 
     @contextmanager

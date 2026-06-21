@@ -15,6 +15,12 @@
       "prefix": "feed",
       "available_values": [],
       "default": "*"
+    },
+    {
+      "name": "agency",
+      "prefix": "agency",
+      "available_values": [],
+      "default": "*"
     }
   ],
   "widgets": [
@@ -273,7 +279,7 @@
                     {
                       "name": "p95",
                       "data_source": "metrics",
-                      "query": "avg:ship.cold.duration.95percentile{$env, service:rail-archiver, $feed} by {feed}"
+                      "query": "avg:ship.cold.duration.95percentile{$env, service:rail-archiver, $feed, $agency} by {feed}"
                     }
                   ],
                   "formulas": [{ "formula": "p95" }]
@@ -295,7 +301,7 @@
                     {
                       "name": "size",
                       "data_source": "metrics",
-                      "query": "avg:ship.cold.bytes.avg{$env, service:rail-archiver, $feed} by {feed}"
+                      "query": "avg:ship.cold.bytes.avg{$env, service:rail-archiver, $feed, $agency} by {feed}"
                     }
                   ],
                   "formulas": [{ "formula": "size" }]
@@ -317,7 +323,7 @@
                     {
                       "name": "p95",
                       "data_source": "metrics",
-                      "query": "avg:ship.hot.duration.95percentile{$env, service:rail-archiver, $feed} by {feed,kind}"
+                      "query": "avg:ship.hot.duration.95percentile{$env, service:rail-archiver, $feed, $agency} by {feed,kind}"
                     }
                   ],
                   "formulas": [{ "formula": "p95" }]
@@ -339,7 +345,7 @@
                     {
                       "name": "size",
                       "data_source": "metrics",
-                      "query": "avg:ship.hot.bytes.avg{$env, service:rail-archiver, $feed} by {kind}"
+                      "query": "avg:ship.hot.bytes.avg{$env, service:rail-archiver, $feed, $agency} by {kind}"
                     }
                   ],
                   "formulas": [{ "formula": "size" }]
@@ -360,12 +366,12 @@
                     {
                       "name": "cold",
                       "data_source": "metrics",
-                      "query": "sum:ship.cold.skipped{$env, service:rail-archiver, $feed}.as_count()"
+                      "query": "sum:ship.cold.skipped{$env, service:rail-archiver, $feed, $agency}.as_count()"
                     },
                     {
                       "name": "hot",
                       "data_source": "metrics",
-                      "query": "sum:ship.hot.skipped{$env, service:rail-archiver, $feed}.as_count()"
+                      "query": "sum:ship.hot.skipped{$env, service:rail-archiver, $feed, $agency}.as_count()"
                     }
                   ],
                   "formulas": [
@@ -546,6 +552,56 @@
                     }
                   ],
                   "formulas": [{ "formula": "by_op" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "toplist",
+              "title": "Cold archive bytes by agency (avg tarball size)",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "bytes",
+                      "data_source": "metrics",
+                      "query": "avg:ship.cold.bytes.avg{$env, service:rail-archiver} by {agency}",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "bytes",
+                      "limit": { "count": 20, "order": "desc" }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "toplist",
+              "title": "Hot parquet bytes by agency (sum per day)",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "bytes",
+                      "data_source": "metrics",
+                      "query": "sum:ship.hot.bytes.sum{$env, service:rail-archiver} by {agency}.rollup(sum, 86400)",
+                      "aggregator": "sum"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "bytes",
+                      "limit": { "count": 20, "order": "desc" }
+                    }
+                  ]
                 }
               ]
             }
