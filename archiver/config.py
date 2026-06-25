@@ -135,6 +135,7 @@ class WriterConfig(BaseModel):
     landing_mode: Literal["local", "s3"] = "local"
     rollup_source: Literal["local", "s3"] = "local"
     window_seconds: int = 300
+    merge_to_hourly: bool = False
     landing_dir: Path
     curated_dir: Path
     poll_state_dir: Path = Path("./poll_state")

@@ -133,7 +133,9 @@ def build_telemetry(config: TelemetryConfig, shard_index: int = 0) -> Telemetry:
     from datadog.dogstatsd.base import DogStatsd
     from archiver.telemetry_datadog import DatadogTelemetry
 
-    client = DogStatsd(host=config.agent_host, port=config.statsd_port)
+    # disable_buffering=False batches metrics into fewer UDP packets, preventing
+    # the Datadog Agent's intake queue from saturating on burst poll cycles.
+    client = DogStatsd(host=config.agent_host, port=config.statsd_port, disable_buffering=False)
     default_tags = {
         "service": config.service,
         "env": config.env,
@@ -248,6 +250,7 @@ def build_landing_uploader(config: ArchiverConfig) -> LandingUploader | None:
             bucket=config.writer.landing_bucket,
             prefix=config.writer.landing_prefix,
             telemetry=telemetry,
+            merge_to_hourly=config.writer.merge_to_hourly,
         )
     else:
         return None

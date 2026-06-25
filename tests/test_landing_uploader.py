@@ -19,8 +19,13 @@ from pathlib import Path
 
 import pytest
 
+import hashlib
+import io
+import struct
+
 from archiver import landing_uploader as mod
 from archiver.landing_uploader import LandingUploader
+from archiver.writer import HEADER, FrameReader
 
 # --- fakes -------------------------------------------------------------------
 
@@ -30,6 +35,7 @@ class FakeUploader:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, Path]] = []  # (bucket, key, path)
+        self.put_bytes_calls: list[tuple[str, str, bytes]] = []  # (bucket, key, data)
         self.fail: dict[str, Exception] = {}  # key -> exception to raise
         self.block: threading.Event | None = None  # if set, upload() waits on it
 
@@ -40,9 +46,18 @@ class FakeUploader:
         if key in self.fail:
             raise self.fail[key]
 
+    def put_bytes(self, bucket: str, key: str, data: bytes, **_kw) -> None:
+        self.put_bytes_calls.append((bucket, key, data))
+        if key in self.fail:
+            raise self.fail[key]
+
     @property
     def keys(self) -> list[str]:
         return [k for _, k, _ in self.calls]
+
+    @property
+    def put_bytes_keys(self) -> list[str]:
+        return [k for _, k, _ in self.put_bytes_calls]
 
 
 class FakeTelemetry:
@@ -420,3 +435,188 @@ def test_exit_swallows_final_drain_failure(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.ERROR):
         asyncio.run(go())
     assert any("final landing drain failed" in r.message for r in caplog.records)
+
+
+# --- hourly merge -----------------------------------------------------------
+
+# Hour 0 of 2026-06-25 UTC = unix 1750809600
+_HOUR0 = 1750809600
+_HOUR1 = _HOUR0 + 3600
+
+
+def _make_bin(payload: bytes) -> bytes:
+    """Minimal valid .bin with one frame."""
+    buf = io.BytesIO()
+    buf.write(HEADER)
+    digest = hashlib.sha256(payload).digest()
+    buf.write(struct.pack(">I", len(payload)))
+    buf.write(digest)
+    buf.write(payload)
+    return buf.getvalue()
+
+
+def _window_bin(
+    landing: Path,
+    feed: str,
+    window_unix: int,
+    payload: bytes = b"frame",
+) -> Path:
+    hour = window_unix // 3600 * 3600
+    from datetime import datetime, timezone
+    dt = datetime.fromtimestamp(hour, tz=timezone.utc)
+    p = (
+        landing
+        / feed
+        / "raw"
+        / f"year={dt.year}"
+        / f"month={dt.month}"
+        / f"day={dt.day}"
+        / f"window={window_unix}.bin"
+    )
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(_make_bin(payload))
+    return p
+
+
+def _window_jsonl(
+    landing: Path,
+    feed: str,
+    window_unix: int,
+    line: str = '{"status_code":200}\n',
+) -> Path:
+    hour = window_unix // 3600 * 3600
+    from datetime import datetime, timezone
+    dt = datetime.fromtimestamp(hour, tz=timezone.utc)
+    p = (
+        landing
+        / feed
+        / "metadata"
+        / f"year={dt.year}"
+        / f"month={dt.month}"
+        / f"day={dt.day}"
+        / f"window={window_unix}.jsonl"
+    )
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(line.encode())
+    return p
+
+
+def make_hourly_uploader(tmp_path, **kw):
+    return make_uploader(tmp_path, merge_to_hourly=True, **kw)
+
+
+def test_group_by_hour_partitions_correctly(tmp_path):
+    lu, _, _ = make_hourly_uploader(tmp_path)
+    b0 = _window_bin(tmp_path, "feedA", _HOUR0)
+    b1 = _window_bin(tmp_path, "feedA", _HOUR0 + 300)
+    b_next = _window_bin(tmp_path, "feedA", _HOUR1)
+    j0 = _window_jsonl(tmp_path, "feedA", _HOUR0)
+
+    groups = lu._group_by_hour([b0, b1, b_next, j0])
+
+    assert set(groups.keys()) == {("feedA", _HOUR0), ("feedA", _HOUR1)}
+    assert set(groups[("feedA", _HOUR0)]["bin"]) == {b0, b1}
+    assert groups[("feedA", _HOUR0)]["jsonl"] == [j0]
+    assert groups[("feedA", _HOUR1)]["bin"] == [b_next]
+    assert groups[("feedA", _HOUR1)]["jsonl"] == []
+
+
+def test_merge_and_ship_uploads_hourly_keys_and_deletes_windows(tmp_path):
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="landing/")
+    bins = [_window_bin(tmp_path, "feedA", _HOUR0 + i * 300, f"p{i}".encode()) for i in range(3)]
+    jsonls = [_window_jsonl(tmp_path, "feedA", _HOUR0 + i * 300) for i in range(3)]
+
+    lu._merge_and_ship("feedA", _HOUR0, bins, jsonls)
+
+    assert up.put_bytes_keys == [
+        "landing/feedA/raw/year=2025/month=6/day=25/hour=1750809600.bin",
+        "landing/feedA/metadata/year=2025/month=6/day=25/hour=1750809600.jsonl",
+    ]
+    assert not any(p.exists() for p in bins + jsonls)
+
+
+def test_merge_and_ship_bin_is_valid_framed_file(tmp_path):
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    payloads = [b"alpha", b"beta", b"gamma"]
+    bins = [
+        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, payloads[i])
+        for i in range(3)
+    ]
+
+    lu._merge_and_ship("feedA", _HOUR0, bins, [])
+
+    _, _, merged = up.put_bytes_calls[0]
+    frames = list(FrameReader(io.BytesIO(merged)))
+    assert [f[0] for f in frames] == payloads
+
+
+def test_merge_and_ship_jsonl_concatenates_in_window_order(tmp_path):
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    jsonls = [
+        _window_jsonl(tmp_path, "feedA", _HOUR0 + i * 300, f'{{"w":{i}}}\n')
+        for i in range(3)
+    ]
+
+    lu._merge_and_ship("feedA", _HOUR0, [], jsonls)
+
+    _, _, merged = up.put_bytes_calls[0]
+    assert merged == b'{"w":0}\n{"w":1}\n{"w":2}\n'
+
+
+def test_scan_once_hourly_skips_incomplete_hours(tmp_path, monkeypatch):
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    _window_bin(tmp_path, "feedA", _HOUR0)
+    # hour is not yet done (future timestamp)
+    monkeypatch.setattr(mod.time, "time", lambda: float(_HOUR0 + 10))
+
+    lu._scan_once_hourly(ignore_stop=False)
+
+    assert up.put_bytes_calls == []
+
+
+def test_scan_once_hourly_ships_completed_hours(tmp_path, monkeypatch):
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    _window_bin(tmp_path, "feedA", _HOUR0)
+    _window_jsonl(tmp_path, "feedA", _HOUR0)
+    # past hour boundary + grace
+    monkeypatch.setattr(mod.time, "time", lambda: float(_HOUR0 + 3600 + 301))
+
+    lu._scan_once_hourly(ignore_stop=False)
+
+    assert len(up.put_bytes_calls) == 2
+
+
+def test_scan_once_hourly_ignore_stop_ships_incomplete_hour(tmp_path, monkeypatch):
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    _window_bin(tmp_path, "feedA", _HOUR0)
+    monkeypatch.setattr(mod.time, "time", lambda: float(_HOUR0 + 10))
+
+    lu._scan_once_hourly(ignore_stop=True)
+
+    assert len(up.put_bytes_calls) == 1
+
+
+def test_merge_and_ship_keeps_files_on_upload_failure(tmp_path, caplog):
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    bins = [_window_bin(tmp_path, "feedA", _HOUR0)]
+    fail_key = "feedA/raw/year=2025/month=6/day=25/hour=1750809600.bin"
+    up.fail[fail_key] = RuntimeError("S3 down")
+
+    with caplog.at_level(logging.ERROR):
+        lu._merge_and_ship("feedA", _HOUR0, bins, [])
+
+    assert bins[0].exists()
+    assert any("hourly merge upload failed" in r.message for r in caplog.records)
+
+
+def test_merge_bins_helper_round_trips_frames(tmp_path):
+    from archiver.writer import merge_bins
+
+    payloads = [b"one", b"two", b"three"]
+    paths = [
+        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, payloads[i])
+        for i in range(3)
+    ]
+    merged = merge_bins(paths)
+    frames = list(FrameReader(io.BytesIO(merged)))
+    assert [f[0] for f in frames] == payloads

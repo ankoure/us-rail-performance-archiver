@@ -18,6 +18,7 @@ change in writer.py must be reflected here.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -47,3 +48,19 @@ def window_object_key(landing_dir: Path, path: Path, prefix: str = "") -> str:
     Caller is responsible for ``prefix`` ending in "/" (validated where used).
     """
     return prefix + path.relative_to(landing_dir).as_posix()
+
+
+def hour_s3_key(prefix: str, feed: str, hour_unix: int, kind: str, ext: str) -> str:
+    """S3 key for a merged hourly object.
+
+    Mirrors the window key layout but replaces ``window={unix}`` with
+    ``hour={unix}`` so the rollup's ``list_keys`` prefix scan returns both
+    window and hour objects transparently.  ``kind`` is ``"raw"`` for ``.bin``
+    and ``"metadata"`` for ``.jsonl``.
+    """
+    dt = datetime.fromtimestamp(hour_unix, tz=timezone.utc)
+    rel = (
+        f"{feed}/{kind}/year={dt.year}/month={dt.month}"
+        f"/day={dt.day}/hour={hour_unix}.{ext}"
+    )
+    return f"{prefix}{rel}"

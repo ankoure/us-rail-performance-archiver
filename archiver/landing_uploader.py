@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import threading
+import time
 from pathlib import Path
 
-from archiver.landing_layout import iter_window_objects, window_object_key
+from archiver.landing_layout import hour_s3_key, iter_window_objects, window_object_key
 from archiver.logger import logger
 from archiver.telemetry import Telemetry
 from archiver.uploader import Uploader
+from archiver.writer import merge_bins
 
 # How long __aexit__ waits for the worker to finish its in-flight upload before
 # giving up. The thread is a daemon, so process exit reaps a stuck one; any
 # object it didn't ship is still on disk and ships on the next boot's scan.
 _JOIN_TIMEOUT_S = 60.0
+
+# Seconds after the hour boundary before we treat that hour as complete and
+# merge it.  One extra window (300 s) gives the writer time to flush the last
+# window of the hour before we read the files.
+_HOUR_GRACE_S = 300.0
 
 
 class LandingUploader:
@@ -21,6 +29,13 @@ class LandingUploader:
     Lifecycle is RAII via the async context-manager protocol so it nests in the
     poller's AsyncExitStack alongside the agency clients (see main.run). It owns
     exactly one worker thread for its whole lifetime.
+
+    When ``merge_to_hourly=True``, instead of shipping each 5-minute window
+    file individually the uploader waits until an hour is complete (wall-clock
+    hour boundary + grace period), merges the 12 window ``.bin`` files into one
+    ``hour=*.bin`` and similarly for ``.jsonl``, then ships just those two
+    objects.  This reduces S3 PUT count by ~12× while keeping the 5-minute
+    local flush for crash safety.
     """
 
     def __init__(
@@ -32,6 +47,7 @@ class LandingUploader:
         *,
         telemetry: Telemetry,
         scan_interval: float = 30.0,
+        merge_to_hourly: bool = False,
     ) -> None:
         if prefix and not prefix.endswith("/"):
             # Keys must stay byte-identical to the old synchronous S3Sink path;
@@ -46,6 +62,7 @@ class LandingUploader:
         self._prefix = prefix
         self._tel = telemetry
         self._scan_interval = scan_interval
+        self._merge_to_hourly = merge_to_hourly
 
         # Set on shutdown. The worker waits on it WITH A TIMEOUT, so the same
         # primitive both paces scans and wakes the thread promptly to stop.
@@ -68,7 +85,7 @@ class LandingUploader:
         self._thread.start()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(self, _exc_type, _exc, _tb) -> None:
         self._stop.set()
         if self._thread is not None:
             # join() blocks, so offload it off the event loop. Bounded: a
@@ -107,24 +124,24 @@ class LandingUploader:
                 break
 
     def _scan_once(self, ignore_stop: bool = False) -> None:
-        """Ship every pending window object currently on disk, oldest first.
+        if self._merge_to_hourly:
+            self._scan_once_hourly(ignore_stop)
+        else:
+            self._scan_once_window(ignore_stop)
 
-        `ignore_stop` is used only by the final shutdown drain, where _stop is
-        already set but we still want one full (bounded) pass.
-        """
+    # --- window (per-file) scan — original behaviour -----------------------
+
+    def _scan_once_window(self, ignore_stop: bool = False) -> None:
+        """Ship every pending window object currently on disk, oldest first."""
         pending = self._pending()
-        self._tel.gauge("landing.pending", len(pending))  # leading indicator
+        self._tel.gauge("landing.pending", len(pending))
         for path in pending:
             if self._stop.is_set() and not ignore_stop:
-                return  # bail fast on shutdown
+                return
             self._ship_one(path)
 
     def _pending(self) -> list[Path]:
-        """Window objects awaiting shipment, oldest first by mtime.
-
-        mtime ordering (rather than name) gives true oldest-first across the
-        raw/ and metadata/ subtrees, which interleave within a window.
-        """
+        """Window objects awaiting shipment, oldest first by mtime."""
         candidates = list(iter_window_objects(self._landing_dir))
 
         if not self._layout_checked:
@@ -137,20 +154,12 @@ class LandingUploader:
             try:
                 return p.stat().st_mtime
             except OSError:
-                # Vanished mid-scan (e.g. prune.py); sort last, _ship_one
-                # tolerates the miss.
                 return float("inf")
 
         return sorted(candidates, key=mtime)
 
     def _warn_if_layout_mismatch(self) -> None:
-        """Detect stale globs: window-like files exist but no pattern matches.
-
-        Guards against the silent failure where writer.py's layout drifts from
-        _WINDOW_OBJECT_GLOBS  the gauge would read 0 pending and look healthy
-        while nothing ships. armed until the first match; Runs on each empty scan until then
-        bounded, because next(...) short-circuits at the first stray and it only runs while pending is empty.
-        """
+        """Detect stale globs: window-like files exist but no pattern matches."""
         try:
             stray = next(
                 (
@@ -171,19 +180,12 @@ class LandingUploader:
             )
 
     def _ship_one(self, path: Path) -> None:
-        """Upload one object; delete on success.
-
-        On failure: log and RETURN (do not delete, do not raise)  the file
-        stays on disk and the next scan retries. boto3 already retries
-        transient blips; a persistent failure just grows the backlog, which the
-        gauge and the disk alarm surface. Crucially, one bad object must not
-        starve the rest of the scan.
-        """
+        """Upload one object; delete on success."""
         key = self._key_for(path)
         try:
-            self._uploader.upload(self._bucket, key, path)  # emits s3.request{op:put}
+            self._uploader.upload(self._bucket, key, path)
         except FileNotFoundError:
-            return  # pruned out from under us between scan and ship; benign
+            return
         except Exception:
             logger.exception(
                 "landing upload failed, will retry next scan: %s -> s3://%s/%s",
@@ -195,10 +197,80 @@ class LandingUploader:
         path.unlink(missing_ok=True)
 
     def _key_for(self, path: Path) -> str:
-        """Local file path -> S3 key (prefix + path relative to landing_dir).
-
-        Mirrors how S3Sink keyed objects, so window keys are byte-identical to
-        the old synchronous dual-write path  the Fargate rollup reads the same
-        layout either way. (prefix is validated in __init__ to end with "/".)
-        """
         return window_object_key(self._landing_dir, path, self._prefix)
+
+    # --- hourly-merge scan -------------------------------------------------
+
+    def _scan_once_hourly(self, ignore_stop: bool = False) -> None:
+        """Group completed-hour window files and merge-then-ship each group."""
+        pending = self._pending()
+        self._tel.gauge("landing.pending", len(pending))
+
+        groups = self._group_by_hour(pending)
+        now = time.time()
+        for (feed, hour_unix), kinds in groups.items():
+            if self._stop.is_set() and not ignore_stop:
+                return
+            hour_done = now > hour_unix + 3600 + _HOUR_GRACE_S
+            if not hour_done and not ignore_stop:
+                continue
+            self._merge_and_ship(feed, hour_unix, kinds["bin"], kinds["jsonl"])
+
+    def _group_by_hour(
+        self, paths: list[Path]
+    ) -> dict[tuple[str, int], dict[str, list[Path]]]:
+        """Partition window files by (feed, hour_unix) and extension."""
+        groups: dict[tuple[str, int], dict[str, list[Path]]] = {}
+        for path in paths:
+            rel = path.relative_to(self._landing_dir)
+            feed = rel.parts[0]
+            stem = path.stem  # "window=1719302400"
+            if not stem.startswith("window="):
+                continue
+            window_unix = int(stem.split("=")[1])
+            hour_unix = (window_unix // 3600) * 3600
+            key = (feed, hour_unix)
+            if key not in groups:
+                groups[key] = {"bin": [], "jsonl": []}
+            ext = path.suffix.lstrip(".")
+            if ext in ("bin", "jsonl"):
+                groups[key][ext].append(path)
+        return groups
+
+    def _merge_and_ship(
+        self,
+        feed: str,
+        hour_unix: int,
+        bin_paths: list[Path],
+        jsonl_paths: list[Path],
+    ) -> None:
+        """Merge window files for one hour and upload as two hourly objects."""
+        if not bin_paths and not jsonl_paths:
+            return
+
+        try:
+            if bin_paths:
+                merged_bin = merge_bins(bin_paths)
+                bin_key = hour_s3_key(self._prefix, feed, hour_unix, "raw", "bin")
+                self._uploader.put_bytes(self._bucket, bin_key, merged_bin)
+
+            if jsonl_paths:
+                sorted_jsonl = sorted(
+                    jsonl_paths, key=lambda p: int(p.stem.split("=")[1])
+                )
+                merged_jsonl = b"".join(p.read_bytes() for p in sorted_jsonl)
+                jsonl_key = hour_s3_key(
+                    self._prefix, feed, hour_unix, "metadata", "jsonl"
+                )
+                self._uploader.put_bytes(self._bucket, jsonl_key, merged_jsonl)
+
+        except Exception:
+            logger.exception(
+                "hourly merge upload failed: feed=%s hour=%d; will retry next scan",
+                feed,
+                hour_unix,
+            )
+            return
+
+        for path in itertools.chain(bin_paths, jsonl_paths):
+            path.unlink(missing_ok=True)

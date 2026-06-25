@@ -5,6 +5,7 @@ import io
 from pathlib import Path
 import struct
 import threading
+from typing import Iterable
 
 from archiver.response import FeedResponse
 from archiver.logger import logger
@@ -86,6 +87,21 @@ class LocalWriter(BaseWriter):
 MAGIC = b"\x89GRT"
 VERSION = 0x01
 HEADER = MAGIC + bytes([VERSION])
+
+
+def merge_bins(paths: Iterable[Path]) -> bytes:
+    """Concatenate frames from multiple window .bin files into one.
+
+    Writes one header then appends the raw frame bytes from each file in
+    ascending window-timestamp order (oldest frames first).  The caller is
+    responsible for ensuring all paths share the same feed and hour bucket.
+    """
+    buf = io.BytesIO()
+    buf.write(HEADER)
+    for path in sorted(paths, key=lambda p: int(p.stem.split("=")[1])):
+        data = path.read_bytes()
+        buf.write(data[5:])  # skip the per-file 5-byte header
+    return buf.getvalue()
 
 
 class FrameError(Exception):
