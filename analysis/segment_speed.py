@@ -39,6 +39,11 @@ _EARTH_R_M = 6_371_000.0
 # certainly a GPS artifact or a bad timestamp pair.
 DEFAULT_MAX_SPEED_MPH = 200.0
 
+# A genuine inter-stop segment takes at most an hour. Anything longer is almost
+# certainly a trip_id reuse artifact (same id assigned across multiple runs) or
+# a vehicle that sat at a terminus overnight and then moved.
+DEFAULT_MAX_TRANSIT_S = 3600
+
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Great-circle distance in metres between two lat/lon points."""
@@ -97,6 +102,7 @@ def compute_segment_speeds(
     local_tz: ZoneInfo,
     *,
     max_speed_mph: float = DEFAULT_MAX_SPEED_MPH,
+    max_transit_s: int = DEFAULT_MAX_TRANSIT_S,
 ) -> tuple[list[dict], list[dict]]:
     """Pair consecutive dwell visits within the same trip and compute inter-stop speeds.
 
@@ -128,7 +134,7 @@ def compute_segment_speeds(
             if coords_a is None or coords_b is None:
                 continue
             transit_s = b.arrival_ts - a.departure_ts
-            if transit_s <= 0:
+            if transit_s <= 0 or transit_s > max_transit_s:
                 continue
             distance_m = _haversine_m(*coords_a, *coords_b)
             if distance_m == 0:

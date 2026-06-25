@@ -53,6 +53,8 @@ DEFAULT_OUT_DIR = Path("site/data")
 # A per-stop OTP figure on a handful of matched arrivals is noise, not signal;
 # require at least this many matches before a stop is eligible for the worst list.
 MIN_STOP_MATCHES = 20
+# Same idea for segments: a speed figure from very few traversals is noisy.
+MIN_SEGMENT_SAMPLES = 10
 
 
 def _read_mart(curated_dir: Path, mart: str, feed: str, day: dt.date) -> pd.DataFrame:
@@ -108,12 +110,16 @@ def build_payload(
     service_date: str,
     feed: str,
     worst_n: int,
+    segment_day: pd.DataFrame | None = None,
+    slowest_n: int = 15,
 ) -> dict:
     """Fold the marts into the dashboard JSON payload (pure; no I/O).
 
-    Returns a dict with `routes` (one entry per route, joined OTP + headway/dwell)
-    and `worst_stops` (the lowest-on-time stops with enough matches to be real).
-    Kept free of parquet/GTFS so it can be unit-tested on synthetic frames.
+    Returns a dict with `routes` (one entry per route, joined OTP + headway/dwell),
+    `worst_stops` (the lowest-on-time stops with enough matches to be real), and
+    `slowest_segments` (the lowest-median-speed inter-stop segments with enough
+    observations). Kept free of parquet/GTFS so it can be unit-tested on synthetic
+    frames.
     """
     routes: dict[str, dict] = {}
 
@@ -181,6 +187,33 @@ def build_payload(
                 }
             )
 
+    seg_df = segment_day if segment_day is not None else pd.DataFrame()
+    slowest_segments: list[dict] = []
+    if not seg_df.empty:
+        eligible = seg_df[seg_df["sample_count"].fillna(0) >= MIN_SEGMENT_SAMPLES]
+        slowest = eligible.sort_values("speed_p50_mph", ascending=True).head(slowest_n)
+        for row in slowest.itertuples(index=False):
+            rid = _clean(getattr(row, "route_id", None))
+            fid = _clean(getattr(row, "from_stop_id", None))
+            tid = _clean(getattr(row, "to_stop_id", None))
+            slowest_segments.append(
+                {
+                    "from_stop_id": fid,
+                    "to_stop_id": tid,
+                    "from_name": stop_names.get(fid, fid),
+                    "to_name": stop_names.get(tid, tid),
+                    "route": route_names.get(rid, rid),
+                    "speed_p50_mph": _round(
+                        _clean(getattr(row, "speed_p50_mph", None))
+                    ),
+                    "speed_p90_mph": _round(
+                        _clean(getattr(row, "speed_p90_mph", None))
+                    ),
+                    "sample_count": _clean(getattr(row, "sample_count", None)),
+                    "distance_m": _round(_clean(getattr(row, "distance_m", None)), 0),
+                }
+            )
+
     return {
         "feed": feed,
         "service_date": service_date,
@@ -194,6 +227,7 @@ def build_payload(
         ],
         "routes": route_list,
         "worst_stops": worst_stops,
+        "slowest_segments": slowest_segments,
     }
 
 
@@ -266,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     route_day = _read_mart(args.curated_dir, "route_day", args.feed, day)
     route_day_otp = _read_mart(args.curated_dir, "route_day_otp", args.feed, day)
     stop_day_otp = _read_mart(args.curated_dir, "stop_day_otp", args.feed, day)
+    segment_day = _read_mart(args.curated_dir, "segment_day", args.feed, day)
 
     if route_day.empty and route_day_otp.empty:
         print(
@@ -288,6 +323,8 @@ def main(argv: list[str] | None = None) -> int:
         service_date=args.day,
         feed=args.feed,
         worst_n=args.worst_n,
+        segment_day=segment_day,
+        slowest_n=args.worst_n,
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

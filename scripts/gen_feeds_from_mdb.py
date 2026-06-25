@@ -1,6 +1,6 @@
 """Generate candidate config/feeds.yaml entries from the Mobility Database catalog.
 
-Reads the public MDB catalog CSV (no auth needed), selects US GTFS-rt feeds that
+Reads the public MDB catalog CSV (no auth needed), selects GTFS-rt feeds that
 require no API key, groups them by their static feed (one ``static_reference`` =>
 one agency), dedupes against the agencies already in config/feeds.yaml, and writes
 a *candidate* YAML for human review. It never edits the live config.
@@ -73,13 +73,13 @@ def fetch_catalog(url: str) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # 2. Select + enrich
 # --------------------------------------------------------------------------- #
-def select_us_noauth_rt(catalog: pd.DataFrame) -> pd.DataFrame:
+def select_noauth_rt(catalog: pd.DataFrame) -> pd.DataFrame:
     """Return the rt rows we want, enriched with country/region/timezone.
 
     Filter: data_type == "gtfs-rt", urls.authentication_type (NaN->0) == 0,
     status != "deprecated". Then backfill location by joining each row's
     ``static_reference`` to the static row (data_type == "gtfs") whose
-    ``mdb_source_id`` equals it; keep only rows resolving to country == "US".
+    ``mdb_source_id`` equals it.
 
     Add columns the model needs: ``country``, ``region`` (from the static row's
     subdivision/municipality), ``timezone`` (see resolve_timezone). Rows missing
@@ -182,17 +182,9 @@ def select_us_noauth_rt(catalog: pd.DataFrame) -> pd.DataFrame:
     rt = rt[rt["location.country_code"].notna()]
 
     # ------------------------------------------------------------------
-    # 6. Keep US only
+    # 6. Enrich with country / region / timezone
     # ------------------------------------------------------------------
-    non_us = (rt["location.country_code"] != "US").sum()
-    if non_us:
-        logger.debug("%d non-US RT rows dropped", non_us)
-    rt = rt[rt["location.country_code"] == "US"].copy()
-
-    # ------------------------------------------------------------------
-    # 7. Enrich with country / region / timezone
-    # ------------------------------------------------------------------
-    rt["country"] = "US"
+    rt["country"] = rt["location.country_code"]
 
     rt["region"] = rt["location.subdivision_name"].where(
         rt["location.subdivision_name"].notna(),
@@ -201,6 +193,7 @@ def select_us_noauth_rt(catalog: pd.DataFrame) -> pd.DataFrame:
 
     rt["timezone"] = rt.apply(
         lambda row: resolve_timezone(
+            row.get("location.country_code"),
             row.get("location.subdivision_name"),
             row.get("location.municipality"),
         ),
@@ -219,10 +212,53 @@ def select_us_noauth_rt(catalog: pd.DataFrame) -> pd.DataFrame:
     return rt.reset_index(drop=True)
 
 
-# US state/territory -> IANA timezone. For states spanning multiple zones this is
-# the zone covering the overwhelming majority of the population; minority-zone cities
-# are handled by _CITY_TZ below.
+# Countries with a single IANA timezone — looked up first so multi-TZ countries
+# fall through to the subdivision table below.
+_COUNTRY_TZ: dict[str, str] = {
+    "AT": "Europe/Vienna",
+    "BE": "Europe/Brussels",
+    "BG": "Europe/Sofia",
+    "CH": "Europe/Zurich",
+    "CZ": "Europe/Prague",
+    "DE": "Europe/Berlin",
+    "DK": "Europe/Copenhagen",
+    "EE": "Europe/Tallinn",
+    "ES": "Europe/Madrid",
+    "FI": "Europe/Helsinki",
+    "FR": "Europe/Paris",
+    "GB": "Europe/London",
+    "GR": "Europe/Athens",
+    "HK": "Asia/Hong_Kong",
+    "HR": "Europe/Zagreb",
+    "HU": "Europe/Budapest",
+    "IE": "Europe/Dublin",
+    "IL": "Asia/Jerusalem",
+    "IT": "Europe/Rome",
+    "JP": "Asia/Tokyo",
+    "KR": "Asia/Seoul",
+    "LT": "Europe/Vilnius",
+    "LU": "Europe/Luxembourg",
+    "LV": "Europe/Riga",
+    "NL": "Europe/Amsterdam",
+    "NO": "Europe/Oslo",
+    "NZ": "Pacific/Auckland",
+    "PH": "Asia/Manila",
+    "PL": "Europe/Warsaw",
+    "PT": "Europe/Lisbon",
+    "RO": "Europe/Bucharest",
+    "SE": "Europe/Stockholm",
+    "SG": "Asia/Singapore",
+    "SI": "Europe/Ljubljana",
+    "SK": "Europe/Bratislava",
+    "TW": "Asia/Taipei",
+    "ZA": "Africa/Johannesburg",
+}
+
+# Subdivision -> IANA timezone for multi-TZ countries (US, CA, AU, MX).
+# For US states spanning multiple zones, use the majority-population zone;
+# minority-zone cities are handled by _CITY_TZ below.
 _SUBDIVISION_TO_TZ: dict[str, str] = {
+    # United States
     "Alabama": "America/Chicago",
     "Alaska": "America/Anchorage",
     "Arizona": "America/Phoenix",
@@ -275,37 +311,74 @@ _SUBDIVISION_TO_TZ: dict[str, str] = {
     "West Virginia": "America/New_York",
     "Wisconsin": "America/Chicago",
     "Wyoming": "America/Denver",
+    # Canada
+    "Alberta": "America/Edmonton",
+    "British Columbia": "America/Vancouver",
+    "Manitoba": "America/Winnipeg",
+    "New Brunswick": "America/Moncton",
+    "Newfoundland and Labrador": "America/St_Johns",
+    "Nova Scotia": "America/Halifax",
+    "Ontario": "America/Toronto",
+    "Prince Edward Island": "America/Halifax",
+    "Quebec": "America/Toronto",
+    "Saskatchewan": "America/Regina",
+    "Northwest Territories": "America/Yellowknife",
+    "Nunavut": "America/Iqaluit",
+    "Yukon": "America/Whitehorse",
+    # Australia
+    "New South Wales": "Australia/Sydney",
+    "Victoria": "Australia/Melbourne",
+    "Queensland": "Australia/Brisbane",
+    "Western Australia": "Australia/Perth",
+    "South Australia": "Australia/Adelaide",
+    "Tasmania": "Australia/Hobart",
+    "Northern Territory": "Australia/Darwin",
+    "Australian Capital Territory": "Australia/Sydney",
+    # Mexico (majority America/Mexico_City; border exceptions via _CITY_TZ)
+    "Baja California": "America/Tijuana",
+    "Baja California Sur": "America/Mazatlan",
+    "Chihuahua": "America/Chihuahua",
+    "Nayarit": "America/Mazatlan",
+    "Sinaloa": "America/Mazatlan",
+    "Sonora": "America/Hermosillo",
 }
 
-# Cities in the MINORITY timezone of a split state — they'd be mis-zoned by the
-# state-majority map, so override them by municipality. Extend as the skip log
-# surfaces new minority-zone agencies on future catalog refreshes.
+# Cities in the minority timezone of a split state/country — overrides the
+# subdivision majority. Extend as the skip log surfaces new cases.
 _CITY_TZ: dict[str, str] = {
     "El Paso": "America/Denver",  # TX, but Mountain (rest of TX is Central)
     "Knoxville": "America/New_York",  # TN, Eastern (state majority is Central)
-    "Chattanooga": "America/New_York",  # TN, Eastern
+    "Chattanooga": "America/New_York",
     "Pensacola": "America/Chicago",  # FL panhandle, Central (state majority Eastern)
 }
 
 
 def resolve_timezone(
-    subdivision_name: str | None, municipality: str | None
+    country_code: str | None,
+    subdivision_name: str | None,
+    municipality: str | None,
 ) -> str | None:
-    """Best-effort IANA timezone for a US agency from its location.
+    """Best-effort IANA timezone from MDB location fields.
 
     AgencyConfig requires a valid IANA tz (config.py:104). The catalog carries no
-    tz, so: (1) a known minority-zone city overrides via _CITY_TZ; (2) otherwise
-    the state's majority zone via _SUBDIVISION_TO_TZ; (3) None for an unknown
-    state, so the caller flags it for manual review rather than guessing.
+    tz, so we derive it in order: (1) known minority-zone city via _CITY_TZ;
+    (2) subdivision via _SUBDIVISION_TO_TZ (covers US, CA, AU, MX);
+    (3) single-TZ country via _COUNTRY_TZ; (4) None, which causes the caller to
+    skip the agency and log a warning so it can be added manually.
 
-    (Authoritative-but-heavier alternative if the heuristic ever feels too brittle:
-    read agency.txt from the static feed's zip via analysis.gtfs_fetcher.GtfsResolver.)
+    (Authoritative-but-heavier alternative: read agency.txt from the static feed's
+    zip via analysis.gtfs_fetcher.GtfsResolver.)
     """
     if isinstance(municipality, str) and municipality.strip() in _CITY_TZ:
         return _CITY_TZ[municipality.strip()]
 
     if isinstance(subdivision_name, str) and subdivision_name.strip():
-        return _SUBDIVISION_TO_TZ.get(subdivision_name.strip())
+        tz = _SUBDIVISION_TO_TZ.get(subdivision_name.strip())
+        if tz:
+            return tz
+
+    if isinstance(country_code, str) and country_code.strip():
+        return _COUNTRY_TZ.get(country_code.strip())
 
     return None
 
@@ -604,7 +677,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     catalog = fetch_catalog(args.catalog_url)
-    rt_rows = select_us_noauth_rt(catalog)
+    rt_rows = select_noauth_rt(catalog)
     existing_ids, existing_urls, existing_agency_ids = load_existing(args.existing)
     agencies = build_agencies(rt_rows, existing_ids, existing_urls, existing_agency_ids)
     dump_candidates(agencies, args.out)

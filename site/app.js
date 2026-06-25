@@ -95,6 +95,34 @@ function render(data) {
       <tbody>${rows}</tbody>
     </table>`;
 
+  // (e) Slowest segments table.
+  const segs = data.slowest_segments ?? [];
+  if (segs.length) {
+    const segRows = segs
+      .map(
+        (s) => `<tr>
+          <td>${s.from_name ?? s.from_stop_id}</td>
+          <td>${s.to_name ?? s.to_stop_id}</td>
+          <td>${s.route ?? ""}</td>
+          <td class="num">${s.speed_p50_mph != null ? s.speed_p50_mph.toFixed(1) : "—"}</td>
+          <td class="num">${s.speed_p90_mph != null ? s.speed_p90_mph.toFixed(1) : "—"}</td>
+          <td class="num">${s.sample_count ?? ""}</td>
+        </tr>`
+      )
+      .join("");
+    $("table-segments").innerHTML = `<table>
+        <thead><tr>
+          <th>From</th><th>To</th><th>Line</th>
+          <th class="num">Speed p50 (mph)</th>
+          <th class="num">Speed p90 (mph)</th>
+          <th class="num">Obs</th>
+        </tr></thead>
+        <tbody>${segRows}</tbody>
+      </table>`;
+  } else {
+    $("table-segments").textContent = "No segment data for this day.";
+  }
+
   $("footer").textContent =
     "Approximate fields (weighted means of per-direction percentiles): " +
     data.approx_fields.join(", ") + ".";
