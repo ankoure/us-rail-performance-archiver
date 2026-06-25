@@ -463,6 +463,7 @@ def _window_bin(
 ) -> Path:
     hour = window_unix // 3600 * 3600
     from datetime import datetime, timezone
+
     dt = datetime.fromtimestamp(hour, tz=timezone.utc)
     p = (
         landing
@@ -486,6 +487,7 @@ def _window_jsonl(
 ) -> Path:
     hour = window_unix // 3600 * 3600
     from datetime import datetime, timezone
+
     dt = datetime.fromtimestamp(hour, tz=timezone.utc)
     p = (
         landing
@@ -523,7 +525,10 @@ def test_group_by_hour_partitions_correctly(tmp_path):
 
 def test_merge_and_ship_uploads_hourly_keys_and_deletes_windows(tmp_path):
     lu, up, _ = make_hourly_uploader(tmp_path, prefix="landing/")
-    bins = [_window_bin(tmp_path, "feedA", _HOUR0 + i * 300, f"p{i}".encode()) for i in range(3)]
+    bins = [
+        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, f"p{i}".encode())
+        for i in range(3)
+    ]
     jsonls = [_window_jsonl(tmp_path, "feedA", _HOUR0 + i * 300) for i in range(3)]
 
     lu._merge_and_ship("feedA", _HOUR0, bins, jsonls)
@@ -539,8 +544,7 @@ def test_merge_and_ship_bin_is_valid_framed_file(tmp_path):
     lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
     payloads = [b"alpha", b"beta", b"gamma"]
     bins = [
-        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, payloads[i])
-        for i in range(3)
+        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, payloads[i]) for i in range(3)
     ]
 
     lu._merge_and_ship("feedA", _HOUR0, bins, [])
@@ -614,8 +618,7 @@ def test_merge_bins_helper_round_trips_frames(tmp_path):
 
     payloads = [b"one", b"two", b"three"]
     paths = [
-        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, payloads[i])
-        for i in range(3)
+        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, payloads[i]) for i in range(3)
     ]
     merged = merge_bins(paths)
     frames = list(FrameReader(io.BytesIO(merged)))

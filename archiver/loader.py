@@ -135,7 +135,9 @@ def build_telemetry(config: TelemetryConfig, shard_index: int = 0) -> Telemetry:
 
     # disable_buffering=False batches metrics into fewer UDP packets, preventing
     # the Datadog Agent's intake queue from saturating on burst poll cycles.
-    client = DogStatsd(host=config.agent_host, port=config.statsd_port, disable_buffering=False)
+    client = DogStatsd(
+        host=config.agent_host, port=config.statsd_port, disable_buffering=False
+    )
     default_tags = {
         "service": config.service,
         "env": config.env,

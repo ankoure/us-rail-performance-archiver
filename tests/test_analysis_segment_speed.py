@@ -128,6 +128,22 @@ class TestComputeSegmentSpeeds:
         fact, _ = self._run([v1, v2])
         assert fact == []
 
+    def test_drops_transit_above_max(self):
+        # 7200 s transit > default max of 3600 → artifact, must be dropped.
+        v1 = _visit("S1", NOON, NOON)
+        v2 = _visit("S2", NOON + 7200)
+        fact, _ = self._run([v1, v2])
+        assert fact == []
+
+    def test_respects_custom_max_transit(self):
+        # 600 s transit is normally kept; a 500 s cap drops it.
+        v1 = _visit("S1", NOON, NOON + 30)
+        v2 = _visit("S2", NOON + 630)
+        fact_normal, _ = self._run([v1, v2])
+        fact_tight, _ = self._run([v1, v2], max_transit_s=500)
+        assert len(fact_normal) == 1
+        assert fact_tight == []
+
     def test_drops_speed_above_max(self):
         # Teleportation: S1 to S2 in 1 second → thousands of mph.
         v1 = _visit("S1", NOON, NOON)

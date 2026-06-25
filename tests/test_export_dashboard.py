@@ -186,3 +186,93 @@ def test_weighted_mean_ignores_nan_and_zero_weight():
 
 def test_weighted_mean_all_missing_returns_none():
     assert _weighted_mean(pd.Series([float("nan")]), pd.Series([1])) is None
+
+
+# ---------------------------------------------------------------------------
+# Slowest-segments panel
+# ---------------------------------------------------------------------------
+
+
+def _segment_day() -> pd.DataFrame:
+    # A→B: slow (5 mph), enough samples. B→C: fast (40 mph), enough samples.
+    # A→D: slow (3 mph) but only 5 samples — below MIN_SEGMENT_SAMPLES (10).
+    return pd.DataFrame(
+        [
+            {
+                "route_id": "RED",
+                "direction_id": 0,
+                "from_stop_id": "S1",
+                "to_stop_id": "S2",
+                "service_date": "2026-05-20",
+                "sample_count": 30,
+                "speed_p50_mph": 5.0,
+                "speed_p90_mph": 9.0,
+                "speed_mean_mph": 5.5,
+                "transit_p50_s": 60,
+                "distance_m": 800.0,
+            },
+            {
+                "route_id": "GREEN",
+                "direction_id": 0,
+                "from_stop_id": "S2",
+                "to_stop_id": "S3",
+                "service_date": "2026-05-20",
+                "sample_count": 20,
+                "speed_p50_mph": 40.0,
+                "speed_p90_mph": 55.0,
+                "speed_mean_mph": 42.0,
+                "transit_p50_s": 30,
+                "distance_m": 1600.0,
+            },
+            {
+                "route_id": "RED",
+                "direction_id": 1,
+                "from_stop_id": "S1",
+                "to_stop_id": "S3",
+                "service_date": "2026-05-20",
+                "sample_count": 5,
+                "speed_p50_mph": 3.0,
+                "speed_p90_mph": 4.0,
+                "speed_mean_mph": 3.2,
+                "transit_p50_s": 90,
+                "distance_m": 600.0,
+            },
+        ]
+    )
+
+
+def test_slowest_segments_sorted_slowest_first():
+    payload = _payload(segment_day=_segment_day())
+    segs = payload["slowest_segments"]
+    # S1→S2 (5 mph) before S2→S3 (40 mph); S1→S3 (3 mph, 5 samples) excluded.
+    assert len(segs) == 2
+    assert segs[0]["from_stop_id"] == "S1"
+    assert segs[0]["to_stop_id"] == "S2"
+    assert segs[0]["speed_p50_mph"] == 5.0
+
+
+def test_slowest_segments_excludes_low_sample_count():
+    payload = _payload(segment_day=_segment_day())
+    stop_pairs = [
+        (s["from_stop_id"], s["to_stop_id"]) for s in payload["slowest_segments"]
+    ]
+    assert ("S1", "S3") not in stop_pairs
+
+
+def test_slowest_segments_names_joined():
+    payload = _payload(segment_day=_segment_day())
+    first = payload["slowest_segments"][0]
+    assert first["from_name"] == "Alpha"
+    assert first["to_name"] == "Beta"
+    assert first["route"] == "Red Line"
+
+
+def test_slowest_n_limit():
+    payload = _payload(segment_day=_segment_day(), slowest_n=1)
+    assert len(payload["slowest_segments"]) == 1
+    assert payload["slowest_segments"][0]["from_stop_id"] == "S1"
+
+
+def test_missing_segment_day_emits_empty_list():
+    payload = _payload()  # no segment_day kwarg
+    assert payload["slowest_segments"] == []
