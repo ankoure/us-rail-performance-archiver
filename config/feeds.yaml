@@ -886,6 +886,7 @@ agencies:
     timezone: America/Chicago
     base_url: https://api.ridemetro.org
     mdb_feed_id: mdb-2060
+    tls_extra_ca_cert: config/certs/godaddy-g2-intermediate.pem
     auth:
       type: api_key
       header: Ocp-Apim-Subscription-Key

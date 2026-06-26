@@ -111,6 +111,7 @@ class AgencyConfig(BaseModel):
     rate_limit: RateLimitConfig | None = None  # None => unlimited (NullRateLimiter)
     mdb_feed_id: str | None = None
     tls_verify: bool = True
+    tls_extra_ca_cert: str | None = None
 
     @field_validator("feeds")
     @classmethod

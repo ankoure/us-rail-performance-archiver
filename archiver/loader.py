@@ -1,6 +1,8 @@
 # loader.py
 import os
 import yaml
+import ssl
+import certifi
 import archiver.decoder  # noqa: F401 — populate Decoder._registry via import side effects
 import archiver.parser  # noqa: F401 — populate Parser._registry via import side effects
 from archiver.backfill import LandingBackfill
@@ -33,6 +35,7 @@ from archiver.uploader import Uploader
 from archiver.writer import BaseWriter, BatchingWriter, LocalWriter
 
 
+
 def _read_env(name: str) -> str:
     value = os.environ.get(name)
     if value is None:
@@ -52,11 +55,22 @@ def build_limiter(cfg: RateLimitConfig | None) -> RateLimiter:
     return TokenBucket(capacity=capacity, refill_rate=cfg.requests / cfg.per_seconds)
 
 
+def _build_verify(tls_verify: bool, tls_extra_ca_cert: str | None):
+    if tls_extra_ca_cert is None:
+        return tls_verify  # False or True, same as today
+    ctx = ssl.create_default_context()
+    ctx.load_verify_locations(cafile=certifi.where())  # all the normal roots
+    ctx.load_verify_locations(
+        cafile=tls_extra_ca_cert
+    )  # appends the missing intermediate
+    return ctx
+
+
 def build_client(agency: AgencyConfig) -> APIClient:
     base_url = str(agency.base_url)
     limiter = build_limiter(agency.rate_limit)
     headers = agency.default_headers
-    verify = agency.tls_verify
+    verify = _build_verify(agency.tls_verify, agency.tls_extra_ca_cert)
     match agency.auth:
         case NoAuthConfig():
             return APIClient(

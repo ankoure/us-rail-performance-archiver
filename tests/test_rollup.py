@@ -514,8 +514,12 @@ def test_hourly_merged_bin_rolls_up_correctly(tmp_path):
 
     # Write them as temp window files so merge_bins can read them.
     raw_dir = (
-        landing_dir / "echo-feed" / "raw"
-        / f"year={day.year}" / f"month={day.month}" / f"day={day.day}"
+        landing_dir
+        / "echo-feed"
+        / "raw"
+        / f"year={day.year}"
+        / f"month={day.month}"
+        / f"day={day.day}"
     )
     raw_dir.mkdir(parents=True, exist_ok=True)
     w1_path = raw_dir / "window=1750809600.bin"
@@ -535,10 +539,16 @@ def test_hourly_merged_bin_rolls_up_correctly(tmp_path):
         "echo-feed",
         day,
         rows=[
-            {"timestamp": 1750809601, "status_code": 200,
-             "digest": hashlib.sha256(b"alpha").hexdigest()},
-            {"timestamp": 1750811401, "status_code": 200,
-             "digest": hashlib.sha256(b"bravo").hexdigest()},
+            {
+                "timestamp": 1750809601,
+                "status_code": 200,
+                "digest": hashlib.sha256(b"alpha").hexdigest(),
+            },
+            {
+                "timestamp": 1750811401,
+                "status_code": 200,
+                "digest": hashlib.sha256(b"bravo").hexdigest(),
+            },
         ],
     )
 
@@ -548,8 +558,12 @@ def test_hourly_merged_bin_rolls_up_correctly(tmp_path):
     rollup.rollup_one("echo-feed", day, force=True)  # must not raise
 
     out = (
-        curated_dir / "echoes" / "feed=echo-feed"
-        / f"year={day.year}" / f"month={day.month}" / f"day={day.day}"
+        curated_dir
+        / "echoes"
+        / "feed=echo-feed"
+        / f"year={day.year}"
+        / f"month={day.month}"
+        / f"day={day.day}"
         / "data.parquet"
     )
     table = pq.ParquetFile(out).read()
