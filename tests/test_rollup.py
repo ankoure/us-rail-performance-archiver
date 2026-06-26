@@ -496,6 +496,67 @@ def test_digest_timestamps_skips_digestless_rows_silently(tmp_path, caplog):
     assert "missing" not in caplog.text.lower()  # no spurious warning emitted
 
 
+def test_hourly_merged_bin_rolls_up_correctly(tmp_path):
+    """hour=*.bin files (produced by LandingUploader with merge_to_hourly=True) are
+    framed files — the rollup must treat them the same as window=*.bin, not crash
+    trying to parse 'hour=...' as a legacy numeric timestamp."""
+    import hashlib
+
+    from archiver.writer import merge_bins
+
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    day = date(2026, 6, 25)
+
+    # Build two window .bin files the uploader would have merged.
+    w1 = _framed_bytes([b"alpha"])
+    w2 = _framed_bytes([b"bravo"])
+
+    # Write them as temp window files so merge_bins can read them.
+    raw_dir = (
+        landing_dir / "echo-feed" / "raw"
+        / f"year={day.year}" / f"month={day.month}" / f"day={day.day}"
+    )
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    w1_path = raw_dir / "window=1750809600.bin"
+    w2_path = raw_dir / "window=1750811400.bin"
+    w1_path.write_bytes(w1)
+    w2_path.write_bytes(w2)
+
+    # Merge into an hour=*.bin file (mimics LandingUploader._merge_and_ship).
+    merged = merge_bins([w1_path, w2_path])
+    hour_path = raw_dir / "hour=1750809600.bin"
+    hour_path.write_bytes(merged)
+    w1_path.unlink()
+    w2_path.unlink()
+
+    _write_metadata(
+        landing_dir,
+        "echo-feed",
+        day,
+        rows=[
+            {"timestamp": 1750809601, "status_code": 200,
+             "digest": hashlib.sha256(b"alpha").hexdigest()},
+            {"timestamp": 1750811401, "status_code": 200,
+             "digest": hashlib.sha256(b"bravo").hexdigest()},
+        ],
+    )
+
+    rollup = Rollup(
+        feeds=[_echo_feed()], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
+    rollup.rollup_one("echo-feed", day, force=True)  # must not raise
+
+    out = (
+        curated_dir / "echoes" / "feed=echo-feed"
+        / f"year={day.year}" / f"month={day.month}" / f"day={day.day}"
+        / "data.parquet"
+    )
+    table = pq.ParquetFile(out).read()
+    assert sorted(table.column("payload").to_pylist()) == ["alpha", "bravo"]
+    assert table.column("fetched_at").to_pylist() == [1750809601, 1750811401]
+
+
 def test_second_run_does_not_redo_work(tmp_path):
     landing_dir = tmp_path / "landing"
     curated_dir = tmp_path / "curated"

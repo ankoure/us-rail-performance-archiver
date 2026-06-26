@@ -227,7 +227,7 @@ class Rollup:
     ) -> Iterator[tuple[bytes, int]]:
         """Yield (payload_bytes, fetched_at) for one raw .bin file, format-agnostic.
 
-        Two on-disk shapes coexist (the cutover day has both):
+        Three on-disk shapes coexist:
           * legacy LocalWriter  -> filename stem IS the wall-clock ts; the whole file
             is ONE payload.
           * BatchingWriter      -> filename `window=<unix>`; the file is `\\x89GRT` +
@@ -235,32 +235,35 @@ class Rollup:
             metadata digest is a hex string, so `.hex()` the frame digest to join into
             `digest_ts`. Fallback when a digest is missing: the window-start unix in
             the stem (coarse, but never crashes).
+          * Hourly merged       -> filename `hour=<unix>`; same framed format as
+            `window=`, produced by LandingUploader when `merge_to_hourly=True`. The
+            hour-start unix is used as the fallback timestamp when a digest is absent.
 
         Keeping this the single source of "how to get payloads out of a file" lets the
         parse -> decode -> append loop in _rollup_data stay format-agnostic.
         """
         stem = name.removesuffix(".bin")
 
-        if stem.startswith("window="):
-            # --- BatchingWriter framed file ---
-            # Stem is "window=<unix>"; parse the fallback timestamp from it.
+        if stem.startswith("window=") or stem.startswith("hour="):
+            # --- BatchingWriter framed file (per-window or hourly-merged) ---
+            # Stem is "window=<unix>" or "hour=<unix>"; parse the fallback timestamp.
             try:
-                window_start = int(stem.split("=", 1)[1])
+                fallback_ts = int(stem.split("=", 1)[1])
             except (IndexError, ValueError) as exc:
                 raise ValueError(
-                    f"Cannot parse window timestamp from filename {name!r}"
+                    f"Cannot parse timestamp from filename {name!r}"
                 ) from exc
 
             try:
                 reader = FrameReader(io.BytesIO(data))
                 for payload, raw_digest in reader:
-                    fetched_at = digest_ts.get(raw_digest.hex(), window_start)
+                    fetched_at = digest_ts.get(raw_digest.hex(), fallback_ts)
                     yield payload, fetched_at
             except (FrameError, EOFError) as exc:
                 logger.warning(
-                    "Truncated/corrupt frame in %s (window_start=%d); skipping remainder: %s",
+                    "Truncated/corrupt frame in %s (fallback_ts=%d); skipping remainder: %s",
                     name,
-                    window_start,
+                    fallback_ts,
                     exc,
                 )
 
