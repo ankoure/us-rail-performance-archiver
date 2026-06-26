@@ -38,7 +38,7 @@ services:
       - ./config:/app/config:ro
       - ./archive:/app/archive
       - ./poll_state/shard-0:/app/poll_state
-    command: python main.py --shard-index 0 --shard-count 2
+    command: python main.py --shard-index 0 --shard-count 2 --workers 30
     environment:
       # botocore >=1.36 wraps the upload body in a non-seekable AwsChunkedWrapper
       # to add a default request checksum; a retried PutObject then fails with
@@ -56,7 +56,7 @@ services:
       - ./config:/app/config:ro
       - ./archive:/app/archive
       - ./poll_state/shard-1:/app/poll_state
-    command: python main.py --shard-index 1 --shard-count 2
+    command: python main.py --shard-index 1 --shard-count 2 --workers 30
 
   autoheal:
     image: willfarrell/autoheal:latest

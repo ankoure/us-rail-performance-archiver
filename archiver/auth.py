@@ -51,7 +51,7 @@ class APIClient:
         self,
         base_url: str,
         auth: Optional[httpx.Auth] = None,
-        timeout: int = 10,
+        timeout: int = 5,
         limiter: RateLimiter | None = None,
         default_headers: dict[str, str] | None = None,
         verify: bool = True,
