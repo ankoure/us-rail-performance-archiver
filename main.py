@@ -5,7 +5,7 @@ import functools
 from archiver.scheduler import Scheduler
 from archiver.health import FeedHealth, is_transient_failure
 from archiver.feed import Feed
-from archiver.logger import logger
+from archiver.logger import logger, setup_logging
 from dotenv import load_dotenv
 from archiver.loader import build_archiver, build_landing_uploader, load_config
 import argparse
@@ -195,11 +195,7 @@ async def run(args):
 def main(args):
     # Sync boundary: set up logging, then cross into the event loop. This is the
     # one place asyncio.run is called.
-    if args.verbose:
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s [%(threadName)s] %(name)s %(levelname)s: %(message)s",
-        )
+    setup_logging(level=logging.DEBUG if args.verbose else logging.INFO)
     asyncio.run(run(args))
 
 

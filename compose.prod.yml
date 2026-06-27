@@ -7,6 +7,11 @@ services:
       - DD_SITE=${DD_SITE:-datadoghq.com}
       - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
       - DD_HOSTNAME=rail-archiver
+      - DD_LOGS_ENABLED=true
+      - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
     expose:
       - "8125/udp"
 
@@ -34,6 +39,7 @@ services:
     user: "1000:1000"
     labels:
       - autoheal=true
+      - "com.datadoghq.ad.logs=[{\"source\": \"python\", \"service\": \"rail-archiver\"}]"
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive
@@ -45,6 +51,7 @@ services:
       # UnseekableStreamError. The LandingUploader retries heavily under S3
       # throttling, so disable the default checksum (S3 doesn't require it).
       - AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+      - PYTHONUNBUFFERED=1
     env_file:
       - .env
     depends_on:

@@ -7,6 +7,11 @@ services:
       - DD_SITE=${DD_SITE:-datadoghq.com}
       - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
       - DD_HOSTNAME=rail-archiver
+      - DD_LOGS_ENABLED=true
+      - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
     expose:
       - "8125/udp"
 
