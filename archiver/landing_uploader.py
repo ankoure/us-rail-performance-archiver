@@ -48,6 +48,7 @@ class LandingUploader:
         telemetry: Telemetry,
         scan_interval: float = 30.0,
         merge_to_hourly: bool = False,
+        feed_names: set[str] | None = None,
     ) -> None:
         if prefix and not prefix.endswith("/"):
             # Keys must stay byte-identical to the old synchronous S3Sink path;
@@ -63,6 +64,7 @@ class LandingUploader:
         self._tel = telemetry
         self._scan_interval = scan_interval
         self._merge_to_hourly = merge_to_hourly
+        self._feed_names = feed_names
 
         # Set on shutdown. The worker waits on it WITH A TIMEOUT, so the same
         # primitive both paces scans and wakes the thread promptly to stop.
@@ -142,7 +144,12 @@ class LandingUploader:
 
     def _pending(self) -> list[Path]:
         """Window objects awaiting shipment, oldest first by mtime."""
-        candidates = list(iter_window_objects(self._landing_dir))
+        candidates = [
+            p
+            for p in iter_window_objects(self._landing_dir)
+            if self._feed_names is None
+            or p.relative_to(self._landing_dir).parts[0] in self._feed_names
+        ]
 
         if not self._layout_checked:
             if candidates:

@@ -73,7 +73,7 @@ async def run(args):
         config, shard_index=args.shard_index, shard_count=args.shard_count
     )
     landing_uploader = build_landing_uploader(
-        config
+        config, shard_index=args.shard_index, shard_count=args.shard_count
     )  # None unless landing_mode == "s3"
     scheduler = Scheduler(
         archiver.feeds,

@@ -35,7 +35,6 @@ from archiver.uploader import Uploader
 from archiver.writer import BaseWriter, BatchingWriter, LocalWriter
 
 
-
 def _read_env(name: str) -> str:
     value = os.environ.get(name)
     if value is None:
@@ -256,10 +255,13 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
     )
 
 
-def build_landing_uploader(config: ArchiverConfig) -> LandingUploader | None:
+def build_landing_uploader(
+    config: ArchiverConfig, shard_index: int = 0, shard_count: int = 1
+) -> LandingUploader | None:
     if config.writer.landing_mode == "s3":
         telemetry = build_telemetry(config.telemetry)
         uploader = build_uploader(config.s3, telemetry)
+        feed_names = {f.name for f in build_feeds(config, shard_index, shard_count)}
         return LandingUploader(
             landing_dir=config.writer.landing_dir,
             uploader=uploader,
@@ -267,6 +269,7 @@ def build_landing_uploader(config: ArchiverConfig) -> LandingUploader | None:
             prefix=config.writer.landing_prefix,
             telemetry=telemetry,
             merge_to_hourly=config.writer.merge_to_hourly,
+            feed_names=feed_names,
         )
     else:
         return None
