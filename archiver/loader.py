@@ -249,9 +249,10 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
             for agency in config.agencies
             for feed in agency.feeds
         },
-        # Local landing only — used by prune. On the S3 path the lifecycle rule
-        # handles expiry, so a stale value here is never read by the ship path.
+        # Local landing; used by prune. S3 landing bucket/prefix used by prune_s3.
         landing_dir=config.writer.landing_dir,
+        landing_bucket=config.writer.landing_bucket,
+        landing_prefix=config.writer.landing_prefix,
     )
 
 

@@ -1,8 +1,21 @@
+import random
+import time
 from pathlib import Path
 from typing import Iterator, Protocol
 from botocore.exceptions import ClientError
 
+from archiver.logger import logger
 from archiver.telemetry import Telemetry
+
+TRANSIENT_S3_ERROR_CODES = {
+    "InternalError",
+    "SlowDown",
+    "ServiceUnavailable",
+    "RequestTimeout",
+    "RequestTimeTooSkewed",
+    "Throttling",
+    "ThrottlingException",
+}
 
 
 class Uploader(Protocol):
@@ -30,6 +43,7 @@ class Uploader(Protocol):
 
     def list_keys(self, bucket: str, prefix: str) -> Iterator[str]: ...  # paginated
     def get_bytes(self, bucket: str, key: str) -> bytes: ...
+    def delete_objects(self, bucket: str, keys: list[str]) -> None: ...
 
 
 class S3Uploader:
@@ -90,6 +104,66 @@ class S3Uploader:
         obj = self.client.get_object(Bucket=bucket, Key=key)
         return obj["Body"].read()
 
+    def delete_objects(
+        self, bucket: str, keys: list[str], max_retries: int = 5
+    ) -> None:
+        errors = []
+        for i in range(0, len(keys), 1000):
+            chunk = keys[i : i + 1000]
+            errors.extend(self._delete_chunk(bucket, chunk, max_retries))
+        if errors:
+            for e in errors:
+                logger.error("delete_objects failed: %s %s", e["Key"], e["Code"])
+            raise RuntimeError(
+                f"delete_objects: {len(errors)} key(s) failed in {bucket}"
+            )
+
+    def _delete_chunk(
+        self, bucket: str, chunk: list[str], max_retries: int
+    ) -> list[dict]:
+        permanent_errors: list[dict] = []
+        to_delete = chunk
+
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.client.delete_objects(
+                    Bucket=bucket,
+                    Delete={
+                        "Objects": [{"Key": k} for k in to_delete],
+                        "Quiet": True,
+                    },
+                )
+            except ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code not in TRANSIENT_S3_ERROR_CODES or attempt == max_retries:
+                    raise
+                self._sleep_backoff(attempt)
+                continue
+
+            batch_errors = response.get("Errors", [])
+            transient = [
+                e for e in batch_errors if e["Code"] in TRANSIENT_S3_ERROR_CODES
+            ]
+            permanent_errors.extend(
+                e for e in batch_errors if e["Code"] not in TRANSIENT_S3_ERROR_CODES
+            )
+
+            if not transient:
+                return permanent_errors
+            if attempt == max_retries:
+                permanent_errors.extend(transient)
+                return permanent_errors
+
+            to_delete = [e["Key"] for e in transient]
+            self._sleep_backoff(attempt)
+
+        return permanent_errors
+
+    @staticmethod
+    def _sleep_backoff(attempt: int) -> None:
+        delay = min(2**attempt, 30) * (0.5 + random.random())
+        time.sleep(delay)
+
 
 class InstrumentedUploader:
     def __init__(self, inner: Uploader, telemetry: Telemetry) -> None:
@@ -115,3 +189,7 @@ class InstrumentedUploader:
     def list_keys(self, bucket, prefix, **kw):
         self._tel.incr("s3.request", tags={"op": "list", "bucket": bucket})
         return self._inner.list_keys(bucket, prefix, **kw)
+
+    def delete_objects(self, bucket, keys, **kw):
+        self._tel.incr("s3.request", tags={"op": "delete", "bucket": bucket})
+        return self._inner.delete_objects(bucket, keys, **kw)

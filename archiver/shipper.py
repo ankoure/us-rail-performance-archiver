@@ -7,8 +7,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
-
-from archiver.source import Source
+from archiver.source import Source, S3Source
 from archiver.uploader import Uploader
 from archiver.telemetry import Telemetry, NoOpTelemetry
 from archiver.logger import logger
@@ -31,6 +30,8 @@ class Shipper:
         feed_names: Iterable[str] = (),
         feed_agency: dict[str, str] | None = None,
         landing_dir: Path | None = None,
+        landing_bucket: str | None = None,
+        landing_prefix: str = "",
     ) -> None:
         # Landing reads (discovery + the cold tarball's raw/metadata) go through
         # the Source seam, so ship works whether landing is local (on-box) or in
@@ -52,6 +53,8 @@ class Shipper:
         # Local-only; used by prune (which deletes the on-box landing tree). None
         # on Fargate, where prune isn't run (S3 landing expires via lifecycle).
         self.landing_dir = landing_dir
+        self.landing_bucket = landing_bucket
+        self.landing_prefix = landing_prefix
 
     def run(self, feed=None, day=None, *, force=False, hot_only=False, workers=4):
         pairs = list(self._discover(feed, day))
@@ -258,6 +261,68 @@ class Shipper:
             if not dry_run:
                 self.telemetry.incr("prune.deleted", tags={"feed": feed_name})
             deleted += 1
+        logger.info(
+            "prune: %d day-partition(s) %s, %d skipped (unshipped)",
+            deleted,
+            "would be deleted" if dry_run else "deleted",
+            skipped,
+        )
+        return {"deleted": deleted, "skipped": skipped}
+
+    def prune_s3(
+        self, *, keep_days: int = 3, day: date | None = None, dry_run: bool = False
+    ) -> dict[str, int]:
+        """
+        Delete landing-zone raw+metadata day-partitions older than keep_days.
+
+        SAFETY: a day is deleted only if its cold tarball is confirmed in S3
+        (same exists() check ship uses). A day not yet shipped is skipped, never
+        deleted — so this is crash-safe and idempotent. `keep_days` retains that
+        many recent days as a buffer for re-rollups; `day` restricts to one day;
+        `dry_run` logs what it would delete without touching disk.
+        """
+        if self.landing_bucket is None:
+            raise RuntimeError("S3 prune requires a staging bucket to be set ...")
+        s3_source = S3Source(self.uploader, self.landing_bucket, self.landing_prefix)
+        cutoff = datetime.now(tz=timezone.utc).date() - timedelta(days=keep_days)
+        deleted = skipped = 0
+        for feed_name, partition_day in sorted(s3_source.discover()):
+            try:
+                if partition_day >= cutoff or (
+                    day is not None and partition_day != day
+                ):
+                    continue
+                key = self._cold_key(feed_name, partition_day)
+                if not self.uploader.exists(self.cold_bucket, key):
+                    logger.warning(
+                        "prune skip %s %s: cold tarball %s not in s3 (not shipped yet)",
+                        feed_name,
+                        partition_day,
+                        key,
+                    )
+                    self.telemetry.incr(
+                        "prune.skipped_unshipped", tags={"feed": feed_name}
+                    )
+                    skipped += 1
+                    continue
+                for sub in ("raw", "metadata"):
+                    prefix = f"{self.landing_prefix}{feed_name}/{sub}/year={partition_day.year}/month={partition_day.month}/day={partition_day.day}/"
+                    keys = list(self.uploader.list_keys(self.landing_bucket, prefix))
+                    if dry_run:
+                        logger.info(
+                            "[dry-run] prune_s3 would delete %d keys under %s",
+                            len(keys),
+                            prefix,
+                        )
+                    else:
+                        self.uploader.delete_objects(self.landing_bucket, keys)
+
+                if not dry_run:
+                    self.telemetry.incr("prune.deleted", tags={"feed": feed_name})
+                deleted += 1
+            except Exception as e:
+                logger.error("prune_s3 failed: %s %s: %s", feed_name, partition_day, e)
+
         logger.info(
             "prune: %d day-partition(s) %s, %d skipped (unshipped)",
             deleted,

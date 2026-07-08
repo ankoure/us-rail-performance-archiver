@@ -17,10 +17,9 @@ variable "landing_bucket" {
 
 variable "landing_retention_days" {
   type = number
-  # Bumped 7->30 on 2026-06-14: the Fargate ship path is temporarily broken
-  # (Shipper not yet S3-aware), so un-rolled-up raw must survive in S3 longer
-  # than a week. Drop back to ~7 once the rollup+ship pipeline is reliably daily.
-  default     = 30
+  # Dropped 30->7 on 2026-07-07: prune_s3.py now handles proactive cleanup of
+  # shipped partitions, so the lifecycle is just a backstop for anything missed.
+  default     = 7
   description = <<-EOT
     Days to keep landing objects in S3 before lifecycle expiry. The rollup only
     needs yesterday; this is a buffer. Landing is ~21 GiB/day, so this caps the
