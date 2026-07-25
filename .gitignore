@@ -27,6 +27,12 @@ poll_state/
 config/feeds.candidates.yaml
 config/feeds.candidates.validated.yaml
 
+# Rust (rail-decoder)
+# Cargo.lock is intentionally NOT ignored — this crate builds a Python
+# extension consumed by the app, not a published library, so the lock file
+# should be committed for reproducible builds (same reasoning as uv.lock).
+target/
+
 # Created by https://www.toptal.com/developers/gitignore/api/terraform
 # Edit at https://www.toptal.com/developers/gitignore?templates=terraform
 
