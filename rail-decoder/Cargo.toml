@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+prost = "0.14.4"
 pyo3 = { version = "0.29.0", features = ["extension-module"] }
 
 [lib]
 name = "rail_decoder"
 crate-type = ["cdylib"]
+
+[build-dependencies]
+prost-build = "0.14.4"

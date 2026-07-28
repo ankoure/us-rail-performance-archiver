@@ -1,0 +1,514 @@
+// Copyright 2015 The GTFS Specifications Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Protocol definition file for GTFS Realtime.
+//
+// GTFS Realtime lets transit agencies provide consumers with realtime
+// information about disruptions to their service (stations closed, lines not
+// operating, important delays etc), location of their vehicles and expected
+// arrival times.
+//
+// This protocol is published at:
+// https://github.com/google/transit/tree/master/gtfs-realtime
+
+syntax = "proto2";
+option java_package = "com.google.transit.realtime";
+package transit_realtime;
+
+// The contents of a feed message.
+// A feed is a continuous stream of feed messages. Each message in the stream is
+// obtained as a response to an appropriate HTTP GET request.
+// A realtime feed is always defined with relation to an existing GTFS feed.
+// All the entity ids are resolved with respect to the GTFS feed.
+// Note that "required" and "optional" as stated in this file refer to Protocol
+// Buffer cardinality, not semantic cardinality.  See reference.md at
+// https://github.com/google/transit/tree/master/gtfs-realtime for field
+// semantic cardinality.
+message FeedMessage {
+  // Metadata about this feed and feed message.
+  required FeedHeader header = 1;
+
+  // Contents of the feed.
+  repeated FeedEntity entity = 2;
+
+  // The extensions namespace allows 3rd-party developers to extend the
+  // GTFS Realtime specification in order to add and evaluate new features and
+  // modifications to the spec.
+  extensions 1000 to 1999;
+
+  // The following extension IDs are reserved for private use by any organization.
+  extensions 9000 to 9999;
+}
+
+// Metadata about a feed, included in feed messages.
+message FeedHeader {
+  // Version of the feed specification.
+  // The current version is 2.0.  Valid versions are "2.0", "1.0".
+  required string gtfs_realtime_version = 1;
+
+  // Determines whether the current fetch is incremental.  Currently,
+  // DIFFERENTIAL mode is unsupported and behavior is unspecified for feeds
+  // that use this mode.  There are discussions on the GTFS Realtime mailing
+  // list around fully specifying the behavior of DIFFERENTIAL mode and the
+  // documentation will be updated when those discussions are finalized.
+  enum Incrementality {
+    FULL_DATASET = 0;
+    DIFFERENTIAL = 1;
+  }
+  optional Incrementality incrementality = 2 [default = FULL_DATASET];
+
+  // This timestamp identifies the moment when the content of this feed has been
+  // created (in server time). In POSIX time (i.e., number of seconds since
+  // January 1st 1970 00:00:00 UTC).
+  optional uint64 timestamp = 3;
+
+  // The extensions namespace allows 3rd-party developers to extend the
+  // GTFS Realtime specification in order to add and evaluate new features and
+  // modifications to the spec.
+  extensions 1000 to 1999;
+
+  // The following extension IDs are reserved for private use by any organization.
+  extensions 9000 to 9999;
+}
+
+// A definition (or update) of an entity in the transit feed.
+message FeedEntity {
+  // The ids are used only to provide incrementality support. The id should be
+  // unique within a FeedMessage. Consequent FeedMessages may contain
+  // FeedEntities with the same id. In case of a DIFFERENTIAL update the new
+  // FeedEntity with some id will replace the old FeedEntity with the same id
+  // (or delete it - see is_deleted below).
+  // The actual GTFS entities (e.g. stations, routes, trips) referenced by the
+  // feed must be specified by explicit selectors (see EntitySelector below for
+  // more info).
+  required string id = 1;
+
+  // Whether this entity is to be deleted. Relevant only for incremental
+  // fetches.
+  optional bool is_deleted = 2 [default = false];
+
+  // Data about the entity itself. Exactly one of the following fields must be
+  // present (unless the entity is being deleted).
+  optional TripUpdate trip_update = 3;
+  optional VehiclePosition vehicle = 4;
+  optional Alert alert = 5;
+
+  // The extensions namespace allows 3rd-party developers to extend the
+  // GTFS Realtime Specification in order to add and evaluate new features and
+  // modifications to the spec.
+  extensions 1000 to 1999;
+
+  // The following extension IDs are reserved for private use by any organization.
+  extensions 9000 to 9999;
+}
+
+//
+// Entities used in the feed.
+//
+
+// Realtime update of the progress of a vehicle along a trip.
+// Depending on the value of ScheduleRelationship, a TripUpdate can specify:
+// - A trip that proceeds along the schedule.
+// - A trip that proceeds along a route but has no fixed schedule.
+// - A trip that have been added or removed with regard to schedule.
+//
+// The updates can be for future, predicted arrival/departure events, or for
+// past events that already occurred.
+// Normally, updates should get more precise and more certain (see
+// uncertainty below) as the events gets closer to current time.
+// Even if that is not possible, the information for past events should be
+// precise and certain. In particular, if an update points to time in the past
+// but its update's uncertainty is not 0, the client should conclude that the
+// update is a (wrong) prediction and that the trip has not completed yet.
+//
+// Note that the update can describe a trip that is already completed.
+// To this end, it is enough to provide an update for the last stop of the trip.
+// If the time of that is in the past, the client will conclude from that that
+// the whole trip is in the past (it is possible, although inconsequential, to
+// also provide updates for preceding stops).
+// This option is most relevant for a trip that has completed ahead of schedule,
+// but according to the schedule, the trip is still proceeding at the current
+// time. Removing the updates for this trip could make the client assume
+// that the trip is still proceeding.
+// Note that the feed provider is allowed, but not required, to purge past
+// updates - this is one case where this would be practically useful.
+message TripUpdate {
+  // The Trip that this message applies to. There can be at most one
+  // TripUpdate entity for each actual trip instance.
+  // If there is none, that means there is no prediction information available.
+  // It does *not* mean that the trip is progressing according to schedule.
+  required TripDescriptor trip = 1;
+
+  // Additional information on the vehicle that is serving this trip.
+  optional VehicleDescriptor vehicle = 3;
+
+  // Timing information for a single predicted event (either arrival or
+  // departure).
+  // Timing consists of delay and/or estimated time, and uncertainty.
+  // - delay should be used when the prediction is given relative to some
+  //   existing schedule in GTFS.
+  // - time should be given whether there is a predicted schedule or not. If
+  //   both time and delay are specified, time will take precedence
+  //   (although normally, time, if given for a scheduled trip, should be
+  //   equal to scheduled time in GTFS + delay).
+  //
+  // Uncertainty applies equally to both time and delay.
+  // The uncertainty roughly specifies the expected error in true delay (but
+  // note, we don't yet define its precise statistical meaning). It's possible
+  // for the uncertainty to be 0, for example for trains that are driven under
+  // computer timing control.
+  message StopTimeEvent {
+    // Delay (in seconds) can be positive (meaning that the vehicle is late) or
+    // negative (meaning that the vehicle is ahead of schedule). Delay of 0
+    // means that the vehicle is exactly on time.
+    optional int32 delay = 1;
+
+    // Event as absolute time.
+    // In Unix time (i.e., number of seconds since January 1st 1970 00:00:00
+    // UTC).
+    optional int64 time = 2;
+
+    // If uncertainty is omitted, it is interpreted as unknown.
+    // If the prediction is unknown or too uncertain, the delay (or time) field
+    // should be empty. In such case, the uncertainty field is ignored.
+    // To specify a completely certain prediction, set its uncertainty to 0.
+    optional int32 uncertainty = 3;
+
+    // The extensions namespace allows 3rd-party developers to extend the
+    // GTFS Realtime Specification in order to add and evaluate new features
+    // and modifications to the spec.
+    extensions 1000 to 1999;
+
+    // The following extension IDs are reserved for private use by any organization.
+    extensions 9000 to 9999;
+  }
+
+  // Realtime update for arrival and/or departure events for a given stop on a
+  // trip. Updates can be supplied for both past and future events.
+  // The producer is allowed, although not required, to drop past events.
+  message StopTimeUpdate {
+    // The update is linked to a specific stop either through stop_sequence or
+    // stop_id, so one of the fields below must necessarily be set.
+    // See the documentation in TripDescriptor for more information.
+
+    // Must be the same as in stop_times.txt in the corresponding GTFS feed.
+    optional uint32 stop_sequence = 1;
+    // Must be the same as in stops.txt in the corresponding GTFS feed.
+    optional string stop_id = 4;
+
+    optional StopTimeEvent arrival = 2;
+    optional StopTimeEvent departure = 3;
+
+    // The relation between this StopTime and the static schedule.
+    enum ScheduleRelationship {
+      // The vehicle is proceeding in accordance with its static schedule of
+      // stops, although not necessarily according to the times of the schedule.
+      // At least one of arrival and departure must be provided. If the schedule
+      // for this stop contains both arrival and departure times then so must
+      // this update. Frequency-based trips (GTFS frequencies.txt with exact_times = 0)
+      // should not have a SCHEDULED value and should use UNSCHEDULED instead.
+      SCHEDULED = 0;
+
+      // The stop is skipped, i.e., the vehicle will not stop at this stop.
+      // Arrival and departure are optional.
+      SKIPPED = 1;
+
+      // No data is given for this stop. The main intention for this value is to
+      // give the predictions only for part of a trip, i.e., if the last update
+      // for a trip has a NO_DATA specifier, then StopTimes for the rest of the
+      // stops in the trip are considered to be unspecified as well.
+      // Neither arrival nor departure should be supplied.
+      NO_DATA = 2;
+
+      // The vehicle is operating a trip defined in GTFS frequencies.txt with exact_times = 0.
+      // This value should not be used for trips that are not defined in GTFS frequencies.txt,
+      // or trips in GTFS frequencies.txt with exact_times = 1. Trips containing StopTimeUpdates
+      // with ScheduleRelationship=UNSCHEDULED must also set TripDescriptor.ScheduleRelationship=UNSCHEDULED.
+      // NOTE: This field is still experimental, and subject to change. It may be
+      // formally adopted in the future.
+      UNSCHEDULED = 3;
+    }
+    optional ScheduleRelationship schedule_relationship = 5
+        [default = SCHEDULED];
+
+    // Provides the updated values for the stop time.
+    // NOTE: This message is still experimental, and subject to change. It may be formally adopted in the future.
+    message StopTimeProperties {
+      // Supports real-time stop assignments. Refers to a stop_id defined in the GTFS stops.txt.
+      // The new assigned_stop_id should not result in a significantly different trip experience for the end user than
+      // the stop_id defined in GTFS stop_times.txt. In other words, the end user should not view this new stop_id as an
+      // "unusual change" if the new stop was presented within an app without any additional context.
+      // For example, this field is intended to be used for platform assignments by using a stop_id that belongs to the
+      // same station as the stop originally defined in GTFS stop_times.txt.
+      // To assign a stop without providing any real-time arrival or departure predictions, populate this field and set
+      // StopTimeUpdate.schedule_relationship = NO_DATA.
+      // If this field is populated, it is preferred to omit `StopTimeUpdate.stop_id` and use only `StopTimeUpdate.stop_sequence`. If
+      // `StopTimeProperties.assigned_stop_id` and `StopTimeUpdate.stop_id` are populated, `StopTimeUpdate.stop_id` must match `assigned_stop_id`.
+      // Platform assignments should be reflected in other GTFS-realtime fields as well
+      // (e.g., `VehiclePosition.stop_id`).
+      // NOTE: This field is still experimental, and subject to change. It may be formally adopted in the future.
+      optional string assigned_stop_id = 1;
+
+      // The extensions namespace allows 3rd-party developers to extend the
+      // GTFS Realtime Specification in order to add and evaluate new features
+      // and modifications to the spec.
+      extensions 1000 to 1999;
+
+      // The following extension IDs are reserved for private use by any organization.
+      extensions 9000 to 9999;
+    }
+
+    // Realtime updates for certain properties defined within GTFS stop_times.txt
+    // NOTE: This field is still experimental, and subject to change. It may be formally adopted in the future.
+    optional StopTimeProperties stop_time_properties = 6;
+
+    // The extensions namespace allows 3rd-party developers to extend the
+    // GTFS Realtime Specification in order to add and evaluate new features
+    // and modifications to the spec.
+    extensions 1000 to 1999;
+
+    // The following extension IDs are reserved for private use by any organization.
+    extensions 9000 to 9999;
+  }
+
+  // Updates to StopTimes for the trip (both future, i.e., predictions, and in
+  // some cases, past ones, i.e., those that already happened).
+  // The updates must be sorted by stop_sequence, and apply for all the
+  // following stops of the trip up to the next specified one.
+  repeated StopTimeUpdate stop_time_update = 2;
+
+  // Moment at which the vehicle's real-time progress was measured. In POSIX
+  // time (i.e., the number of seconds since January 1st 1970 00:00:00 UTC).
+  optional uint64 timestamp = 4;
+
+  // The current schedule deviation for the trip.
+  optional int32 delay = 5;
+
+  // Defines updated properties of the trip
+  // NOTE: This message is still experimental, and subject to change. It may be formally adopted in the future.
+  message TripProperties {
+    optional string trip_id = 1;
+    optional string start_date = 2;
+    optional string start_time = 3;
+
+    // The extensions namespace allows 3rd-party developers to extend the
+    // GTFS Realtime Specification in order to add and evaluate new features
+    // and modifications to the spec.
+    extensions 1000 to 1999;
+
+    // The following extension IDs are reserved for private use by any organization.
+    extensions 9000 to 9999;
+  }
+  optional TripProperties trip_properties = 6;
+
+  // The extensions namespace allows 3rd-party developers to extend the
+  // GTFS Realtime Specification in order to add and evaluate new features and
+  // modifications to the spec.
+  extensions 1000 to 1999;
+
+  // The following extension IDs are reserved for private use by any organization.
+  extensions 9000 to 9999;
+}
+
+// Realtime positioning information for a given vehicle.
+message VehiclePosition {
+  optional TripDescriptor trip = 1;
+  optional VehicleDescriptor vehicle = 8;
+  optional Position position = 2;
+  optional uint32 current_stop_sequence = 3;
+  optional string stop_id = 7;
+
+  enum VehicleStopStatus {
+    INCOMING_AT = 0;
+    STOPPED_AT = 1;
+    IN_TRANSIT_TO = 2;
+  }
+  optional VehicleStopStatus current_status = 4 [default = IN_TRANSIT_TO];
+  optional uint64 timestamp = 5;
+
+  enum CongestionLevel {
+    UNKNOWN_CONGESTION_LEVEL = 0;
+    RUNNING_SMOOTHLY = 1;
+    STOP_AND_GO = 2;
+    CONGESTION = 3;
+    SEVERE_CONGESTION = 4;
+  }
+  optional CongestionLevel congestion_level = 6;
+
+  enum OccupancyStatus {
+    EMPTY = 0;
+    MANY_SEATS_AVAILABLE = 1;
+    FEW_SEATS_AVAILABLE = 2;
+    STANDING_ROOM_ONLY = 3;
+    CRUSHED_STANDING_ROOM_ONLY = 4;
+    FULL = 5;
+    NOT_ACCEPTING_PASSENGERS = 6;
+    NO_DATA_AVAILABLE = 7;
+    NOT_BOARDABLE = 8;
+  }
+  optional OccupancyStatus occupancy_status = 9;
+  optional uint32 occupancy_percentage = 10;
+
+  message CarriageDetails {
+    optional string id = 1;
+    optional string label = 2;
+    optional OccupancyStatus occupancy_status = 3 [default = NO_DATA_AVAILABLE];
+    optional int32 occupancy_percentage = 4 [default = -1];
+    optional uint32 carriage_sequence = 5;
+
+    extensions 1000 to 1999;
+    extensions 9000 to 9999;
+  }
+  repeated CarriageDetails multi_carriage_details = 11;
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
+
+// An alert, indicating some sort of incident in the public transit network.
+message Alert {
+  repeated TimeRange active_period = 1;
+  repeated EntitySelector informed_entity = 5;
+
+  enum Cause {
+    UNKNOWN_CAUSE = 1;
+    OTHER_CAUSE = 2;
+    TECHNICAL_PROBLEM = 3;
+    STRIKE = 4;
+    DEMONSTRATION = 5;
+    ACCIDENT = 6;
+    HOLIDAY = 7;
+    WEATHER = 8;
+    MAINTENANCE = 9;
+    CONSTRUCTION = 10;
+    POLICE_ACTIVITY = 11;
+    MEDICAL_EMERGENCY = 12;
+  }
+  optional Cause cause = 6 [default = UNKNOWN_CAUSE];
+
+  enum Effect {
+    NO_SERVICE = 1;
+    REDUCED_SERVICE = 2;
+    SIGNIFICANT_DELAYS = 3;
+    DETOUR = 4;
+    ADDITIONAL_SERVICE = 5;
+    MODIFIED_SERVICE = 6;
+    OTHER_EFFECT = 7;
+    UNKNOWN_EFFECT = 8;
+    STOP_MOVED = 9;
+    NO_EFFECT = 10;
+    ACCESSIBILITY_ISSUE = 11;
+  }
+  optional Effect effect = 7 [default = UNKNOWN_EFFECT];
+
+  optional TranslatedString url = 8;
+  optional TranslatedString header_text = 10;
+  optional TranslatedString description_text = 11;
+  optional TranslatedString tts_header_text = 12;
+  optional TranslatedString tts_description_text = 13;
+
+  enum SeverityLevel {
+    UNKNOWN_SEVERITY = 1;
+    INFO = 2;
+    WARNING = 3;
+    SEVERE = 4;
+  }
+  optional SeverityLevel severity_level = 14 [default = UNKNOWN_SEVERITY];
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
+
+// A time interval.
+message TimeRange {
+  optional uint64 start = 1;
+  optional uint64 end = 2;
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
+
+// A position.
+message Position {
+  required float latitude = 1;
+  required float longitude = 2;
+  optional float bearing = 3;
+  optional double odometer = 4;
+  optional float speed = 5;
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
+
+// A descriptor that identifies an instance of a GTFS trip, or all instances of
+// a trip along a route.
+message TripDescriptor {
+  optional string trip_id = 1;
+  optional string route_id = 5;
+  optional uint32 direction_id = 6;
+  optional string start_time = 2;
+  optional string start_date = 3;
+
+  enum ScheduleRelationship {
+    SCHEDULED = 0;
+    ADDED = 1;
+    UNSCHEDULED = 2;
+    CANCELED = 3;
+    REPLACEMENT = 5 [deprecated=true];
+    DUPLICATED = 6;
+  }
+  optional ScheduleRelationship schedule_relationship = 4;
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
+
+// Identification information for the vehicle performing the trip.
+message VehicleDescriptor {
+  optional string id = 1;
+  optional string label = 2;
+  optional string license_plate = 3;
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
+
+// A selector for an entity in a GTFS feed.
+message EntitySelector {
+  optional string agency_id = 1;
+  optional string route_id = 2;
+  optional int32 route_type = 3;
+  optional TripDescriptor trip = 4;
+  optional string stop_id = 5;
+  optional uint32 direction_id = 6;
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
+
+// An internationalized message containing per-language versions of a snippet of
+// text or a URL.
+message TranslatedString {
+  message Translation {
+    required string text = 1;
+    optional string language = 2;
+
+    extensions 1000 to 1999;
+    extensions 9000 to 9999;
+  }
+  repeated Translation translation = 1;
+
+  extensions 1000 to 1999;
+  extensions 9000 to 9999;
+}
