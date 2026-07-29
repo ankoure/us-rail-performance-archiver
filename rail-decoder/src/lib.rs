@@ -1,4 +1,6 @@
 use alert::{AlertRow, decode_alert};
+use prost::Message;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use trip_update::{StopTimeUpdateRow, decode_trip_update};
 use vehicle::{VehicleRow, decode_vehicle};
@@ -38,4 +40,21 @@ pub fn decode_feed_message(feed: &transit_realtime::FeedMessage) -> DecodedRows 
         stop_time_updates,
         alerts,
     }
+}
+
+#[pyfunction]
+fn decode(bytes: &[u8]) -> PyResult<DecodedRows> {
+    let feed = transit_realtime::FeedMessage::decode(bytes)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(decode_feed_message(&feed))
+}
+
+#[pymodule]
+fn rail_decoder(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(decode, m)?)?;
+    m.add_class::<VehicleRow>()?;
+    m.add_class::<StopTimeUpdateRow>()?;
+    m.add_class::<AlertRow>()?;
+    m.add_class::<DecodedRows>()?;
+    Ok(())
 }
