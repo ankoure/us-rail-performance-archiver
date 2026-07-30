@@ -712,6 +712,7 @@
                 {
                   "response_format": "timeseries",
                   "display_type": "line",
+                  "style": { "line_type": "dashed" },
                   "queries": [
                     {
                       "name": "mem_limit",
@@ -719,7 +720,7 @@
                       "query": "avg:ecs.fargate.mem.limit{task_family:rail-archiver-*, !container_name:datadog-agent} by {container_name}"
                     }
                   ],
-                  "formulas": [{ "formula": "mem_limit", "style": { "line_type": "dashed" } }]
+                  "formulas": [{ "formula": "mem_limit" }]
                 }
               ]
             }
