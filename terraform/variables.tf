@@ -90,13 +90,43 @@ variable "hot_scratch_retention_days" {
 variable "rollup_cpu" {
   type        = string
   default     = "4096" # 4 vCPU
-  description = "Fargate task CPU units. Design targets up to 8192 (8 vCPU); start smaller and measure (the tail is a few big serial feeds, so more cores may not help)."
+  description = "Fargate task CPU units for the rollup stage. Design targets up to 8192 (8 vCPU); start smaller and measure (the tail is a few big serial feeds, so more cores may not help)."
 }
 
 variable "rollup_memory" {
-  type    = string
-  default = "10240" # 10 GiB (valid with 4 vCPU): 8 GiB for the rollup's working set
-  # (OOM history) + headroom for the 512 MiB datadog-agent sidecar.
+  type = string
+  # 8 GiB: the floor at cpu=4096 (Fargate's fixed cpu/memory tiers). Measured
+  # peak on the old combined rollup+gold+ship container was 4.59 GiB — this
+  # keeps ~3.5 GiB headroom over the observed peak (attributable mostly to
+  # rollup.py, per its OOM history) without touching the CPU tier.
+  default     = "8192"
+  description = "Fargate task memory (MiB) for the rollup stage."
+}
+
+# gold/ship default to the same size as rollup (unmeasured standalone) — once
+# there's per-stage CloudWatch data, size these down independently.
+variable "gold_cpu" {
+  type        = string
+  default     = "4096"
+  description = "Fargate task CPU units for the gold stage."
+}
+
+variable "gold_memory" {
+  type        = string
+  default     = "10240"
+  description = "Fargate task memory (MiB) for the gold stage."
+}
+
+variable "ship_cpu" {
+  type        = string
+  default     = "4096"
+  description = "Fargate task CPU units for the ship stage."
+}
+
+variable "ship_memory" {
+  type        = string
+  default     = "10240"
+  description = "Fargate task memory (MiB) for the ship stage."
 }
 
 variable "env_secret_name" {

@@ -649,6 +649,129 @@
           }
         ]
       }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "Fargate task resource usage (rollup / gold / ship)",
+        "widgets": [
+          {
+            "definition": {
+              "type": "note",
+              "content": "ecs.fargate.* is auto-collected by the Datadog Agent's built-in ECS Fargate check (ECS_FARGATE=true on the sidecar, no extra config) — not our own DogStatsD metrics, so it isn't tagged with env and isn't scoped by $env/$feed here. Use these against terraform's per-stage rollup_cpu/gold_cpu/ship_cpu and rollup_memory/gold_memory/ship_memory to see which stages are over- or under-provisioned. datadog-agent's own usage is excluded — this is the app container per stage.",
+              "background_color": "gray",
+              "font_size": "14",
+              "text_align": "left",
+              "show_tick": false
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "CPU % of allocated, by stage",
+              "show_legend": true,
+              "legend_layout": "auto",
+              "yaxis": { "scale": "linear", "include_zero": true, "label": "%" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "queries": [
+                    {
+                      "name": "cpu_pct",
+                      "data_source": "metrics",
+                      "query": "avg:ecs.fargate.cpu.percent{task_family:rail-archiver-*, !container_name:datadog-agent} by {container_name}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "cpu_pct" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Memory used vs. allocated, by stage",
+              "show_legend": true,
+              "legend_layout": "auto",
+              "yaxis": { "scale": "linear", "include_zero": true, "label": "bytes" },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "area",
+                  "queries": [
+                    {
+                      "name": "mem_used",
+                      "data_source": "metrics",
+                      "query": "avg:ecs.fargate.mem.usage{task_family:rail-archiver-*, !container_name:datadog-agent} by {container_name}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "mem_used" }]
+                },
+                {
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "queries": [
+                    {
+                      "name": "mem_limit",
+                      "data_source": "metrics",
+                      "query": "avg:ecs.fargate.mem.limit{task_family:rail-archiver-*, !container_name:datadog-agent} by {container_name}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "mem_limit", "style": { "line_type": "dashed" } }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "toplist",
+              "title": "Peak CPU % — last 1d, by stage",
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "cpu_peak",
+                      "data_source": "metrics",
+                      "query": "max:ecs.fargate.cpu.percent{task_family:rail-archiver-*, !container_name:datadog-agent} by {container_name}",
+                      "aggregator": "max"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "cpu_peak", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "toplist",
+              "title": "Peak memory used — last 1d, by stage (bytes)",
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "mem_peak",
+                      "data_source": "metrics",
+                      "query": "max:ecs.fargate.mem.usage{task_family:rail-archiver-*, !container_name:datadog-agent} by {container_name}",
+                      "aggregator": "max"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "mem_peak", "limit": { "count": 10, "order": "desc" } }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   ]
 }
