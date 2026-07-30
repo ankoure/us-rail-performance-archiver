@@ -415,6 +415,7 @@ class Rollup:
             elif tmp.exists():
                 tmp.unlink()
 
+
 def _batch_to_parquet_table(
     batch: pa.RecordBatch, schema: pa.Schema, column_names: dict[str, str]
 ) -> pa.Table:

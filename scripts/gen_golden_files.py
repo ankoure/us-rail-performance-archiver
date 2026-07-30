@@ -45,10 +45,10 @@ def parse_args():
         default=date(2026, 5, 30),
     )
     parser.add_argument(
-    "--limit",
-    type=int,
-    help="Specify how many payloads to process",
-    default=30,
+        "--limit",
+        type=int,
+        help="Specify how many payloads to process",
+        default=30,
     )
 
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -58,7 +58,9 @@ def parse_args():
 def collect_payloads(source, rollup, feed_name, day, digest_ts, limit):
     payloads = []
     for name, blob in source.iter_bins(feed_name, day):
-        for payload_bytes, fetched_at in rollup._iter_payloads(name=name, data=blob, digest_ts=digest_ts):
+        for payload_bytes, fetched_at in rollup._iter_payloads(
+            name=name, data=blob, digest_ts=digest_ts
+        ):
             encoded = base64.b64encode(payload_bytes)  # -> bytes, e.g. b'CAY6...
             encoded_str = encoded.decode("ascii")  # -> str, now JSON-safe
             # {"payload": ..., "fetched_at": ...}
@@ -76,7 +78,9 @@ def main(args):
     rollup = build_rollup(config)
     rows_by_type = defaultdict(list)
     digest_ts = rollup._digest_timestamps(feed_name=args.feed_name, day=args.day)
-    payloads = collect_payloads(source, rollup, args.feed_name, args.day, digest_ts, args.limit)
+    payloads = collect_payloads(
+        source, rollup, args.feed_name, args.day, digest_ts, args.limit
+    )
     for payload in payloads:
         payload_bytes = base64.b64decode(payload["payload"])
         fetched_at = payload["fetched_at"]
