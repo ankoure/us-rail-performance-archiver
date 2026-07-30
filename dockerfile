@@ -25,6 +25,18 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
+ARG TARGETARCH
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl build-essential ca-certificates protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal && \
+    . "$HOME/.cargo/env" && \
+    (cd rail-decoder && uvx maturin build --release --out /tmp/wheels) && \
+    uv pip install /tmp/wheels/*.whl ; \
+    fi
+
 # Then, use a final image without uv
 FROM debian:bookworm-slim
 
