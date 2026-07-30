@@ -331,7 +331,11 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        assert!(decode_alert(&alert, "alert-empty", &header).unwrap().is_empty());
+        assert!(
+            decode_alert(&alert, "alert-empty", &header)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// Translated-string fallback, branch 1: an "en" translation is present

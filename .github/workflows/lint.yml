@@ -29,3 +29,26 @@ jobs:
           uv run ruff format --check archiver
       - name: Dead code check with Vulture
         run: make deadcode
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rail-decoder
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up Python (pyo3 build needs headers on PATH)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rail-decoder
+      - name: Format check with rustfmt
+        run: cargo fmt --check
