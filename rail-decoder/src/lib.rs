@@ -1,14 +1,50 @@
-use alert::{AlertRow, decode_alert};
+use alert::{AlertRow, AlertRowBuilder, decode_alert};
+use arrow::pyarrow::ToPyArrow;
 use prost::Message;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use trip_update::{StopTimeUpdateRow, decode_trip_update};
-use vehicle::{VehicleRow, decode_vehicle};
+use trip_update::{StopTimeUpdateRow, StopTimeUpdateRowBuilder, decode_trip_update};
+use vehicle::{VehicleRow, VehicleRowBuilder, decode_vehicle};
 
 mod alert;
 mod transit_realtime;
 mod trip_update;
 mod vehicle;
+
+#[pyfunction]
+fn decode_arrow<'a>(
+    bytes: &'a [u8],
+    py: Python<'a>,
+) -> PyResult<(Bound<'a, PyAny>, Bound<'a, PyAny>, Bound<'a, PyAny>)> {
+    let feed = transit_realtime::FeedMessage::decode(bytes)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let mut vehicles = VehicleRowBuilder::new();
+    let mut trip_updates = StopTimeUpdateRowBuilder::new();
+    let mut alerts = AlertRowBuilder::new();
+
+    for entity in &feed.entity {
+        if let Some(vp) = &entity.vehicle {
+            vehicles
+                .append(vp, &feed.header)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        } else if let Some(tu) = &entity.trip_update {
+            trip_updates
+                .append(tu, &feed.header)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        } else if let Some(alert) = &entity.alert {
+            alerts
+                .append(alert, &entity.id, &feed.header)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        }
+    }
+
+    Ok((
+        vehicles.finish().to_pyarrow(py)?,
+        trip_updates.finish().to_pyarrow(py)?,
+        alerts.finish().to_pyarrow(py)?,
+    ))
+}
 
 #[pyclass(skip_from_py_object)]
 pub struct DecodedRows {
@@ -20,38 +56,41 @@ pub struct DecodedRows {
     pub alerts: Vec<AlertRow>,
 }
 
-pub fn decode_feed_message(feed: &transit_realtime::FeedMessage) -> DecodedRows {
+pub fn decode_feed_message(
+    feed: &transit_realtime::FeedMessage,
+) -> Result<DecodedRows, prost::UnknownEnumValue> {
     let mut vehicles = Vec::new();
     let mut stop_time_updates = Vec::new();
     let mut alerts = Vec::new();
 
     for entity in &feed.entity {
         if let Some(vp) = &entity.vehicle {
-            vehicles.push(decode_vehicle(vp, &feed.header));
+            vehicles.push(decode_vehicle(vp, &feed.header)?);
         } else if let Some(tu) = &entity.trip_update {
-            stop_time_updates.extend(decode_trip_update(tu, &feed.header));
+            stop_time_updates.extend(decode_trip_update(tu, &feed.header)?);
         } else if let Some(alert) = &entity.alert {
-            alerts.extend(decode_alert(alert, &entity.id, &feed.header));
+            alerts.extend(decode_alert(alert, &entity.id, &feed.header)?);
         }
     }
 
-    DecodedRows {
+    Ok(DecodedRows {
         vehicles,
         stop_time_updates,
         alerts,
-    }
+    })
 }
 
 #[pyfunction]
 fn decode(bytes: &[u8]) -> PyResult<DecodedRows> {
     let feed = transit_realtime::FeedMessage::decode(bytes)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(decode_feed_message(&feed))
+    decode_feed_message(&feed).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 #[pymodule]
 fn rail_decoder(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_arrow, m)?)?;
     m.add_class::<VehicleRow>()?;
     m.add_class::<StopTimeUpdateRow>()?;
     m.add_class::<AlertRow>()?;

@@ -1,5 +1,190 @@
 use crate::transit_realtime;
+use arrow::array::{Float32Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder};
+use arrow::datatypes::{DataType, Field, Schema};
 use pyo3::prelude::*;
+use std::sync::Arc;
+
+pub struct VehicleRowBuilder {
+    feed_timestamp: UInt64Builder,
+    vehicle_id: StringBuilder,
+    vehicle_label: StringBuilder,
+    trip_id: StringBuilder,
+    route_id: StringBuilder,
+    direction_id: UInt32Builder,
+    start_date: StringBuilder,
+    start_time: StringBuilder,
+    schedule_relationship: StringBuilder,
+    latitude: Float32Builder,
+    longitude: Float32Builder,
+    bearing: Float32Builder,
+    speed: Float32Builder,
+    current_stop_sequence: UInt32Builder,
+    stop_id: StringBuilder,
+    current_status: StringBuilder,
+    occupancy_status: StringBuilder,
+    occupancy_percentage: UInt32Builder,
+    vehicle_timestamp: UInt64Builder,
+}
+
+impl VehicleRowBuilder {
+    pub fn new() -> Self {
+        Self {
+            feed_timestamp: UInt64Builder::new(),
+            vehicle_id: StringBuilder::new(),
+            vehicle_label: StringBuilder::new(),
+            trip_id: StringBuilder::new(),
+            route_id: StringBuilder::new(),
+            direction_id: UInt32Builder::new(),
+            start_date: StringBuilder::new(),
+            start_time: StringBuilder::new(),
+            schedule_relationship: StringBuilder::new(),
+            latitude: Float32Builder::new(),
+            longitude: Float32Builder::new(),
+            bearing: Float32Builder::new(),
+            speed: Float32Builder::new(),
+            current_stop_sequence: UInt32Builder::new(),
+            stop_id: StringBuilder::new(),
+            current_status: StringBuilder::new(),
+            occupancy_status: StringBuilder::new(),
+            occupancy_percentage: UInt32Builder::new(),
+            vehicle_timestamp: UInt64Builder::new(),
+        }
+    }
+}
+
+impl VehicleRowBuilder {
+    pub fn append(
+        &mut self,
+        vp: &transit_realtime::VehiclePosition,
+        header: &transit_realtime::FeedHeader,
+    ) -> Result<(), prost::UnknownEnumValue> {
+        // Shape 1: non-optional
+        self.feed_timestamp
+            .append_value(header.timestamp.unwrap_or(0));
+
+        // Shape 4: nested-submessage Option<String>
+        self.vehicle_id
+            .append_option(vp.vehicle.as_ref().and_then(|v| v.id.clone()));
+        self.vehicle_label
+            .append_option(vp.vehicle.as_ref().and_then(|v| v.label.clone()));
+        self.trip_id
+            .append_option(vp.trip.as_ref().and_then(|t| t.trip_id.clone()));
+        self.route_id
+            .append_option(vp.trip.as_ref().and_then(|t| t.route_id.clone()));
+
+        // Shape 4, numeric variant
+        self.direction_id
+            .append_option(vp.trip.as_ref().and_then(|t| t.direction_id));
+
+        self.start_date
+            .append_option(vp.trip.as_ref().and_then(|t| t.start_date.clone()));
+        self.start_time
+            .append_option(vp.trip.as_ref().and_then(|t| t.start_time.clone()));
+
+        // Shape 7: nested enum
+        self.schedule_relationship.append_option(
+            vp.trip
+                .as_ref()
+                .and_then(|t| t.schedule_relationship)
+                .map(|raw| {
+                    transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
+                        .map(|v| v.as_str_name())
+                })
+                .transpose()?,
+        );
+
+        // Position sub-message: latitude/longitude are required within Position,
+        // bearing/speed are optional within Position, and Position itself is optional.
+        self.latitude
+            .append_option(vp.position.as_ref().map(|p| p.latitude));
+        self.longitude
+            .append_option(vp.position.as_ref().map(|p| p.longitude));
+        self.bearing
+            .append_option(vp.position.as_ref().and_then(|p| p.bearing));
+        self.speed
+            .append_option(vp.position.as_ref().and_then(|p| p.speed));
+
+        // Shape 2/3: top-level optional scalar / String fields
+        self.current_stop_sequence
+            .append_option(vp.current_stop_sequence);
+        self.stop_id.append_option(vp.stop_id.clone());
+
+        // Shape 6: top-level optional enum
+        self.current_status.append_option(
+            vp.current_status
+                .map(|raw| {
+                    transit_realtime::vehicle_position::VehicleStopStatus::try_from(raw)
+                        .map(|v| v.as_str_name())
+                })
+                .transpose()?,
+        );
+        self.occupancy_status.append_option(
+            vp.occupancy_status
+                .map(|raw| {
+                    transit_realtime::vehicle_position::OccupancyStatus::try_from(raw)
+                        .map(|v| v.as_str_name())
+                })
+                .transpose()?,
+        );
+
+        self.occupancy_percentage
+            .append_option(vp.occupancy_percentage);
+        self.vehicle_timestamp.append_option(vp.timestamp);
+        Ok(())
+    }
+}
+
+impl VehicleRowBuilder {
+    pub fn finish(mut self) -> RecordBatch {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("feed_timestamp", DataType::UInt64, false),
+            Field::new("vehicle_id", DataType::Utf8, true),
+            Field::new("vehicle_label", DataType::Utf8, true),
+            Field::new("trip_id", DataType::Utf8, true),
+            Field::new("route_id", DataType::Utf8, true),
+            Field::new("direction_id", DataType::UInt32, true),
+            Field::new("start_date", DataType::Utf8, true),
+            Field::new("start_time", DataType::Utf8, true),
+            Field::new("schedule_relationship", DataType::Utf8, true),
+            Field::new("latitude", DataType::Float32, true),
+            Field::new("longitude", DataType::Float32, true),
+            Field::new("bearing", DataType::Float32, true),
+            Field::new("speed", DataType::Float32, true),
+            Field::new("current_stop_sequence", DataType::UInt32, true),
+            Field::new("stop_id", DataType::Utf8, true),
+            Field::new("current_status", DataType::Utf8, true),
+            Field::new("occupancy_status", DataType::Utf8, true),
+            Field::new("occupancy_percentage", DataType::UInt32, true),
+            Field::new("vehicle_timestamp", DataType::UInt64, true),
+        ]));
+
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(self.feed_timestamp.finish()),
+                Arc::new(self.vehicle_id.finish()),
+                Arc::new(self.vehicle_label.finish()),
+                Arc::new(self.trip_id.finish()),
+                Arc::new(self.route_id.finish()),
+                Arc::new(self.direction_id.finish()),
+                Arc::new(self.start_date.finish()),
+                Arc::new(self.start_time.finish()),
+                Arc::new(self.schedule_relationship.finish()),
+                Arc::new(self.latitude.finish()),
+                Arc::new(self.longitude.finish()),
+                Arc::new(self.bearing.finish()),
+                Arc::new(self.speed.finish()),
+                Arc::new(self.current_stop_sequence.finish()),
+                Arc::new(self.stop_id.finish()),
+                Arc::new(self.current_status.finish()),
+                Arc::new(self.occupancy_status.finish()),
+                Arc::new(self.occupancy_percentage.finish()),
+                Arc::new(self.vehicle_timestamp.finish()),
+            ],
+        )
+        .unwrap()
+    }
+}
 
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
@@ -47,8 +232,8 @@ pub struct VehicleRow {
 pub fn decode_vehicle(
     vp: &transit_realtime::VehiclePosition,
     header: &transit_realtime::FeedHeader,
-) -> VehicleRow {
-    VehicleRow {
+) -> Result<VehicleRow, prost::UnknownEnumValue> {
+    Ok(VehicleRow {
         feed_timestamp: header.timestamp.unwrap_or(0),
         vehicle_id: vp.vehicle.as_ref().and_then(|v| v.id.clone()),
         vehicle_label: vp.vehicle.as_ref().and_then(|v| v.label.clone()),
@@ -63,28 +248,32 @@ pub fn decode_vehicle(
             .and_then(|t| t.schedule_relationship)
             .map(|raw| {
                 transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                    .unwrap()
-                    .as_str_name()
-            }),
+                    .map(|v| v.as_str_name())
+            })
+            .transpose()?,
         latitude: vp.position.as_ref().map(|p| p.latitude),
         longitude: vp.position.as_ref().map(|p| p.longitude),
         bearing: vp.position.as_ref().and_then(|p| p.bearing),
         speed: vp.position.as_ref().and_then(|p| p.speed),
         current_stop_sequence: vp.current_stop_sequence,
         stop_id: vp.stop_id.clone(),
-        current_status: vp.current_status.map(|raw| {
-            transit_realtime::vehicle_position::VehicleStopStatus::try_from(raw)
-                .unwrap()
-                .as_str_name()
-        }),
-        occupancy_status: vp.occupancy_status.map(|raw| {
-            transit_realtime::vehicle_position::OccupancyStatus::try_from(raw)
-                .unwrap()
-                .as_str_name()
-        }),
+        current_status: vp
+            .current_status
+            .map(|raw| {
+                transit_realtime::vehicle_position::VehicleStopStatus::try_from(raw)
+                    .map(|v| v.as_str_name())
+            })
+            .transpose()?,
+        occupancy_status: vp
+            .occupancy_status
+            .map(|raw| {
+                transit_realtime::vehicle_position::OccupancyStatus::try_from(raw)
+                    .map(|v| v.as_str_name())
+            })
+            .transpose()?,
         occupancy_percentage: vp.occupancy_percentage,
         vehicle_timestamp: vp.timestamp,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -159,7 +348,7 @@ mod decode_vehicle_tests {
             vehicle_timestamp: Some(1_700_000_050),
         };
 
-        assert_eq!(decode_vehicle(&vp, &header), expected);
+        assert_eq!(decode_vehicle(&vp, &header).unwrap(), expected);
     }
 
     /// Mirrors Python's `make_minimal_feed()`: header.timestamp IS set,
@@ -207,7 +396,7 @@ mod decode_vehicle_tests {
             vehicle_timestamp: None,
         };
 
-        assert_eq!(decode_vehicle(&vp, &header), expected);
+        assert_eq!(decode_vehicle(&vp, &header).unwrap(), expected);
     }
 
     /// No Python test covers a missing feed header timestamp — `make_feed`
@@ -222,7 +411,7 @@ mod decode_vehicle_tests {
         };
         let vp = VehiclePosition::default();
 
-        let row = decode_vehicle(&vp, &header);
+        let row = decode_vehicle(&vp, &header).unwrap();
         assert_eq!(row.feed_timestamp, 0);
     }
 
@@ -248,11 +437,81 @@ mod decode_vehicle_tests {
             ..Default::default()
         };
 
-        let row = decode_vehicle(&vp, &header);
+        let row = decode_vehicle(&vp, &header).unwrap();
 
         assert_eq!(row.latitude, Some(40.7128));
         assert_eq!(row.longitude, Some(-74.0060));
         assert_eq!(row.bearing, None);
         assert_eq!(row.speed, None);
+    }
+}
+#[cfg(test)]
+mod vehicle_row_builder_tests {
+    use super::*;
+    use arrow::array::{Float32Array, StringArray, UInt64Array};
+    use transit_realtime::{
+        FeedHeader, Position, TripDescriptor, VehicleDescriptor, VehiclePosition,
+    };
+
+    #[test]
+    fn builds_correct_record_batch_from_known_input() {
+        let header = FeedHeader {
+            timestamp: Some(1_700_000_000),
+            ..Default::default()
+        };
+        let vp = VehiclePosition {
+            trip: Some(TripDescriptor {
+                trip_id: Some("trip-1".to_string()),
+                ..Default::default()
+            }),
+            vehicle: Some(VehicleDescriptor {
+                id: Some("v1".to_string()),
+                ..Default::default()
+            }),
+            position: Some(Position {
+                latitude: 40.7128,
+                longitude: -74.0060,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut builder = VehicleRowBuilder::new();
+        builder.append(&vp, &header).unwrap();
+        let batch = builder.finish();
+
+        assert_eq!(batch.num_rows(), 1);
+
+        let schema = batch.schema();
+        let ts_idx = schema.index_of("feed_timestamp").unwrap();
+        let trip_idx = schema.index_of("trip_id").unwrap();
+        let vid_idx = schema.index_of("vehicle_id").unwrap();
+        let lat_idx = schema.index_of("latitude").unwrap();
+
+        let ts_col = batch
+            .column(ts_idx)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap();
+        let trip_col = batch
+            .column(trip_idx)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let vid_col = batch
+            .column(vid_idx)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let lat_col = batch
+            .column(lat_idx)
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+
+        assert_eq!(ts_col.value(0), 1_700_000_000);
+        assert_eq!(trip_col.value(0), "trip-1");
+        assert_eq!(vid_col.value(0), "v1");
+        assert_eq!(lat_col.value(0), 40.7128);
     }
 }

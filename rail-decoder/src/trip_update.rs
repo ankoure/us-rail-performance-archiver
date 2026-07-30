@@ -1,5 +1,177 @@
-use crate::transit_realtime;
+use crate::transit_realtime::{self};
+use arrow::array::{
+    Int32Builder, Int64Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder,
+};
+use arrow::datatypes::{DataType, Field, Schema};
 use pyo3::prelude::*;
+use std::sync::Arc;
+
+pub struct StopTimeUpdateRowBuilder {
+    feed_timestamp: UInt64Builder,
+    trip_update_timestamp: UInt64Builder,
+    trip_id: StringBuilder,
+    route_id: StringBuilder,
+    direction_id: UInt32Builder,
+    start_date: StringBuilder,
+    start_time: StringBuilder,
+    schedule_relationship: StringBuilder,
+    vehicle_id: StringBuilder,
+    vehicle_label: StringBuilder,
+    stop_sequence: UInt32Builder,
+    stop_id: StringBuilder,
+    arrival_delay: Int32Builder,
+    arrival_time: Int64Builder,
+    arrival_uncertainty: Int32Builder,
+    departure_delay: Int32Builder,
+    departure_time: Int64Builder,
+    departure_uncertainty: Int32Builder,
+    stop_time_schedule_relationship: StringBuilder,
+}
+
+impl StopTimeUpdateRowBuilder {
+    pub fn new() -> Self {
+        Self {
+            feed_timestamp: UInt64Builder::new(),
+            trip_update_timestamp: UInt64Builder::new(),
+            trip_id: StringBuilder::new(),
+            route_id: StringBuilder::new(),
+            direction_id: UInt32Builder::new(),
+            start_date: StringBuilder::new(),
+            start_time: StringBuilder::new(),
+            schedule_relationship: StringBuilder::new(),
+            vehicle_id: StringBuilder::new(),
+            vehicle_label: StringBuilder::new(),
+            stop_sequence: UInt32Builder::new(),
+            stop_id: StringBuilder::new(),
+            arrival_delay: Int32Builder::new(),
+            arrival_time: Int64Builder::new(),
+            arrival_uncertainty: Int32Builder::new(),
+            departure_delay: Int32Builder::new(),
+            departure_time: Int64Builder::new(),
+            departure_uncertainty: Int32Builder::new(),
+            stop_time_schedule_relationship: StringBuilder::new(),
+        }
+    }
+
+    pub fn append(
+        &mut self,
+        tu: &transit_realtime::TripUpdate,
+        header: &transit_realtime::FeedHeader,
+    ) -> Result<(), prost::UnknownEnumValue> {
+        // Trip-level values, computed once — same expressions as decode_trip_update's
+        // hoisted `let` bindings.
+        let feed_timestamp = header.timestamp.unwrap_or(0);
+        let trip_id = tu.trip.trip_id.clone();
+        let route_id = tu.trip.route_id.clone();
+        let direction_id = tu.trip.direction_id;
+        let start_date = tu.trip.start_date.clone();
+        let start_time = tu.trip.start_time.clone();
+        let schedule_relationship = tu
+            .trip
+            .schedule_relationship
+            .map(|raw| {
+                transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
+                    .map(|v| v.as_str_name())
+            })
+            .transpose()?;
+        let vehicle_id = tu.vehicle.as_ref().and_then(|v| v.id.clone());
+        let vehicle_label = tu.vehicle.as_ref().and_then(|v| v.label.clone());
+        let trip_update_timestamp = tu.timestamp;
+
+        for stu in &tu.stop_time_update {
+            // Trip-level fields, repeated across every exploded row — each
+            // .clone()'d in since they're reused across the loop.
+            self.feed_timestamp.append_value(feed_timestamp);
+            self.trip_update_timestamp
+                .append_option(trip_update_timestamp);
+            self.trip_id.append_option(trip_id.clone());
+            self.route_id.append_option(route_id.clone());
+            self.direction_id.append_option(direction_id);
+            self.start_date.append_option(start_date.clone());
+            self.start_time.append_option(start_time.clone());
+            self.schedule_relationship
+                .append_option(schedule_relationship);
+            self.vehicle_id.append_option(vehicle_id.clone());
+            self.vehicle_label.append_option(vehicle_label.clone());
+
+            // Stop-level fields, fresh per row — same expressions as
+            // decode_trip_update's per-stu logic.
+            self.stop_sequence.append_option(stu.stop_sequence);
+            self.stop_id.append_option(stu.stop_id.clone());
+            self.arrival_delay
+                .append_option(stu.arrival.as_ref().and_then(|a| a.delay));
+            self.arrival_time
+                .append_option(stu.arrival.as_ref().and_then(|a| a.time));
+            self.arrival_uncertainty
+                .append_option(stu.arrival.as_ref().and_then(|a| a.uncertainty));
+            self.departure_delay
+                .append_option(stu.departure.as_ref().and_then(|d| d.delay));
+            self.departure_time
+                .append_option(stu.departure.as_ref().and_then(|d| d.time));
+            self.departure_uncertainty
+                .append_option(stu.departure.as_ref().and_then(|d| d.uncertainty));
+            self.stop_time_schedule_relationship.append_option(
+                stu.schedule_relationship
+                    .map(|raw| {
+                        transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
+                            .map(|v| v.as_str_name())
+                    })
+                    .transpose()?,
+            )
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> RecordBatch {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("feed_timestamp", DataType::UInt64, false),
+            Field::new("trip_update_timestamp", DataType::UInt64, true),
+            Field::new("trip_id", DataType::Utf8, true),
+            Field::new("route_id", DataType::Utf8, true),
+            Field::new("direction_id", DataType::UInt32, true),
+            Field::new("start_date", DataType::Utf8, true),
+            Field::new("start_time", DataType::Utf8, true),
+            Field::new("schedule_relationship", DataType::Utf8, true),
+            Field::new("vehicle_id", DataType::Utf8, true),
+            Field::new("vehicle_label", DataType::Utf8, true),
+            Field::new("stop_sequence", DataType::UInt32, true),
+            Field::new("stop_id", DataType::Utf8, true),
+            Field::new("arrival_delay", DataType::Int32, true),
+            Field::new("arrival_time", DataType::Int64, true),
+            Field::new("arrival_uncertainty", DataType::Int32, true),
+            Field::new("departure_delay", DataType::Int32, true),
+            Field::new("departure_time", DataType::Int64, true),
+            Field::new("departure_uncertainty", DataType::Int32, true),
+            Field::new("stop_time_schedule_relationship", DataType::Utf8, true),
+        ]));
+
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(self.feed_timestamp.finish()),
+                Arc::new(self.trip_update_timestamp.finish()),
+                Arc::new(self.trip_id.finish()),
+                Arc::new(self.route_id.finish()),
+                Arc::new(self.direction_id.finish()),
+                Arc::new(self.start_date.finish()),
+                Arc::new(self.start_time.finish()),
+                Arc::new(self.schedule_relationship.finish()),
+                Arc::new(self.vehicle_id.finish()),
+                Arc::new(self.vehicle_label.finish()),
+                Arc::new(self.stop_sequence.finish()),
+                Arc::new(self.stop_id.finish()),
+                Arc::new(self.arrival_delay.finish()),
+                Arc::new(self.arrival_time.finish()),
+                Arc::new(self.arrival_uncertainty.finish()),
+                Arc::new(self.departure_delay.finish()),
+                Arc::new(self.departure_time.finish()),
+                Arc::new(self.departure_uncertainty.finish()),
+                Arc::new(self.stop_time_schedule_relationship.finish()),
+            ],
+        )
+        .unwrap()
+    }
+}
 
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
@@ -47,17 +219,20 @@ pub struct StopTimeUpdateRow {
 pub fn decode_trip_update(
     tu: &transit_realtime::TripUpdate,
     header: &transit_realtime::FeedHeader,
-) -> Vec<StopTimeUpdateRow> {
+) -> Result<Vec<StopTimeUpdateRow>, prost::UnknownEnumValue> {
     let trip_id = tu.trip.trip_id.clone();
     let route_id = tu.trip.route_id.clone();
     let direction_id = tu.trip.direction_id;
     let start_date = tu.trip.start_date.clone();
     let start_time = tu.trip.start_time.clone();
-    let schedule_relationship = tu.trip.schedule_relationship.map(|raw| {
-        transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-            .unwrap()
-            .as_str_name()
-    });
+    let schedule_relationship = tu
+        .trip
+        .schedule_relationship
+        .map(|raw| {
+            transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
+                .map(|v| v.as_str_name())
+        })
+        .transpose()?;
     let vehicle_id = tu.vehicle.as_ref().and_then(|v| v.id.clone());
     let vehicle_label = tu.vehicle.as_ref().and_then(|v| v.label.clone());
     let feed_timestamp = header.timestamp.unwrap_or(0);
@@ -84,14 +259,18 @@ pub fn decode_trip_update(
             departure_delay: stu.departure.as_ref().and_then(|d| d.delay),
             departure_time: stu.departure.as_ref().and_then(|d| d.time),
             departure_uncertainty: stu.departure.as_ref().and_then(|d| d.uncertainty),
-            stop_time_schedule_relationship: stu.schedule_relationship.map(|raw| {
-                transit_realtime::trip_update::stop_time_update::ScheduleRelationship::try_from(raw)
-                    .unwrap()
-                    .as_str_name()
-            }),
+            stop_time_schedule_relationship: stu
+                .schedule_relationship
+                .map(|raw| {
+                    transit_realtime::trip_update::stop_time_update::ScheduleRelationship::try_from(
+                        raw,
+                    )
+                    .map(|v| v.as_str_name())
+                })
+                .transpose()?,
         });
     }
-    rows
+    Ok(rows)
 }
 
 #[cfg(test)]
@@ -158,7 +337,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        let rows = decode_trip_update(&tu, &header);
+        let rows = decode_trip_update(&tu, &header).unwrap();
 
         assert_eq!(rows.len(), 3);
         assert_eq!(
@@ -211,7 +390,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        let rows = decode_trip_update(&tu, &header);
+        let rows = decode_trip_update(&tu, &header).unwrap();
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trip_update_timestamp, None);
@@ -247,7 +426,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        assert!(decode_trip_update(&tu, &header).is_empty());
+        assert!(decode_trip_update(&tu, &header).unwrap().is_empty());
     }
 
     /// Targets the arrival/departure StopTimeEvent split specifically:
@@ -280,7 +459,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        let rows = decode_trip_update(&tu, &header);
+        let rows = decode_trip_update(&tu, &header).unwrap();
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].arrival_delay, Some(30));
@@ -289,5 +468,23 @@ mod decode_trip_update_tests {
         assert_eq!(rows[0].departure_delay, None);
         assert_eq!(rows[0].departure_time, None);
         assert_eq!(rows[0].departure_uncertainty, None);
+    }
+    #[test]
+    fn unrecognized_schedule_relationship_returns_err_not_panic() {
+        let header = FeedHeader {
+            timestamp: Some(1),
+            ..Default::default()
+        };
+        let tu = TripUpdate {
+            trip: TripDescriptor {
+                trip_id: Some("trip-1".to_string()),
+                schedule_relationship: Some(8), // out-of-spec value seen in real PRT (prt-trips) data
+                ..Default::default()
+            },
+            stop_time_update: vec![StopTimeUpdate::default()],
+            ..Default::default()
+        };
+
+        assert!(decode_trip_update(&tu, &header).is_err());
     }
 }

@@ -1,5 +1,150 @@
-use crate::transit_realtime;
+use crate::transit_realtime::{self};
+use arrow::array::{Int32Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder};
+use arrow::datatypes::{DataType, Field, Schema};
 use pyo3::prelude::*;
+use std::sync::Arc;
+
+pub struct AlertRowBuilder {
+    feed_timestamp: UInt64Builder,
+    alert_id: StringBuilder,
+    cause: StringBuilder,
+    effect: StringBuilder,
+    url: StringBuilder,
+    header_text: StringBuilder,
+    description_text: StringBuilder,
+    agency_id: StringBuilder,
+    route_id: StringBuilder,
+    route_type: Int32Builder,
+    direction_id: UInt32Builder,
+    trip_id: StringBuilder,
+    stop_id: StringBuilder,
+    severity_level: StringBuilder,
+}
+
+impl AlertRowBuilder {
+    pub fn new() -> Self {
+        Self {
+            feed_timestamp: UInt64Builder::new(),
+            alert_id: StringBuilder::new(),
+            cause: StringBuilder::new(),
+            effect: StringBuilder::new(),
+            url: StringBuilder::new(),
+            header_text: StringBuilder::new(),
+            description_text: StringBuilder::new(),
+            agency_id: StringBuilder::new(),
+            route_id: StringBuilder::new(),
+            route_type: Int32Builder::new(),
+            direction_id: UInt32Builder::new(),
+            trip_id: StringBuilder::new(),
+            stop_id: StringBuilder::new(),
+            severity_level: StringBuilder::new(),
+        }
+    }
+
+    pub fn append(
+        &mut self,
+        alert: &transit_realtime::Alert,
+        alert_id: &str,
+        header: &transit_realtime::FeedHeader,
+    ) -> Result<(), prost::UnknownEnumValue> {
+        // Alert-level values, computed once — same expressions as decode_alert's
+        // hoisted `let` bindings.
+        let feed_timestamp = header.timestamp.unwrap_or(0);
+
+        let cause = alert
+            .cause
+            .map(|raw| transit_realtime::alert::Cause::try_from(raw).map(|v| v.as_str_name()))
+            .transpose()?;
+        let effect = alert
+            .effect
+            .map(|raw| transit_realtime::alert::Effect::try_from(raw).map(|v| v.as_str_name()))
+            .transpose()?;
+        let severity_level = alert
+            .severity_level
+            .map(|raw| {
+                transit_realtime::alert::SeverityLevel::try_from(raw).map(|v| v.as_str_name())
+            })
+            .transpose()?;
+
+        let header_text = alert
+            .header_text
+            .as_ref()
+            .and_then(|ts| translated_string(ts, "en"));
+        let description_text = alert
+            .description_text
+            .as_ref()
+            .and_then(|ts| translated_string(ts, "en"));
+        let url = alert
+            .url
+            .as_ref()
+            .and_then(|ts| translated_string(ts, "en"));
+
+        for entity in &alert.informed_entity {
+            // Alert-level fields, repeated across every exploded row — each
+            // .clone()'d in since they're reused across the loop.
+            self.feed_timestamp.append_value(feed_timestamp);
+            self.alert_id.append_value(alert_id);
+            self.cause.append_option(cause);
+            self.effect.append_option(effect);
+            self.severity_level.append_option(severity_level);
+            self.header_text.append_option(header_text.clone());
+            self.description_text
+                .append_option(description_text.clone());
+            self.url.append_option(url.clone());
+
+            // Per-entity fields, fresh per row — same expressions as
+            // decode_alert's per-entity logic.
+            self.agency_id.append_option(entity.agency_id.clone());
+            self.route_id.append_option(entity.route_id.clone());
+            self.route_type.append_option(entity.route_type);
+            self.direction_id.append_option(entity.direction_id);
+            self.trip_id
+                .append_option(entity.trip.as_ref().and_then(|t| t.trip_id.clone()));
+            self.stop_id.append_option(entity.stop_id.clone());
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> RecordBatch {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("feed_timestamp", DataType::UInt64, false),
+            Field::new("alert_id", DataType::Utf8, false),
+            Field::new("cause", DataType::Utf8, true),
+            Field::new("effect", DataType::Utf8, true),
+            Field::new("url", DataType::Utf8, true),
+            Field::new("header_text", DataType::Utf8, true),
+            Field::new("description_text", DataType::Utf8, true),
+            Field::new("agency_id", DataType::Utf8, true),
+            Field::new("route_id", DataType::Utf8, true),
+            Field::new("route_type", DataType::Int32, true),
+            Field::new("direction_id", DataType::UInt32, true),
+            Field::new("trip_id", DataType::Utf8, true),
+            Field::new("stop_id", DataType::Utf8, true),
+            Field::new("severity_level", DataType::Utf8, true),
+        ]));
+
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(self.feed_timestamp.finish()),
+                Arc::new(self.alert_id.finish()),
+                Arc::new(self.cause.finish()),
+                Arc::new(self.effect.finish()),
+                Arc::new(self.url.finish()),
+                Arc::new(self.header_text.finish()),
+                Arc::new(self.description_text.finish()),
+                Arc::new(self.agency_id.finish()),
+                Arc::new(self.route_id.finish()),
+                Arc::new(self.route_type.finish()),
+                Arc::new(self.direction_id.finish()),
+                Arc::new(self.trip_id.finish()),
+                Arc::new(self.stop_id.finish()),
+                Arc::new(self.severity_level.finish()),
+            ],
+        )
+        .unwrap()
+    }
+}
 
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
@@ -49,24 +194,21 @@ pub fn decode_alert(
     alert: &transit_realtime::Alert,
     alert_id: &str,
     header: &transit_realtime::FeedHeader,
-) -> Vec<AlertRow> {
+) -> Result<Vec<AlertRow>, prost::UnknownEnumValue> {
     let feed_timestamp = header.timestamp.unwrap_or(0);
 
-    let cause = alert.cause.map(|raw| {
-        transit_realtime::alert::Cause::try_from(raw)
-            .unwrap()
-            .as_str_name()
-    });
-    let effect = alert.effect.map(|raw| {
-        transit_realtime::alert::Effect::try_from(raw)
-            .unwrap()
-            .as_str_name()
-    });
-    let severity_level = alert.severity_level.map(|raw| {
-        transit_realtime::alert::SeverityLevel::try_from(raw)
-            .unwrap()
-            .as_str_name()
-    });
+    let cause = alert
+        .cause
+        .map(|raw| transit_realtime::alert::Cause::try_from(raw).map(|v| v.as_str_name()))
+        .transpose()?;
+    let effect = alert
+        .effect
+        .map(|raw| transit_realtime::alert::Effect::try_from(raw).map(|v| v.as_str_name()))
+        .transpose()?;
+    let severity_level = alert
+        .severity_level
+        .map(|raw| transit_realtime::alert::SeverityLevel::try_from(raw).map(|v| v.as_str_name()))
+        .transpose()?;
 
     let header_text = alert
         .header_text
@@ -100,7 +242,7 @@ pub fn decode_alert(
             stop_id: entity.stop_id.clone(),
         });
     }
-    rows
+    Ok(rows)
 }
 
 #[cfg(test)]
@@ -157,7 +299,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-1", &header);
+        let rows = decode_alert(&alert, "alert-1", &header).unwrap();
 
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.alert_id == "alert-1"));
@@ -189,7 +331,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        assert!(decode_alert(&alert, "alert-empty", &header).is_empty());
+        assert!(decode_alert(&alert, "alert-empty", &header).unwrap().is_empty());
     }
 
     /// Translated-string fallback, branch 1: an "en" translation is present
@@ -218,7 +360,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-i18n", &header);
+        let rows = decode_alert(&alert, "alert-i18n", &header).unwrap();
         assert_eq!(
             rows[0].header_text.as_deref(),
             Some("Delay on the red line")
@@ -244,7 +386,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-fr-only", &header);
+        let rows = decode_alert(&alert, "alert-fr-only", &header).unwrap();
         assert_eq!(
             rows[0].description_text.as_deref(),
             Some("Retard sur la ligne rouge")
@@ -267,7 +409,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-no-url", &header);
+        let rows = decode_alert(&alert, "alert-no-url", &header).unwrap();
         assert_eq!(rows[0].url, None);
     }
 }

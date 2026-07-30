@@ -24,17 +24,16 @@ def load_payloads(fixture_dir: Path) -> list[dict]:
 
 
 def decode_all(payloads: list[dict]) -> dict[str, list]:
-    """Run every payload's bytes through rail_decoder.decode, concatenating
-    .vehicles / .stop_time_updates / .alerts across all payloads in order.
-    Returns {"vehicles": [...], "stop_time_updates": [...], "alerts": [...]}.
-    """
+    """Run every payload's bytes through rail_decoder.decode_arrow, converting
+    each RecordBatch to a list of dicts via .to_pylist() and concatenating
+    across all payloads in order."""
     vehicles, stop_time_updates, alerts = [], [], []
     for payload in payloads:
         payload_bytes = base64.b64decode(payload["payload"])
-        decoded = rail_decoder.decode(payload_bytes)
-        vehicles.extend(decoded.vehicles)
-        stop_time_updates.extend(decoded.stop_time_updates)
-        alerts.extend(decoded.alerts)
+        v_batch, stu_batch, a_batch = rail_decoder.decode_arrow(payload_bytes)
+        vehicles.extend(v_batch.to_pylist())
+        stop_time_updates.extend(stu_batch.to_pylist())
+        alerts.extend(a_batch.to_pylist())
     return {
         "vehicles": vehicles,
         "stop_time_updates": stop_time_updates,
@@ -42,11 +41,7 @@ def decode_all(payloads: list[dict]) -> dict[str, list]:
     }
 
 
-def row_to_dict(row) -> dict:
-    """Convert a rail_decoder pyclass row instance into a plain dict, using
-    its #[pyo3(get)] attributes."""
-    fields = [a for a in dir(row) if not a.startswith("_")]
-    return {attr: getattr(row, attr) for attr in fields}
+# row_to_dict is no longer needed at all — delete it, .to_pylist() replaces its job.
 
 
 def diff_rows(actual: list[dict], expected: list[dict]) -> list[str]:
@@ -81,8 +76,9 @@ def check_feed(fixture_dir: Path) -> bool:
             continue  # this feed doesn't produce this row type (e.g. nyct-l has no alerts)
 
         expected = json.loads(golden_path.read_text())
-        actual = [row_to_dict(r) for r in decoded[rust_attr]]
-
+        actual = decoded[
+            rust_attr
+        ]  # already a list of dicts — no per-row conversion needed
         mismatches = diff_rows(actual, expected)
         if mismatches:
             all_ok = False

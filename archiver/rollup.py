@@ -11,7 +11,14 @@ import pyarrow as pa
 import pyarrow.json as paj
 import pyarrow.parquet as pq
 from datetime import date, datetime, timezone
-from archiver.decoder import DecodeFailure, TableSpec
+from archiver.decoder import (
+    AlertRow,
+    DecodeFailure,
+    StandardDecoder,
+    StopTimeUpdateRow,
+    TableSpec,
+    VehicleRow,
+)
 from archiver.feed import Feed
 from archiver.parser import ParseFailure
 from archiver.logger import logger
@@ -124,17 +131,31 @@ class Rollup:
 
     def _rollup_data(self, feed: Feed, day: date, *, force: bool = False) -> None:
         feed_name = feed.name
+        use_rust_decoder = type(feed.decoder) is StandardDecoder
+        if use_rust_decoder:
+            import rail_decoder  # Lazy import — only needed for standard-decoder feeds
+
         with ExitStack() as stack:
             writers = {}
+            batch_writers = {}
             for row_class, spec in feed.decoder.produces.items():
                 path = self._curated_path(spec.name, feed_name, day)
                 if not force and path.exists():
                     continue
                 schema = _schema_for_spec(row_class, spec)
-                writers[row_class] = stack.enter_context(
-                    self._streaming_writer(path, schema, column_names=spec.column_names)
-                )
-            if not writers:
+                if use_rust_decoder:
+                    batch_writers[row_class] = (
+                        stack.enter_context(self._batch_streaming_writer(path, schema)),
+                        schema,
+                        spec.column_names,
+                    )
+                else:
+                    writers[row_class] = stack.enter_context(
+                        self._streaming_writer(
+                            path, schema, column_names=spec.column_names
+                        )
+                    )
+            if not writers and not batch_writers:
                 return
 
             digest_ts = self._digest_timestamps(
@@ -147,20 +168,39 @@ class Rollup:
                     for payload, fetched_at in self._iter_payloads(
                         name, blob, digest_ts
                     ):
-                        parsed = feed.parser.parse(payload)
-                        rows = feed.decoder.decode(parsed, fetched_at=fetched_at)
-                        for row in rows:
-                            if type(row) not in feed.decoder.produces:
-                                logger.warning(
-                                    "unexpected row type: %s", type(row).__name__
+                        if use_rust_decoder:
+                            v_batch, stu_batch, a_batch = rail_decoder.decode_arrow(
+                                payload
+                            )
+                            for row_class, rust_batch in (
+                                (VehicleRow, v_batch),
+                                (StopTimeUpdateRow, stu_batch),
+                                (AlertRow, a_batch),
+                            ):
+                                entry = batch_writers.get(row_class)
+                                if entry is None or rust_batch.num_rows == 0:
+                                    continue
+                                write_batch, schema, column_names = entry
+                                write_batch(
+                                    _batch_to_parquet_table(
+                                        rust_batch, schema, column_names
+                                    )
                                 )
-                                continue
-                            append = writers.get(type(row))
-                            if append is None:
-                                continue  # known type, but its output already exists
-                            append(asdict(row))
+                        else:
+                            parsed = feed.parser.parse(payload)
+                            rows = feed.decoder.decode(parsed, fetched_at=fetched_at)
+                            for row in rows:
+                                if type(row) not in feed.decoder.produces:
+                                    logger.warning(
+                                        "unexpected row type: %s", type(row).__name__
+                                    )
+                                    continue
+                                append = writers.get(type(row))
+                                if append is None:
+                                    continue
+                                append(asdict(row))
 
-                except (ParseFailure, DecodeFailure):
+                except (ParseFailure, DecodeFailure, ValueError):
                     logger.warning("skipping malformed .bin: %s", name)
                     continue
 
@@ -349,3 +389,45 @@ class Rollup:
                     logger.error("writer was active but tmp file missing: %s", tmp)
             elif tmp.exists():
                 tmp.unlink()
+
+    @staticmethod
+    @contextmanager
+    def _batch_streaming_writer(path: Path, schema: pa.Schema):
+        tmp = path.with_suffix(".parquet.tmp")
+        writer: pq.ParquetWriter | None = None
+
+        def write_batch(table: pa.Table):
+            nonlocal writer
+            if writer is None:
+                tmp.parent.mkdir(parents=True, exist_ok=True)
+                writer = pq.ParquetWriter(tmp, schema)
+            writer.write_table(table)
+
+        try:
+            yield write_batch
+        finally:
+            if writer is not None:
+                writer.close()
+                if tmp.exists():
+                    tmp.rename(path)
+                else:
+                    logger.error("writer was active but tmp file missing: %s", tmp)
+            elif tmp.exists():
+                tmp.unlink()
+
+def _batch_to_parquet_table(
+    batch: pa.RecordBatch, schema: pa.Schema, column_names: dict[str, str]
+) -> pa.Table:
+    """Rename batch columns per column_names, and add any schema columns
+    (e.g. TableSpec.extra_columns) missing from the batch as all-null."""
+    rename = {
+        v: k for k, v in column_names.items()
+    }  # parquet name -> rust/python field name
+    arrays = []
+    for field in schema:
+        source_name = rename.get(field.name, field.name)
+        if source_name in batch.schema.names:
+            arrays.append(batch.column(source_name))
+        else:
+            arrays.append(pa.nulls(batch.num_rows, type=field.type))
+    return pa.Table.from_arrays(arrays, schema=schema)
