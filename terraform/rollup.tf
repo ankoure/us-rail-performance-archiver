@@ -18,8 +18,11 @@ data "aws_subnets" "default" {
 
 # Egress-only SG: the task reaches S3 + GHCR over the internet gateway.
 resource "aws_security_group" "rollup" {
-  name        = "rail-archiver-rollup"
-  description = "Egress-only for the Fargate rollup/gold/ship tasks"
+  name = "rail-archiver-rollup"
+  # NOTE: AWS SG description is immutable — do not edit this string, it forces
+  # destroy+recreate of the SG for zero functional benefit. Now shared by the
+  # rollup/gold/ship stages, despite the stale wording.
+  description = "Egress-only for the Fargate rollup task"
   vpc_id      = data.aws_vpc.default.id
 
   egress {

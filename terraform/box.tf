@@ -99,6 +99,16 @@ resource "aws_instance" "poller" {
     http_tokens = "required" # IMDSv2 only
   }
 
+  lifecycle {
+    # data.aws_ssm_parameter.al2023_arm64 tracks "latest" — without this, every
+    # plan run after AWS publishes a new AL2023 AMI wants to replace the LIVE
+    # box. Replacement means real downtime (pollers don't auto-start; .env has
+    # to be re-pasted via SSM session and `docker compose up` run by hand) plus
+    # a new public IP. Ignore drift here; pick up a new AMI via an explicit,
+    # intentional replacement (e.g. `terraform taint`), not silently.
+    ignore_changes = [ami]
+  }
+
   tags = {
     Name = "rail-archiver-poller"
     # Required: the deploy role's ssm:SendCommand is scoped to instances tagged
