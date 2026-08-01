@@ -16,6 +16,9 @@ wheels/
 .env
 *.env
 
+# nohup default output file
+nohup.out
+
 # Runtime output
 archive/
 curated/

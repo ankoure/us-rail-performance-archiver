@@ -1,5 +1,6 @@
 # dashboard_api/services/data.py
 
+import time
 from datetime import date
 from functools import lru_cache
 
@@ -12,6 +13,11 @@ import pyarrow.fs as pafs
 from archiver.loader import load_config
 
 DEFAULT_CONFIG_PATH = "config/feeds.yaml"
+
+# How often to re-resolve S3 credentials and rebuild datasets bound to them.
+# AWS_PROFILE sessions (local) and EC2 instance-role creds (prod) both rotate,
+# so freezing them forever eventually breaks a long-lived process.
+_S3_FS_TTL_SECONDS = 15 * 60
 
 # kind -> (path under the hot bucket, in-file column holding the exact service date)
 _KINDS: dict[str, tuple[str, str | None]] = {
@@ -39,11 +45,18 @@ def _kind_or_raise(kind: str) -> tuple[str, str | None]:
         ) from None
 
 
-@lru_cache
-def _s3_filesystem() -> pafs.S3FileSystem:
-    """One S3FileSystem for the process lifetime, region pulled from feeds.yaml.
+def _s3_epoch() -> int:
+    """Coarse time bucket that advances every _S3_FS_TTL_SECONDS.
 
-    Credentials come from boto3's own resolution (AWS_PROFILE locally, EC2
+    Used as an lru_cache key so the S3FileSystem/datasets below expire and
+    rebuild instead of freezing one credential snapshot for the whole process
+    lifetime (see _S3_FS_TTL_SECONDS)."""
+    return int(time.monotonic() // _S3_FS_TTL_SECONDS)
+
+
+@lru_cache(maxsize=4)
+def _s3_filesystem_for_epoch(_epoch: int) -> pafs.S3FileSystem:
+    """Credentials come from boto3's own resolution (AWS_PROFILE locally, EC2
     instance profile in prod) rather than pyarrow's built-in chain, which
     doesn't reliably honor AWS_PROFILE — only explicit env vars, config files'
     default profile, or EC2 instance metadata.
@@ -58,8 +71,15 @@ def _s3_filesystem() -> pafs.S3FileSystem:
     )
 
 
-@lru_cache
-def _dataset_for_kind(kind: str) -> ds.Dataset:
+def _s3_filesystem() -> pafs.S3FileSystem:
+    """One S3FileSystem per _S3_FS_TTL_SECONDS window, region pulled from
+    feeds.yaml. maxsize=4 on the underlying cache bounds memory to a couple of
+    recent epochs rather than accumulating one entry forever."""
+    return _s3_filesystem_for_epoch(_s3_epoch())
+
+
+@lru_cache(maxsize=32)
+def _dataset_for_epoch(kind: str, _epoch: int) -> ds.Dataset:
     """Build a hive-partitioned dataset over hot_bucket/hot_prefix/<kind path>."""
     subpath, _ = _kind_or_raise(kind)
 
@@ -69,10 +89,16 @@ def _dataset_for_kind(kind: str) -> ds.Dataset:
     root = _hot_path(subpath=subpath)
     return ds.dataset(
         root,
-        filesystem=_s3_filesystem(),
+        filesystem=_s3_filesystem_for_epoch(_epoch),
         format="parquet",
         partitioning="hive",
     )
+
+
+def _dataset_for_kind(kind: str) -> ds.Dataset:
+    """Dataset for one kind, rebuilt in lockstep with _s3_filesystem() so it
+    never ends up holding a Dataset bound to a stale/expired filesystem."""
+    return _dataset_for_epoch(kind, _s3_epoch())
 
 
 def _year_months(start_date: date, end_date: date) -> list[tuple[int, int]]:
