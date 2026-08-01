@@ -89,6 +89,7 @@ def read_kind(
     start_date: date,
     end_date: date,
     filters: dict[str, list[str]] | None = None,
+    limit: int | None = None,
 ) -> pa.Table:
     """Read one curated kind, pruned to feed_names + [start_date, end_date],
     plus any exact-match column filters (e.g. {"stop_id": [...]})."""
@@ -116,5 +117,6 @@ def read_kind(
 
     for column, values in (filters or {}).items():
         predicate = predicate & pc.field(column).isin(values)
-
+    if limit is not None:
+        return dataset.head(limit, filter=predicate)
     return dataset.to_table(filter=predicate)
