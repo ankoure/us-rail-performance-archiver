@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
-from dashboard_api.schemas.agency import AgencySummary
-from dashboard_api.services import agencies
+from api.schemas.agency import AgencySummary
+from api.services import agencies
 
 router = APIRouter(tags=["agencies"])
 

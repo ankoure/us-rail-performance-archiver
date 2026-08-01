@@ -143,13 +143,13 @@ Requires `s3.enabled: true` in `feeds.yaml` and AWS creds in the environment. Fo
 
 Existing keys are skipped unless `--force`. `--hot-only` ships just the curated parquets (use after re-rolling, so re-shipping doesn't re-charge the Deep Archive tarballs against the early-deletion minimum). Uploads fan across a thread pool sharing one boto3 client.
 
-### `dashboard_api` — metrics/alerts HTTP API
+### `dashboard/api` — metrics/alerts HTTP API
 
 ```
-uv run fastapi dev dashboard_api/main.py
+uv run fastapi dev dashboard/api/main.py
 ```
 
-Serves on `http://localhost:8000`. FastAPI app reading gold-layer Parquet and alert snapshots straight from the hot S3 bucket (`dashboard_api/services/data.py`, `dashboard_api/services/alerts.py`) — no local state. Agencies come from `config/feeds.yaml`. `DASHBOARD_API_CORS_ORIGINS` (comma-separated, default `http://localhost:3000`) controls which browser origins may call it.
+Serves on `http://localhost:8000`. FastAPI app reading gold-layer Parquet and alert snapshots straight from the hot S3 bucket (`dashboard/api/services/data.py`, `dashboard/api/services/alerts.py`) — no local state. Agencies come from `config/feeds.yaml`. `DASHBOARD_API_CORS_ORIGINS` (comma-separated, default `http://localhost:3000`) controls which browser origins may call it.
 
 ---
 

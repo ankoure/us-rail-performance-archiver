@@ -1,9 +1,9 @@
-# dashboard_api/services/alerts.py
+# dashboard/api/services/alerts.py
 
 import json
 from datetime import date
 
-from dashboard_api.services.data import _hot_path, _s3_filesystem
+from api.services.data import _hot_path, _s3_filesystem
 from analysis.alert_classifier import DELAY_BY_TYPE, summarize_snapshot
 
 
@@ -69,7 +69,7 @@ def get_line_delays(feed_names: list[str], day: date) -> dict:
 def get_alerts(feed_names: list[str], day: date) -> list[dict]:
     """Merge alert snapshots across an agency's feeds for one day.
 
-    dashboard_api has no decoder-capability info (that lives in archiver/,
+    dashboard/api has no decoder-capability info (that lives in archiver/,
     which this package doesn't depend on) to know up front which of an
     agency's feeds actually produce alerts — so this tries each feed name and
     silently skips the ones with no snapshot for this day, rather than trying

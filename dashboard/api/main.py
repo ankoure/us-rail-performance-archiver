@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from dashboard_api.config import settings
-from dashboard_api.routers import (
+from api.config import settings
+from api.routers import (
     adherence,
     agencies,
     alerts,

@@ -1,8 +1,8 @@
-# dashboard_api/dependencies.py
+# dashboard/api/dependencies.py
 
 from fastapi import HTTPException
 
-from dashboard_api.services import agencies
+from api.services import agencies
 
 
 def get_agency(agency: str) -> agencies.Agency:

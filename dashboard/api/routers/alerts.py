@@ -1,13 +1,13 @@
-# dashboard_api/routers/alerts.py
+# dashboard/api/routers/alerts.py
 
 from datetime import date
 
 from fastapi import APIRouter, Depends
 
-from dashboard_api import dependencies
-from dashboard_api.schemas.alert import AlertRow
-from dashboard_api.services import alerts
-from dashboard_api.services.agencies import Agency
+from api import dependencies
+from api.schemas.alert import AlertRow
+from api.services import alerts
+from api.services.agencies import Agency
 
 router = APIRouter(prefix="/agencies/{agency}", tags=["alerts"])
 

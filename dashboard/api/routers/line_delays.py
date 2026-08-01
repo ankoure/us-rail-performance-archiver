@@ -1,13 +1,13 @@
-# dashboard_api/routers/line_delays.py
+# dashboard/api/routers/line_delays.py
 
 from datetime import date
 
 from fastapi import APIRouter, Depends
 
-from dashboard_api import dependencies
-from dashboard_api.schemas.line_delays import LineDelaysSummary
-from dashboard_api.services import alerts
-from dashboard_api.services.agencies import Agency
+from api import dependencies
+from api.schemas.line_delays import LineDelaysSummary
+from api.services import alerts
+from api.services.agencies import Agency
 
 router = APIRouter(prefix="/agencies/{agency}", tags=["line_delays"])
 

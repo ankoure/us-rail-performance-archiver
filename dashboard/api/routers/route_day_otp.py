@@ -1,12 +1,12 @@
-# dashboard_api/routers/route_day_otp.py
+# dashboard/api/routers/route_day_otp.py
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
-from dashboard_api import dependencies
-from dashboard_api.schemas.otp import RouteDayOtp
-from dashboard_api.services.agencies import Agency
-from dashboard_api.services import data
+from api import dependencies
+from api.schemas.otp import RouteDayOtp
+from api.services.agencies import Agency
+from api.services import data
 
 router = APIRouter(prefix="/agencies/{agency}", tags=["route_day_otp"])
 

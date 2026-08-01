@@ -1,4 +1,4 @@
-# dashboard_api/schemas/line_delays.py
+# dashboard/api/schemas/line_delays.py
 
 from pydantic import BaseModel
 

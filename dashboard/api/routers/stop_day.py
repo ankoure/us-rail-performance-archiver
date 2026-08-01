@@ -1,13 +1,13 @@
-# dashboard_api/routers/stop_day.py
+# dashboard/api/routers/stop_day.py
 
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
-from dashboard_api import dependencies
-from dashboard_api.schemas.stop_day import StopDayRow
-from dashboard_api.services import data
-from dashboard_api.services.agencies import Agency
+from api import dependencies
+from api.schemas.stop_day import StopDayRow
+from api.services import data
+from api.services.agencies import Agency
 
 router = APIRouter(prefix="/agencies/{agency}", tags=["stop_day"])
 

@@ -37,18 +37,18 @@ shard-dirs:
 	@for i in $$(seq 0 $$(($(SHARDS) - 1))); do mkdir -p poll_state/shard-$$i; done
 	@echo "created poll_state/shard-0..$$(($(SHARDS) - 1)) (chown to 1000:1000 if needed)"
 
-# --- Dashboard (dashboard_api + dashboard_web) -----------------------------
+# --- Dashboard (dashboard/api + dashboard/web) ------------------------------
 
 # Runs both dev servers in one terminal; Ctrl+C stops both (trap + `kill 0`
 # on the process group). Needs AWS creds with S3 read access to the hot
 # bucket for real data (the default profile may not have it) -- pass e.g.
 # `AWS_PROFILE=KourePowerUser make dashboard-dev`.
 dashboard-dev:
-	@[ -d dashboard_web/node_modules ] || (cd dashboard_web && npm install)
-	@echo "dashboard_api  -> http://localhost:8000"
-	@echo "dashboard_web  -> http://localhost:3000"
+	@[ -d dashboard/web/node_modules ] || (cd dashboard/web && npm install)
+	@echo "dashboard/api  -> http://localhost:8000"
+	@echo "dashboard/web  -> http://localhost:3000"
 	@echo "(Ctrl+C stops both)"
 	@trap 'kill 0' EXIT INT TERM; \
-	uv run fastapi dev dashboard_api/main.py --port 8000 & \
-	(cd dashboard_web && npm run dev) & \
+	uv run fastapi dev dashboard/api/main.py --port 8000 & \
+	(cd dashboard/web && npm run dev) & \
 	wait
