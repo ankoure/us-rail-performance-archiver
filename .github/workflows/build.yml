@@ -1,6 +1,33 @@
 name: build
 
 on:
+  push:
+    branches: [main]
+    # Keeps `:latest` fresh for the Fargate rollup task (which pulls `:latest`
+    # fresh on every scheduled run, so it needs no restart) without touching
+    # the EC2 poller box. Paths that DO need a poller restart are handled by
+    # deploy.yml's own trigger instead (which calls this workflow itself via
+    # workflow_call) — ignored here so a poller-relevant push doesn't build
+    # twice. Keep this list paired with the `paths:` list in deploy.yml.
+    paths-ignore:
+      - "dashboard/**"
+      - "docs/**"
+      - "notebooks/**"
+      - "site/**"
+      - "terraform/**"
+      - ".claude/**"
+      - ".github/**"
+      - "**/*.md"
+      - "LICENSE"
+      - "main.py"
+      - "archiver/**"
+      - "rail-decoder/**"
+      - "config/feeds.yaml"
+      - "compose.prod.yml"
+      - "dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
   workflow_call:
     outputs:
       tag:

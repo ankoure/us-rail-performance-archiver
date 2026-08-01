@@ -3,6 +3,21 @@ name: deploy
 on:
   push:
     branches: [main]
+    # Only files that actually require restarting the EC2 poller containers.
+    # Everything else that affects the image (gold.py, rollup.py, analysis/,
+    # etc.) is covered by build.yml's own trigger, which keeps `:latest`
+    # fresh for the Fargate rollup task without touching the box. Keep this
+    # list paired with the ignore list in build.yml's push trigger.
+    paths:
+      - "main.py"
+      - "archiver/**"
+      - "rail-decoder/**"
+      - "config/feeds.yaml"
+      - "compose.prod.yml"
+      - "dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
   workflow_dispatch:
 
 concurrency:
