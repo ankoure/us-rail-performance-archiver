@@ -83,6 +83,7 @@ class Shipper:
         if not hot_only:
             self._ship_cold(feed_name, day, force=force)
         self._ship_hot(feed_name, day, force=force)
+        self._ship_snapshots(feed_name, day, force=force)
 
     def _ship_cold(self, feed_name, day, *, force):
         key = self._cold_key(feed_name, day)
@@ -173,6 +174,41 @@ class Shipper:
         partition = f"feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.parquet"
         yield from self.curated_dir.glob(f"*/{partition}")
         yield from self.curated_dir.glob(f"metrics/*/{partition}")
+
+    def _curated_snapshots(self, feed_name: str, day: date) -> Iterator[Path]:
+        # Snapshots only have one kind today (alerts), but the directory already
+        # treats <kind> as a segment, same as gold marts under metrics/. Wildcard
+        # it now rather than hardcoding "alerts", for the same reason gold marts
+        # wildcard the mart name in _curated_parquets: cheap now, avoids a second
+        # edit here when a second snapshot kind shows up.
+        partition = f"feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.json.gz"
+        yield from self.curated_dir.glob(f"snapshots/*/{partition}")
+
+    def _ship_snapshots(self, feed_name: str, day: date, *, force: bool):
+        agency = self.feed_agency.get(feed_name, "unknown")
+        for snapshot in self._curated_snapshots(feed_name, day):
+            parts = snapshot.relative_to(self.curated_dir).parts
+            # Every snapshot path is snapshots/<kind>/feed=.../... — unlike
+            # _curated_parquets, there's only one glob shape feeding this, so
+            # no branch is needed to disambiguate depth.
+            kind = "/".join(parts[:2])
+            key = self._hot_key(snapshot)
+            tags = {"feed": feed_name, "kind": kind, "agency": agency}
+
+            if not force and self.uploader.exists(self.hot_bucket, key):
+                self.telemetry.incr("ship.snapshot.skipped", tags=tags)
+                logger.debug(
+                    "snapshot already exists, skipping: %s/%s", self.hot_bucket, key
+                )
+                continue
+
+            with self.telemetry.span("ship.snapshot", tags=tags):
+                self.uploader.upload(self.hot_bucket, key, snapshot)
+            self.telemetry.histogram(
+                "ship.snapshot.bytes",
+                snapshot.stat().st_size,
+                tags=tags,
+            )
 
     def _discover(self, feed=None, day=None):
         # Discovery goes through the Source (local or S3). Iterate one feed at a

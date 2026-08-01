@@ -14,16 +14,17 @@ from archiver.loader import load_config
 DEFAULT_CONFIG_PATH = "config/feeds.yaml"
 
 # kind -> (path under the hot bucket, in-file column holding the exact service date)
-_KINDS: dict[str, tuple[str, str]] = {
+_KINDS: dict[str, tuple[str, str | None]] = {
     "stop_day": ("metrics/stop_day", "service_date"),
     "route_day": ("metrics/route_day", "service_date"),
     "adherence": ("metrics/adherence", "service_date"),
     "stop_day_otp": ("metrics/stop_day_otp", "service_date"),
     "route_day_otp": ("metrics/route_day_otp", "service_date"),
+    "alerts": ("alerts", None),
 }
 
 
-def _kind_or_raise(kind: str) -> tuple[str, str]:
+def _kind_or_raise(kind: str) -> tuple[str, str | None]:
     try:
         return _KINDS[kind]
     except KeyError:
@@ -103,17 +104,28 @@ def read_kind(
                 f"Unknown filter column(s) {sorted(unknown)} for kind {kind!r}; "
                 f"valid columns: {sorted(dataset.schema.names)}"
             )
+    predicate = pc.field("feed").isin(feed_names)
+    if date_col is not None:
+        year_months = _year_months(start_date, end_date)
+        ym_field = pc.field("year") * 12 + pc.field("month")
+        ym_values = [y * 12 + m for y, m in year_months]
 
-    year_months = _year_months(start_date, end_date)
-    ym_field = pc.field("year") * 12 + pc.field("month")
-    ym_values = [y * 12 + m for y, m in year_months]
-
-    predicate = (
-        ym_field.isin(ym_values)
-        & pc.field("feed").isin(feed_names)
-        & (pc.field(date_col) >= start_date.isoformat())
-        & (pc.field(date_col) <= end_date.isoformat())
-    )
+        predicate = (
+            predicate
+            & ym_field.isin(ym_values)
+            & (pc.field(date_col) >= start_date.isoformat())
+            & (pc.field(date_col) <= end_date.isoformat())
+        )
+    else:
+        ymd_field = pc.field("year") * 10000 + pc.field("month") * 100 + pc.field("day")
+        predicate = (
+            predicate
+            & (
+                ymd_field
+                >= start_date.year * 10000 + start_date.month * 100 + start_date.day
+            )
+            & (ymd_field <= end_date.year * 10000 + end_date.month * 100 + end_date.day)
+        )
 
     for column, values in (filters or {}).items():
         predicate = predicate & pc.field(column).isin(values)

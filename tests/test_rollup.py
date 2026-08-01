@@ -8,6 +8,7 @@ from archiver.feed import Feed
 import pyarrow.parquet as pq
 import pyarrow as pa
 from archiver.decoder import VehicleRow, StandardDecoder
+from archiver.payloads import digest_timestamps
 from archiver.rollup import _schema_for_spec, Rollup
 from archiver.writer import FrameWriter
 import pytest
@@ -483,14 +484,10 @@ def test_digest_timestamps_skips_digestless_rows_silently(tmp_path, caplog):
             {"timestamp": 1002, "status_code": 304, "digest": "def"},
         ],
     )
-    rollup = Rollup(
-        feeds=[_echo_feed()],
-        source=LocalSource(landing_dir),
-        curated_dir=tmp_path / "curated",
-    )
+    source = LocalSource(landing_dir)
 
     with caplog.at_level(logging.WARNING):
-        got = rollup._digest_timestamps("echo-feed", day)
+        got = digest_timestamps(source, "echo-feed", day)
 
     assert got == {"abc": 1000, "def": 1002}  # digest-less row dropped, others kept
     assert "missing" not in caplog.text.lower()  # no spurious warning emitted

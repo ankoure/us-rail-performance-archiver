@@ -26,33 +26,37 @@ from google.protobuf.json_format import MessageToDict
 
 from archiver.feed import Feed
 from archiver.parser import ParseFailure
+from archiver.payloads import digest_timestamps, iter_payloads
+from archiver.source import Source
 
 
-def build_alert_snapshot(feed: Feed, day: date, landing_dir: Path) -> dict:
+def build_alert_snapshot(feed: Feed, day: date, source: Source) -> dict:
     """Merge a day's raw .bin polls into one last-write-wins alert snapshot.
 
     Reads the (feed, day) raw poll files in timestamp order, decodes each, and
     folds every alert entity into a dict keyed by alert id. The newest poll's
     body wins per id, while first_seen / last_seen / poll_count accumulate
     across all polls. Polls that fail to parse are skipped, not fatal.
+
+    Raw .bin files aren't one-poll-per-file — legacy files are, but
+    BatchingWriter/hourly-merged files are framed batches of many polls.
+    archiver.payloads.iter_payloads unpacks whichever shape a file is; neither
+    Source implementation guarantees iter_bins order, so the unpacked
+    (payload, fetched_at) pairs are explicitly re-sorted by fetched_at before
+    folding — order is load-bearing here for last-write-wins correctness.
     """
-    raw_dir = (
-        landing_dir
-        / feed.name
-        / "raw"
-        / f"year={day.year}"
-        / f"month={day.month}"
-        / f"day={day.day}"
-    )
-    bin_files = sorted(raw_dir.glob("*.bin"), key=lambda p: float(p.stem))
+    digest_ts = digest_timestamps(source, feed.name, day)
+    polls: list[tuple[bytes, int]] = []
+    for name, blob in source.iter_bins(feed.name, day):
+        polls.extend(iter_payloads(name, blob, digest_ts))
+    polls.sort(key=lambda poll: poll[1])
 
     alerts: dict[str, dict] = {}
     last_header: dict | None = None
 
-    for bin_file in bin_files:
-        fetched_at = int(float(bin_file.stem))
+    for payload, fetched_at in polls:
         try:
-            feed_message = feed.parser.parse(bin_file.read_bytes())
+            feed_message = feed.parser.parse(payload)
         except ParseFailure:
             continue
 

@@ -1,7 +1,6 @@
 from contextlib import ExitStack, contextmanager
 import dataclasses
 import io
-import json
 import typing
 from dataclasses import asdict
 from pathlib import Path
@@ -22,8 +21,8 @@ from archiver.decoder import (
 from archiver.feed import Feed
 from archiver.parser import ParseFailure
 from archiver.logger import logger
+from archiver.payloads import digest_timestamps, iter_payloads
 from archiver.telemetry import Telemetry, NoOpTelemetry
-from archiver.writer import FrameError, FrameReader
 
 _PY_TO_ARROW = {
     int: pa.int64(),
@@ -158,16 +157,14 @@ class Rollup:
             if not writers and not batch_writers:
                 return
 
-            digest_ts = self._digest_timestamps(
-                feed_name, day
+            digest_ts = digest_timestamps(
+                self._source, feed_name, day
             )  # once, before the file loop
             count = 0
             for name, blob in self._source.iter_bins(feed_name, day):
                 count += 1
                 try:
-                    for payload, fetched_at in self._iter_payloads(
-                        name, blob, digest_ts
-                    ):
+                    for payload, fetched_at in iter_payloads(name, blob, digest_ts):
                         if use_rust_decoder:
                             v_batch, stu_batch, a_batch = rail_decoder.decode_arrow(
                                 payload
@@ -206,118 +203,6 @@ class Rollup:
 
             if count == 0:
                 logger.warning("no .bin files for %s/%s", feed_name, day)
-
-    def _digest_timestamps(self, feed_name: str, day: date) -> dict[str, int]:
-        """Map each stored payload's content digest -> its earliest poll timestamp.
-
-        Built from the day's metadata jsonl (the index): every poll writes a row with
-        `timestamp` and `digest`, *including* dedup'd / 304 polls that stored no frame.
-        A framed window object only holds DISTINCT payloads, so each frame's digest
-        joins here to recover the true per-poll `fetched_at` that the `window=<unix>`
-        filename can't carry. If a digest appears on several rows (rare intra-window
-        content flap A->B->A collapses to one frame but leaves two rows), keep the
-        EARLIEST timestamp.
-
-        Returns {} if the day's metadata file is absent (e.g. a raw-only partition).
-        """
-
-        data = self._source.read_metadata(feed_name, day)
-        if not data:
-            return {}
-        lines = data.decode().splitlines()
-        digest_timestamps: dict[str, int] = {}
-        for lineno, raw in enumerate(lines, 1):
-            raw = raw.strip()
-            if not raw:
-                continue
-
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                logger.warning(
-                    "Skipping malformed metadata row %s:%d: %s",
-                    feed_name,
-                    day,
-                    lineno,
-                    exc,
-                )
-                continue
-
-            digest = row.get("digest")
-            raw_ts = row.get("timestamp")
-
-            # A digest-less row is expected, not malformed: transport-error and
-            # other non-payload rows carry no digest (nothing was stored), so they
-            # are simply not join candidates. Skip silently — warning here turned a
-            # routine feed outage (e.g. a DNS blip) into WARNING-level log spam.
-            if digest is None or raw_ts is None:
-                continue
-
-            # Match legacy `int(float(stem))` coercion used when timestamps
-            # were embedded in window filenames, so Phase C golden parquet parity holds.
-            ts = int(float(raw_ts))
-
-            if digest not in digest_timestamps or ts < digest_timestamps[digest]:
-                digest_timestamps[digest] = ts
-
-        return digest_timestamps
-
-    def _iter_payloads(
-        self, name: str, data: bytes, digest_ts
-    ) -> Iterator[tuple[bytes, int]]:
-        """Yield (payload_bytes, fetched_at) for one raw .bin file, format-agnostic.
-
-        Three on-disk shapes coexist:
-          * legacy LocalWriter  -> filename stem IS the wall-clock ts; the whole file
-            is ONE payload.
-          * BatchingWriter      -> filename `window=<unix>`; the file is `\\x89GRT` +
-            N framed payloads. `FrameReader` yields (payload, raw-digest-bytes); the
-            metadata digest is a hex string, so `.hex()` the frame digest to join into
-            `digest_ts`. Fallback when a digest is missing: the window-start unix in
-            the stem (coarse, but never crashes).
-          * Hourly merged       -> filename `hour=<unix>`; same framed format as
-            `window=`, produced by LandingUploader when `merge_to_hourly=True`. The
-            hour-start unix is used as the fallback timestamp when a digest is absent.
-
-        Keeping this the single source of "how to get payloads out of a file" lets the
-        parse -> decode -> append loop in _rollup_data stay format-agnostic.
-        """
-        stem = name.removesuffix(".bin")
-
-        if stem.startswith("window=") or stem.startswith("hour="):
-            # --- BatchingWriter framed file (per-window or hourly-merged) ---
-            # Stem is "window=<unix>" or "hour=<unix>"; parse the fallback timestamp.
-            try:
-                fallback_ts = int(stem.split("=", 1)[1])
-            except (IndexError, ValueError) as exc:
-                raise ValueError(
-                    f"Cannot parse timestamp from filename {name!r}"
-                ) from exc
-
-            try:
-                reader = FrameReader(io.BytesIO(data))
-                for payload, raw_digest in reader:
-                    fetched_at = digest_ts.get(raw_digest.hex(), fallback_ts)
-                    yield payload, fetched_at
-            except (FrameError, EOFError) as exc:
-                logger.warning(
-                    "Truncated/corrupt frame in %s (fallback_ts=%d); skipping remainder: %s",
-                    name,
-                    fallback_ts,
-                    exc,
-                )
-
-        else:
-            # --- Legacy LocalWriter file ---
-            # The entire file is one payload; the stem IS the wall-clock timestamp.
-            try:
-                fetched_at = int(float(stem))
-            except ValueError as exc:
-                raise ValueError(
-                    f"Cannot parse legacy timestamp from filename {name!r}"
-                ) from exc
-
-            yield data, fetched_at
 
     def _expected_outputs(self, feed: Feed, day: date) -> dict[str, Path]:
         shape = {
