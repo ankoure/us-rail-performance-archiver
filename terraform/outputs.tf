@@ -23,3 +23,14 @@ output "rollup_security_group" {
 output "hot_scratch_bucket" {
   value = aws_s3_bucket.hot_scratch.bucket
 }
+
+output "dashboard_api_access_key_id" {
+  value       = aws_iam_access_key.dashboard_api.id
+  description = "Set as AWS_ACCESS_KEY_ID in the dashboard/api Vercel project."
+}
+
+output "dashboard_api_secret_access_key" {
+  value       = aws_iam_access_key.dashboard_api.secret
+  description = "Set as AWS_SECRET_ACCESS_KEY in the dashboard/api Vercel project. Marked sensitive — run `terraform output -raw dashboard_api_secret_access_key` to print it."
+  sensitive   = true
+}
