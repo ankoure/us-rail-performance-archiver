@@ -1,6 +1,5 @@
 # dashboard/api/services/alerts.py
 
-import gzip
 import json
 from datetime import date
 
@@ -22,7 +21,7 @@ def _fetch_snapshot(feed_name: str, day: date) -> dict | None:
             raw = f.readall()
     except FileNotFoundError:
         return None
-    return json.loads(gzip.decompress(raw))
+    return json.loads(raw)
 
 
 def _merge_summaries(summaries: list[dict]) -> dict:
