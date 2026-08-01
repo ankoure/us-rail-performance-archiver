@@ -583,8 +583,8 @@ All metrics carry a `shard` tag. With telemetry disabled, `NoOpTelemetry` is a t
 
 Datadog definitions live in the repo so they can be reproduced from a clone:
 
-- [monitors/rail-archiver.json](monitors/rail-archiver.json) — metric alerts: feed-went-dark, slow-feed-went-dark, poller-heartbeat-absent, poll-error-rate-elevated, ingest-saturated (polls being shed), feed-quarantined, schema-drift, archiver-internal-error, batch-step-errored
-- [dashboards/rail-archiver.json](dashboards/rail-archiver.json) — pipeline-health dashboard (templated on `env` and `feed`)
+- [datadog/monitors/rail-archiver.json](datadog/monitors/rail-archiver.json) — metric alerts: feed-went-dark, slow-feed-went-dark, poller-heartbeat-absent, poll-error-rate-elevated, ingest-saturated (polls being shed), feed-quarantined, schema-drift, archiver-internal-error, batch-step-errored
+- [datadog/dashboards/rail-archiver.json](datadog/dashboards/rail-archiver.json) — pipeline-health dashboard (templated on `env` and `feed`)
 
 Sync them with [scripts/sync_datadog.py](scripts/sync_datadog.py) (idempotent upsert by name/title), or import via [`datadog-ci`](https://github.com/DataDog/datadog-ci) / the Datadog UI. The monitor queries are tagged `env:prod` — adjust if you run a different env.
 

@@ -1,14 +1,14 @@
 name: datadog-sync
 
-# Pushes monitors/ and dashboards/ JSON to Datadog via its management API.
+# Pushes datadog/monitors/ and datadog/dashboards/ JSON to Datadog via its management API.
 # Unlike deploy.yml this needs no AWS/OIDC — it talks straight to Datadog.
 
 on:
   push:
     branches: [main]
     paths:
-      - "monitors/**"
-      - "dashboards/**"
+      - "datadog/monitors/**"
+      - "datadog/dashboards/**"
       - "scripts/sync_datadog.py"
       - ".github/workflows/datadog.yml"
   workflow_dispatch:

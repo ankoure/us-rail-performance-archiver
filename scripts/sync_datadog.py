@@ -2,8 +2,8 @@
 """Idempotently sync Datadog monitors and dashboards from JSON in this repo.
 
 Source of truth (committed):
-  monitors/rail-archiver.json    — list of monitor definitions
-  dashboards/rail-archiver.json  — one dashboard definition
+  datadog/monitors/rail-archiver.json    — list of monitor definitions
+  datadog/dashboards/rail-archiver.json  — one dashboard definition
 
 Upserts by name (monitors) / title (dashboards): an existing object with the
 same name/title is updated in place (PUT), otherwise a new one is created
@@ -37,8 +37,8 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MONITORS_FILE = REPO_ROOT / "monitors" / "rail-archiver.json"
-DASHBOARDS_FILE = REPO_ROOT / "dashboards" / "rail-archiver.json"
+MONITORS_FILE = REPO_ROOT / "datadog" / "monitors" / "rail-archiver.json"
+DASHBOARDS_FILE = REPO_ROOT / "datadog" / "dashboards" / "rail-archiver.json"
 
 NOTIFY_PLACEHOLDER = "@<your-notification-target>"
 
