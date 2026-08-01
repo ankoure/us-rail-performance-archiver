@@ -139,6 +139,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .field label {
@@ -155,6 +156,13 @@ a {
   border: 1px solid var(--border-hairline);
   background: var(--surface);
   color: var(--foreground);
+}
+
+.field select {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 main {
@@ -234,6 +242,20 @@ th {
 
 .table-scroll {
   overflow-x: auto;
+  /* Scroll-shadow hint: fixed edge shadows only show once there's cut-off content to scroll to. */
+  background:
+    linear-gradient(to right, var(--surface) 30%, rgba(255, 255, 255, 0)),
+    linear-gradient(to right, rgba(255, 255, 255, 0), var(--surface) 70%) 100% 0,
+    linear-gradient(to right, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)),
+    linear-gradient(to left, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0)) 100% 0;
+  background-repeat: no-repeat;
+  background-color: var(--surface);
+  background-size:
+    20px 100%,
+    20px 100%,
+    8px 100%,
+    8px 100%;
+  background-attachment: local, local, scroll, scroll;
 }
 
 .legend {

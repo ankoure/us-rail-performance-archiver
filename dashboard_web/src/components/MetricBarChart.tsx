@@ -19,6 +19,12 @@ export function MetricBarChart<T extends object>({
   series: MetricSeries[];
   height?: number;
 }) {
+  const longestLabel = data.reduce((max, d) => {
+    const label = String((d as Record<string, unknown>)[categoryKey] ?? "");
+    return Math.max(max, label.length);
+  }, 0);
+  const yAxisWidth = Math.min(200, Math.max(90, longestLabel * 7 + 16));
+
   return (
     <ResponsiveContainer width="100%" height={height ?? Math.max(200, data.length * 36)}>
       <BarChart data={data as Record<string, unknown>[]} layout="vertical" margin={{ left: 8, right: 16 }}>
@@ -27,7 +33,7 @@ export function MetricBarChart<T extends object>({
         <YAxis
           type="category"
           dataKey={categoryKey}
-          width={90}
+          width={yAxisWidth}
           tick={{ fill: "var(--text-secondary)", fontSize: 12 }}
           stroke="var(--baseline)"
         />

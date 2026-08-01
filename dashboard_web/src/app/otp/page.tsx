@@ -7,8 +7,12 @@ import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { OtpStackedBarChart, type OtpBarDatum } from "@/components/OtpStackedBarChart";
 import { StatTile } from "@/components/StatTile";
 import { api } from "@/lib/apiClient";
+import { topByRoute } from "@/lib/rankings";
 import { useApiData } from "@/lib/useApiData";
 import type { RouteDayOtp, StopDayOtp } from "@/lib/types";
+
+const MIN_MATCHED_FOR_RANKING = 10;
+const MAX_STOPS_PER_ROUTE = 5;
 
 function aggregateByRoute(rows: RouteDayOtp[]): OtpBarDatum[] {
   const byRoute = new Map<string, OtpBarDatum>();
@@ -62,10 +66,12 @@ export default function OtpPage() {
     { matched: 0, onTime: 0 },
   );
   const worstStops = stopRows
-    ? [...stopRows]
-        .filter((r) => r.on_time_pct !== null)
-        .sort((a, b) => (a.on_time_pct ?? 0) - (b.on_time_pct ?? 0))
-        .slice(0, 25)
+    ? topByRoute(
+        [...stopRows]
+          .filter((r) => r.on_time_pct !== null && r.matched_count >= MIN_MATCHED_FOR_RANKING)
+          .sort((a, b) => (a.on_time_pct ?? 0) - (b.on_time_pct ?? 0)),
+        { routeId: (r) => r.route_id, limit: 25, perRouteCap: MAX_STOPS_PER_ROUTE },
+      )
     : null;
 
   return (
@@ -107,7 +113,10 @@ export default function OtpPage() {
 
             <div className="card">
               <h2>Worst-performing stops</h2>
-              <p className="card-hint">Lowest on-time % over the selected range (top 25).</p>
+              <p className="card-hint">
+                Lowest on-time % over the selected range (top 25, min {MIN_MATCHED_FOR_RANKING} matched events, max{" "}
+                {MAX_STOPS_PER_ROUTE} per route).
+              </p>
               {!worstStops && <p className="empty-state">Loading…</p>}
               {worstStops && worstStops.length === 0 && <p className="empty-state">No stop OTP data for this range.</p>}
               {worstStops && worstStops.length > 0 && (

@@ -6,6 +6,7 @@ import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { MetricBarChart } from "@/components/MetricBarChart";
 import { api } from "@/lib/apiClient";
+import { topByRoute } from "@/lib/rankings";
 import { useApiData } from "@/lib/useApiData";
 import type { RouteDayRow, StopDayRow } from "@/lib/types";
 
@@ -18,6 +19,8 @@ interface RouteAgg {
 }
 
 const MAX_CHART_ROUTES = 15;
+const MIN_VISITS_FOR_RANKING = 10;
+const MAX_STOPS_PER_ROUTE = 5;
 
 function mean(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
@@ -68,10 +71,12 @@ export default function HeadwaysDwellsPage() {
   const routeAgg = routeRows ? aggregateRoutes(routeRows) : null;
   const chartRoutes = routeAgg ? busiestRoutes(routeAgg) : null;
   const mostVariableStops = stopRows
-    ? [...stopRows]
-        .filter((r) => r.headway_cov !== null)
-        .sort((a, b) => (b.headway_cov ?? 0) - (a.headway_cov ?? 0))
-        .slice(0, 25)
+    ? topByRoute(
+        [...stopRows]
+          .filter((r) => r.headway_cov !== null && r.visit_count >= MIN_VISITS_FOR_RANKING)
+          .sort((a, b) => (b.headway_cov ?? 0) - (a.headway_cov ?? 0)),
+        { routeId: (r) => r.route_id, limit: 25, perRouteCap: MAX_STOPS_PER_ROUTE },
+      )
     : null;
 
   return (
@@ -121,7 +126,10 @@ export default function HeadwaysDwellsPage() {
 
             <div className="card">
               <h2>Most variable stops</h2>
-              <p className="card-hint">Highest headway coefficient of variation over the selected range (top 25).</p>
+              <p className="card-hint">
+                Highest headway coefficient of variation over the selected range (top 25, min {MIN_VISITS_FOR_RANKING}{" "}
+                visits, max {MAX_STOPS_PER_ROUTE} per route).
+              </p>
               {!mostVariableStops && <p className="empty-state">Loading…</p>}
               {mostVariableStops && mostVariableStops.length === 0 && (
                 <p className="empty-state">No stop data for this range.</p>
