@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_FEEDS_PATH = Path("config/feeds.yaml")
+from api.config import settings
 
 
 class AgencyNotFound(Exception):
@@ -41,7 +41,7 @@ def _parse_feeds_yaml(path: Path) -> dict[str, Agency]:
 
 @lru_cache
 def _load_agencies() -> dict[str, Agency]:
-    return _parse_feeds_yaml(DEFAULT_FEEDS_PATH)
+    return _parse_feeds_yaml(settings.feeds_config_path)
 
 
 def get_agency(agency_id: str) -> Agency:

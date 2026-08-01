@@ -1,6 +1,7 @@
 # dashboard/api/services/data.py
 
 import time
+from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 
@@ -9,10 +10,31 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.fs as pafs
+import yaml
 
-from archiver.loader import load_config
+from api.config import settings
 
-DEFAULT_CONFIG_PATH = "config/feeds.yaml"
+
+@dataclass(frozen=True)
+class _S3Config:
+    region: str
+    hot_bucket: str
+    hot_prefix: str
+
+
+@lru_cache
+def _s3_config() -> _S3Config:
+    """Just the `s3:` block of feeds.yaml — the API only ever reads the hot
+    bucket, so it has no reason to pull in archiver.loader (and with it the
+    whole poller/decoder/rollup stack) just to parse three strings."""
+    with settings.feeds_config_path.open("r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)["s3"]
+    return _S3Config(
+        region=raw["region"],
+        hot_bucket=raw["hot_bucket"],
+        hot_prefix=raw.get("hot_prefix", ""),
+    )
+
 
 # How often to re-resolve S3 credentials and rebuild datasets bound to them.
 # AWS_PROFILE sessions (local) and EC2 instance-role creds (prod) both rotate,
@@ -31,8 +53,7 @@ _KINDS: dict[str, tuple[str, str | None]] = {
 
 
 def _hot_path(subpath: str) -> str:
-    config = load_config(DEFAULT_CONFIG_PATH)
-    s3 = config.s3
+    s3 = _s3_config()
     return f"{s3.hot_bucket.rstrip('/')}/{s3.hot_prefix}{subpath}"
 
 
@@ -61,10 +82,9 @@ def _s3_filesystem_for_epoch(_epoch: int) -> pafs.S3FileSystem:
     doesn't reliably honor AWS_PROFILE — only explicit env vars, config files'
     default profile, or EC2 instance metadata.
     """
-    config = load_config(DEFAULT_CONFIG_PATH)
     creds = boto3.Session().get_credentials().get_frozen_credentials()
     return pafs.S3FileSystem(
-        region=config.s3.region,
+        region=_s3_config().region,
         access_key=creds.access_key,
         secret_key=creds.secret_key,
         session_token=creds.token,

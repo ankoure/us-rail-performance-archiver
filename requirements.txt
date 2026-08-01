@@ -1,0 +1,10 @@
+# Dependency source for the dashboard/api Vercel deployment only (see
+# [tool.vercel] in pyproject.toml). Deliberately not the same list as
+# [project.dependencies] in pyproject.toml, which is the poller/pipeline
+# stack — dashboard/api no longer depends on archiver, so it doesn't need
+# botocore[crt], gtfs-realtime-bindings, pandas, datadog, httpx, or requests.
+fastapi>=0.141.1
+pydantic-settings>=2.14.2
+boto3>=1.43.9
+pyarrow>=24.0.0
+pyyaml>=6.0.3

@@ -34,6 +34,14 @@ dev = [
     "vulture>=2.14",
 ]
 
+[tool.vercel]
+# dashboard/api is deployed as its own Vercel project (Root Directory = repo
+# root, so it can see config/feeds.yaml and analysis/ alongside dashboard/api/
+# itself). Dependencies for that build come from the root requirements.txt,
+# not [project.dependencies] above — this project's main deps are the poller
+# stack, which the API doesn't need.
+entrypoint = "dashboard.api._vercel_app:app"
+
 [tool.ruff.lint.per-file-ignores]
 # The vulture whitelist is intentionally a list of bare, undefined names so each
 # counts as a "use" — F821 (undefined name) is expected here, not a bug.
