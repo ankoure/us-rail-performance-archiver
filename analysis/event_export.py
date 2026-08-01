@@ -52,7 +52,7 @@ CSV_FIELDS = [
 def export_events_csv(
     day: VehicleDay,
     local_tz: ZoneInfo,
-    base_dir: Path | str = "curated",
+    base_dir: Path | str = "data/curated",
     gtfs: StaticGtfs | None = None,
 ) -> tuple[int, int]:
     """Expand visits to ARR/DEP events and write per-stop CSVs.

@@ -7,7 +7,7 @@ and writes it under:
     {curated}/snapshots/alerts/feed={feed}/year=/month=/day=/data.json.gz
 
 Mirrors rollup.py's/gold.py's CLI shell so the prod batch chain can call
-`python snapshot.py --day "$DAY"` alongside them.
+`python pipeline/snapshot.py --day "$DAY"` alongside them.
 """
 
 from __future__ import annotations
@@ -15,16 +15,20 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-from analysis.alert_snapshot import (
+# Make the repo root importable when run as `python pipeline/snapshot.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from analysis.alert_snapshot import (  # noqa: E402
     build_alert_snapshot,
     snapshot_path,
     write_alert_snapshot,
 )
-from archiver.decoder import AlertRow
-from archiver.loader import build_feeds, build_source, load_config
+from archiver.decoder import AlertRow  # noqa: E402
+from archiver.loader import build_feeds, build_source, load_config  # noqa: E402
 
 load_dotenv()
 

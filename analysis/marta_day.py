@@ -34,7 +34,7 @@ import pyarrow.parquet as pq
 
 from analysis.event_export import CSV_FIELDS
 
-DEFAULT_CURATED_DIR = Path("curated")
+DEFAULT_CURATED_DIR = Path("data/curated")
 DEFAULT_MAX_WAIT_FOR_ARRIVAL_S = 120
 # When a (train, station, destination)'s predicted next_arr jumps by more than
 # this many seconds between consecutive pings, treat it as a separate approach

@@ -15,10 +15,10 @@ from zoneinfo import ZoneInfo
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-import gold
+from pipeline import gold
 from analysis.segment_speed import SEGMENT_DAY_SCHEMA, SEGMENT_SPEED_SCHEMA
 from analysis.static_gtfs import StaticGtfs
-from gold import _mart_path, _partition_path
+from pipeline.gold import _mart_path, _partition_path
 
 EASTERN = ZoneInfo("America/New_York")
 FEED = "test-vehicles"

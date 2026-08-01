@@ -28,7 +28,7 @@ import requests
 from analysis.static_gtfs import StaticGtfs
 
 DEFAULT_API_URL = "https://mwue7uiyf5.execute-api.us-east-1.amazonaws.com/api"
-DEFAULT_CACHE_DIR = Path("static_gtfs")
+DEFAULT_CACHE_DIR = Path("data/static_gtfs")
 
 
 @dataclass(frozen=True)

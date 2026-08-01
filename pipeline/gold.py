@@ -26,23 +26,23 @@ snapshot can't be resolved, or — defensively — when pandas is unavailable, a
 none of these block the schedule-free marts. Pass --no-otp to skip it explicitly.
 
 It mirrors rollup.py's CLI shell and ship.py's per-(feed, day) loop, so the prod
-batch chain can call `python gold.py --day "$DAY"` symmetrically between rollup
-and ship. Missing partitions skip rather than abort.
+batch chain can call `python pipeline/gold.py --day "$DAY"` symmetrically between
+rollup and ship. Missing partitions skip rather than abort.
 
 Examples:
 
     # one feed, one day (schedule-free marts + OTP, GTFS auto-resolved)
-    uv run python gold.py --feed wmata-vehicles --day 2026-05-20
+    uv run python pipeline/gold.py --feed wmata-vehicles --day 2026-05-20
 
     # every feed in the config, every day already on disk
-    uv run python gold.py --all-days
+    uv run python pipeline/gold.py --all-days
 
     # light-rail feeds whose vehicle pings omit stop_id
-    uv run python gold.py --feed metromn-trips --source trip-updates --day 2026-05-22
+    uv run python pipeline/gold.py --feed metromn-trips --source trip-updates --day 2026-05-22
 
     # schedule-free marts only, with a stricter on-time window
-    uv run python gold.py --all-days --no-otp
-    uv run python gold.py --feed metra-vehicles --day 2026-05-20 --late-threshold-seconds 360
+    uv run python pipeline/gold.py --all-days --no-otp
+    uv run python pipeline/gold.py --feed metra-vehicles --day 2026-05-20 --late-threshold-seconds 360
 """
 
 from __future__ import annotations
@@ -58,16 +58,19 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from dotenv import load_dotenv
 
-from analysis.metrics import (
+# Make the repo root importable when run as `python pipeline/gold.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from analysis.metrics import (  # noqa: E402
     EVENTS_SCHEMA,
     ROUTE_DAY_SCHEMA,
     STOP_DAY_SCHEMA,
     compute_events,
     compute_marts,
 )
-from analysis.trip_updates_day import TripUpdatesDay
-from analysis.vehicle_day import VehicleDay
-from archiver.loader import load_config
+from analysis.trip_updates_day import TripUpdatesDay  # noqa: E402
+from analysis.vehicle_day import VehicleDay  # noqa: E402
+from archiver.loader import load_config  # noqa: E402
 
 load_dotenv()
 
@@ -83,7 +86,7 @@ _SPEED_MARTS = ("segment_speed", "segment_day")
 # path imports gtfs_fetcher (pandas-backed) lazily in main(); see that module for
 # the canonical values and keep these in sync.
 _DEFAULT_GTFS_API_URL = "https://mwue7uiyf5.execute-api.us-east-1.amazonaws.com/api"
-_DEFAULT_GTFS_CACHE_DIR = Path("static_gtfs")
+_DEFAULT_GTFS_CACHE_DIR = Path("data/static_gtfs")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -116,7 +119,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--curated-dir",
         type=Path,
-        default=Path("curated"),
+        default=Path("data/curated"),
         help="Curated root: read silver from here and write metrics under it.",
     )
     p.add_argument(

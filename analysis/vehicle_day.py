@@ -23,7 +23,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-DEFAULT_CURATED_DIR = Path("curated")
+DEFAULT_CURATED_DIR = Path("data/curated")
 
 # Curated parquet uses dotted protobuf paths. Map to the names we use internally.
 _COLUMN_MAP = {

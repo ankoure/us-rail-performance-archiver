@@ -45,10 +45,10 @@ import pandas as pd
 # Make the repo root importable when run as `python scripts/export_dashboard.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gold import _mart_path, load_feed_agency_map  # noqa: E402
+from pipeline.gold import _mart_path, load_feed_agency_map  # noqa: E402
 
 DEFAULT_CONFIG = Path("config/feeds.yaml")
-DEFAULT_CURATED_DIR = Path("curated")
+DEFAULT_CURATED_DIR = Path("data/curated")
 DEFAULT_OUT_DIR = Path("site/data")
 # A per-stop OTP figure on a handful of matched arrivals is noise, not signal;
 # require at least this many matches before a stop is eligible for the worst list.
@@ -291,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--curated-dir", type=Path, default=DEFAULT_CURATED_DIR)
     p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     p.add_argument("--worst-n", type=int, default=15, help="how many worst stops")
-    p.add_argument("--gtfs-cache-dir", type=Path, default=Path("static_gtfs"))
+    p.add_argument("--gtfs-cache-dir", type=Path, default=Path("data/static_gtfs"))
     p.add_argument("--gtfs-api-url", default=None)
     args = p.parse_args(argv)
 

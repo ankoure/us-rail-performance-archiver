@@ -408,7 +408,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=dt.date.fromisoformat,
         help="Restrict to one day (YYYY-MM-DD). Default: every day available.",
     )
-    p.add_argument("--curated-dir", type=Path, default=Path("curated"))
+    p.add_argument("--curated-dir", type=Path, default=Path("data/curated"))
     p.add_argument(
         "--s3",
         action="store_true",

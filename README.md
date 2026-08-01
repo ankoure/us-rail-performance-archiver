@@ -42,28 +42,28 @@ Most agencies publish GTFS-RT as a live snapshot — there's no historical archi
 
                                │ (separately, on a cron)
                                ▼
-                  ┌──────────────────────┐
-                  │     rollup.py        │  ← Rollup (ProcessPool)
-                  │  (curated cold)      │
-                  └──────────┬───────────┘
+                  ┌────────────────────────────┐
+                  │     pipeline/rollup.py     │  ← Rollup (ProcessPool)
+                  │  (curated cold)            │
+                  └──────────┬─────────────────┘
                              │ unframe → parse → decode → typed rows → parquet
                              ▼
               curated/<kind>/feed=…/year=…/month=…/day=…/data.parquet
 
                              │ (optional, on a cron)
                              ▼
-                  ┌──────────────────────┐
-                  │      ship.py         │  ← Shipper (ThreadPool)
-                  └──────────┬───────────┘
+                  ┌────────────────────────────┐
+                  │      pipeline/ship.py      │  ← Shipper (ThreadPool)
+                  └──────────┬─────────────────┘
                              │
-                  ┌──────────┴───────────┐
-                  ▼                      ▼
+                  ┌──────────┴─────────────────┐
+                  ▼                             ▼
         s3://cold-bucket/         s3://hot-bucket/
         <feed>/year=…/…tar.gz     <kind>/feed=…/…parquet
         (DEEP_ARCHIVE)            (standard)
 ```
 
-The landing zone is append-only and complete per poll. The curated zone is reproducible from the landing zone, so schema changes are safe — re-run `rollup.py --force`.
+The landing zone is append-only and complete per poll. The curated zone is reproducible from the landing zone, so schema changes are safe — re-run `pipeline/rollup.py --force`.
 
 ---
 
@@ -90,7 +90,7 @@ That schedules every feed in `config/feeds.yaml`, polling each on its own `poll_
 docker compose up -d
 ```
 
-The dev compose file (`docker-compose.yml`) brings up a Datadog agent, the poller (`app`), and a once-a-day rollup+ship loop (`batch`). It mounts `./config` read-only and `./archive` / `./curated` read-write and loads `.env`. For production deployment see [Deployment](#deployment).
+The dev compose file (`docker-compose.yml`) brings up a Datadog agent, the poller (`app`), and a once-a-day rollup+ship loop (`batch`). It mounts `./config` read-only and `./archive` / `./data/curated` read-write and loads `.env`. For production deployment see [Deployment](#deployment).
 
 ---
 
@@ -115,10 +115,10 @@ uv run main.py [-n POLLS] [-f FREQUENCY] [-w WORKERS] [--shard-index I] [--shard
 
 The loop is a single asyncio event loop driven by a min-heap `Scheduler`: each feed comes due on its own interval (with ±10 % jitter and a startup spread so feeds don't herd). When a feed is due it's polled concurrently behind the worker semaphore; if no slot is free the cycle is shed (`poll.skipped`), and if the agency's token bucket is empty it's skipped (`poll.rate_limited`). A transport error or HTTP ≥ 400 feeds `FeedHealth`, which backs the feed off exponentially and quarantines it after repeated failures. A `SIGTERM`/`SIGINT` drains in-flight polls, flushes buffered frames, and closes clients cleanly.
 
-### `rollup.py` — landing → curated Parquet
+### `pipeline/rollup.py` — landing → curated Parquet
 
 ```
-uv run rollup.py [--feed NAME] [--day YYYY-MM-DD] [-f] [-v]
+uv run pipeline/rollup.py [--feed NAME] [--day YYYY-MM-DD] [-f] [-v]
 ```
 
 | flag | meaning |
@@ -130,10 +130,10 @@ uv run rollup.py [--feed NAME] [--day YYYY-MM-DD] [-f] [-v]
 
 Discovers any day-partition in `archive/<feed>/metadata/...` older than *today UTC* and emits one Parquet per output kind (metadata, vehicles, trip_updates, alerts, marta_predictions). Today's partition is intentionally skipped — it's still being written to. Work is fanned across a `ProcessPoolExecutor` sized by `ROLLUP_WORKERS` (default = CPU count); the unframing loop reads both legacy single-payload `.bin` files and the newer framed `window=…` files transparently.
 
-### `ship.py` — curated + landing → S3
+### `pipeline/ship.py` — curated + landing → S3
 
 ```
-uv run ship.py [--feed NAME] [--day YYYY-MM-DD] [--force] [--hot-only] [-v]
+uv run pipeline/ship.py [--feed NAME] [--day YYYY-MM-DD] [--force] [--hot-only] [-v]
 ```
 
 Requires `s3.enabled: true` in `feeds.yaml` and AWS creds in the environment. For every day-partition older than today:
@@ -182,8 +182,8 @@ Top-level keys (see [archiver/config.py](archiver/config.py) for the full pydant
 writer:
   writer_type: batch          # "local" (one .bin per poll) | "batch" (framed windows)
   landing_dir: ./archive
-  curated_dir: ./curated
-  poll_state_dir: ./poll_state # conditional-GET / dedup state + .heartbeat
+  curated_dir: ./data/curated
+  poll_state_dir: ./data/poll_state # conditional-GET / dedup state + .heartbeat
   window_seconds: 300         # batch window size; ignored by the local writer
 
 telemetry:
@@ -195,7 +195,7 @@ telemetry:
   tags: {}
 
 s3:
-  enabled: false              # set true to use ship.py
+  enabled: false              # set true to use pipeline/ship.py
   region: us-east-1
   cold_bucket: my-cold-bucket
   hot_bucket:  my-hot-bucket
@@ -358,7 +358,7 @@ For ~$1.5K over 5 years you keep every payload from every configured agency, que
 
 - **Volume is steady-state.** Adding more agencies (or re-enabling the commented-out feeds) scales the rate linearly with that feed's poll volume.
 - **Local disk is not auto-pruned.** At ~22.7 GB raw/day, 1 TB fills in ~44 days. The shipper does not delete after a successful upload — wire that up before this model holds.
-- **Deep Archive has a 180-day minimum** (early-deletion fee). Use `ship.py --hot-only` for parquet re-rolls so re-shipping curated outputs doesn't re-charge the tarballs.
+- **Deep Archive has a 180-day minimum** (early-deletion fee). Use `pipeline/ship.py --hot-only` for parquet re-rolls so re-shipping curated outputs doesn't re-charge the tarballs.
 - **Egress for queries** is $0.09/GB outbound; pulling a full year of hot parquet ≈ $190 one-time.
 - **Glacier Instant Retrieval** reads in milliseconds with a $0.01/GB retrieval fee and a 90-day minimum — likely the right fit for parquet queried occasionally from notebooks. A lifecycle rule `STANDARD → GIR at 30d` keeps recent partitions cheap to read while collapsing long-term storage cost.
 
@@ -396,27 +396,27 @@ One row per `InformedEntity` (a single alert may produce many rows). `feed_times
 
 MARTA exposes its own JSON prediction API (not GTFS-RT). See [MartaPredictionRow](archiver/decoder.py#L27).
 
-### `metrics/stop_day` (gold, written by [gold.py](gold.py))
+### `metrics/stop_day` (gold, written by [pipeline/gold.py](pipeline/gold.py))
 
 One row per (route, direction, stop, service_date). `route_id`, `direction_id` (nullable), `stop_id`, `service_date`, `visit_count`, `trip_count`, `distinct_vehicle_count`, `headway_p50_s`, `headway_p90_s`, `headway_mean_s`, `headway_cov`, `dwell_p50_s`, `dwell_p90_s`, `first_service_unix`, `last_service_unix`, `service_span_s`. Headway/dwell percentiles are null when there's too little data (e.g. a single visit yields no headway). See [STOP_DAY_SCHEMA](analysis/metrics.py).
 
-### `metrics/route_day` (gold, written by [gold.py](gold.py))
+### `metrics/route_day` (gold, written by [pipeline/gold.py](pipeline/gold.py))
 
 One row per (route, direction, service_date). Same throughput / span columns as `stop_day` plus `distinct_stop_count`, minus `stop_id`. `headway_p50_s` is the median of the route's per-stop headway medians (pooling raw inter-arrivals across stops would mix unrelated cadences); dwell is pooled. See [ROUTE_DAY_SCHEMA](analysis/metrics.py).
 
-### `metrics/events` (gold, written by [gold.py](gold.py))
+### `metrics/events` (gold, written by [pipeline/gold.py](pipeline/gold.py))
 
 One row per ARR/DEP — each stop visit explodes into an `ARR` at its arrival and a `DEP` at its departure. Every route shares one time-ordered parquet per (feed, day). `route_id`, `direction_id` (nullable), `stop_id`, `stop_sequence` (nullable), `trip_id`, `vehicle_id`, `event_type` (`ARR`/`DEP`), `event_unix`, `service_date`. Same universe as the day marts (null `route_id` dropped, null `direction_id` kept). This is the queryable, single-file-per-day counterpart to the fanned-out gobble `events/feed=…/{route}-{dir}-{stop}/…/events.csv` tree from [event_export.py](analysis/event_export.py). See [EVENTS_SCHEMA](analysis/metrics.py).
 
-### `metrics/adherence` (gold OTP, written by [gold.py](gold.py))
+### `metrics/adherence` (gold OTP, written by [pipeline/gold.py](pipeline/gold.py))
 
 The schedule-joined fact table: one row per stop visit that matched the static GTFS schedule. Each visit is joined to its scheduled stop by `(trip_id, stop_id)` (not by observed time — that would mis-attribute a neighbouring trip when a vehicle runs early/late), and `route_id`/`direction_id`/`stop_sequence` are taken from the **schedule** (authoritative), so OTP covers trip_id-only feeds (NYCT subway, TriMet) that omit them in realtime. Columns: `route_id`, `direction_id` (nullable), `stop_id`, `stop_sequence` (nullable), `trip_id`, `vehicle_id` (nullable), `route_mode` (nullable; `rapid`/`bus`/`cr`/`other`), `service_date`, `arrival_unix`, `scheduled_arrival_unix` (nullable), `arrival_delay_s` (nullable; +late/−early), `departure_unix`, `scheduled_departure_unix` (nullable), `departure_delay_s` (nullable), `status` (`early`/`on_time`/`late`), `on_time` (bool). Scheduled times are anchored to the trip's service day, so owl trips (e.g. scheduled `25:30:00`) match the prior day. See [ADHERENCE_SCHEMA](analysis/adherence.py).
 
-### `metrics/stop_day_otp` (gold OTP, written by [gold.py](gold.py))
+### `metrics/stop_day_otp` (gold OTP, written by [pipeline/gold.py](pipeline/gold.py))
 
 One row per (route, direction, stop, service_date), aggregating `adherence`. `route_id`, `direction_id` (nullable), `stop_id`, `service_date`, `matched_count`, `on_time_count`, `early_count`, `late_count`, `on_time_pct` (fraction over matched visits), `arr_delay_p50_s`, `arr_delay_p90_s`, `arr_delay_mean_s`, `dep_delay_p50_s`. See [STOP_DAY_OTP_SCHEMA](analysis/adherence.py).
 
-### `metrics/route_day_otp` (gold OTP, written by [gold.py](gold.py))
+### `metrics/route_day_otp` (gold OTP, written by [pipeline/gold.py](pipeline/gold.py))
 
 One row per (route, direction, service_date). Same aggregate columns as `stop_day_otp` plus `distinct_stop_count`, minus `stop_id`; delay percentiles are pooled across the route's stops. See [ROUTE_DAY_OTP_SCHEMA](analysis/adherence.py).
 
@@ -451,7 +451,7 @@ Driver scripts in [scripts/](scripts/) wrap these for CLI use:
 
 ### Gold tier
 
-[gold.py](gold.py) is the daily aggregation runner (alongside [rollup.py](rollup.py) and [ship.py](ship.py)). For each (feed, day) it derives Visits from the silver `vehicles` (or `trip_updates`, via `--source trip-updates`) parquet and writes two families of partitioned parquet marts off a single load.
+[pipeline/gold.py](pipeline/gold.py) is the daily aggregation runner (alongside [pipeline/rollup.py](pipeline/rollup.py) and [pipeline/ship.py](pipeline/ship.py)). For each (feed, day) it derives Visits from the silver `vehicles` (or `trip_updates`, via `--source trip-updates`) parquet and writes two families of partitioned parquet marts off a single load.
 
 **Schedule-free** (always, via [analysis/metrics.py](analysis/metrics.py)) — headway p50/p90, headway mean + coefficient of variation (regularity), dwell p50/p90, trip / visit / distinct-vehicle counts, and service span:
 
@@ -468,8 +468,8 @@ OTP runs in the daily prod batch (`pandas` is a runtime dependency). It's **best
 Partition keys (`feed`, `year`, `month`, `day`) live in the path only, matching the silver layout. [notebooks/gold_metrics.ipynb](notebooks/gold_metrics.ipynb) validates the marts against the raw visits.
 
 ```bash
-uv run python gold.py --feed wmata-vehicles --day 2026-05-20   # schedule-free + OTP (GTFS auto-resolved)
-uv run python gold.py --all-days --no-otp                      # every feed/day on disk, schedule-free only
+uv run python pipeline/gold.py --feed wmata-vehicles --day 2026-05-20   # schedule-free + OTP (GTFS auto-resolved)
+uv run python pipeline/gold.py --all-days --no-otp                      # every feed/day on disk, schedule-free only
 ```
 
 ---
@@ -513,7 +513,7 @@ Production runs on a single EC2 box via Docker Compose (`compose.prod.yml`):
 
 - **`app`** — the poller, pulled from `ghcr.io/ankoure/us-rail-performance-archiver`, labeled `autoheal=true`.
 - **`autoheal`** — a sidecar that watches the container `HEALTHCHECK` (which stats `poll_state/.heartbeat`) and restarts the poller if the loop goes stale.
-- **`batch`** — a daily loop that runs `rollup.py --day yesterday && gold.py --day yesterday && ship.py --day yesterday` (its inherited healthcheck is disabled since it never writes the heartbeat).
+- **`batch`** — a daily loop that runs `pipeline/rollup.py --day yesterday && pipeline/gold.py --day yesterday && pipeline/ship.py --day yesterday` (its inherited healthcheck is disabled since it never writes the heartbeat).
 - **`datadog-agent`** — receives DogStatsD metrics/spans.
 
 CI deploys on every push to `main`: GitHub Actions builds the image, pushes to GHCR, assumes an AWS role via OIDC (no static keys), and triggers `docker compose up -d` on the instance over SSM. Full one-time setup (IAM, OIDC, EC2 bootstrap, secrets) is in [deploy/README.md](deploy/README.md).
@@ -526,7 +526,7 @@ To run more than one poller, shard by agency: give each worker a distinct `--sha
 
 | path | role |
 |---|---|
-| [main.py](main.py), [rollup.py](rollup.py), [ship.py](ship.py) | CLI entrypoints — parse args, build, run |
+| [main.py](main.py), [pipeline/rollup.py](pipeline/rollup.py), [pipeline/ship.py](pipeline/ship.py) | CLI entrypoints — parse args, build, run |
 | [archiver/loader.py](archiver/loader.py) | composition root — wires config → objects (clients, limiters, writer, store) |
 | [archiver/config.py](archiver/config.py) | pydantic models for `feeds.yaml` |
 | [archiver/archiver.py](archiver/archiver.py) | `FeedArchiver` — per-poll work (conditional GET, dedup, parse, write) |

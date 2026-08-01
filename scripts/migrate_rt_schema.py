@@ -219,7 +219,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--curated-dir", type=Path, default=Path("curated"))
+    p.add_argument("--curated-dir", type=Path, default=Path("data/curated"))
     p.add_argument(
         "--dataset",
         choices=[*DATASETS, "both"],

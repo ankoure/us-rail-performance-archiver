@@ -119,7 +119,7 @@ Note the **role ARN** — you'll need it for `AWS_DEPLOY_ROLE_ARN` in step 5.
 
 ### 3a. IAM role for the instance
 
-The instance needs SSM agent comms + S3 access (for `ship.py`).
+The instance needs SSM agent comms + S3 access (for `pipeline/ship.py`).
 
 ```bash
 aws iam create-role \
@@ -221,11 +221,11 @@ Then do a manual first run to confirm everything wires up:
 cd /opt/rail-archiver
 
 # The poller runs sharded (app-shard-0/1 in compose.prod.yml), and each shard mounts
-# its OWN ./poll_state/shard-<i> so the per-container HEALTHCHECK heartbeat stays
+# its OWN ./data/poll_state/shard-<i> so the per-container HEALTHCHECK heartbeat stays
 # independent. Docker would create those bind-mount dirs as root, but the containers
 # run as 1000:1000 — pre-create them owned correctly (make target does the mkdir):
 make shard-dirs
-sudo chown -R 1000:1000 poll_state/   # skip if your deploy user is already uid 1000
+sudo chown -R 1000:1000 data/poll_state/   # skip if your deploy user is already uid 1000
 
 docker compose -f compose.prod.yml pull   # pulls the image CI pushed
 docker compose -f compose.prod.yml up -d --remove-orphans   # --remove-orphans drops renamed/old services (e.g. the pre-shard `app`)

@@ -139,7 +139,7 @@ class WriterConfig(BaseModel):
     merge_to_hourly: bool = False
     landing_dir: Path
     curated_dir: Path
-    poll_state_dir: Path = Path("./poll_state")
+    poll_state_dir: Path = Path("./data/poll_state")
 
 
 class TelemetryConfig(BaseModel):

@@ -115,8 +115,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--curated-dir",
         type=Path,
-        default=Path("curated"),
-        help="Where to read vehicles parquet from and write events under (default: ./curated)",
+        default=Path("data/curated"),
+        help="Where to read vehicles parquet from and write events under (default: ./data/curated)",
     )
     p.add_argument(
         "--source",

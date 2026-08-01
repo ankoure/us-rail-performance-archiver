@@ -1,5 +1,11 @@
+import sys
+from pathlib import Path
+
+# Make the repo root importable when run as `python pipeline/prune_s3.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from dotenv import load_dotenv
-from archiver.loader import build_shipper, load_config
+from archiver.loader import build_shipper, load_config  # noqa: E402
 import argparse
 import logging
 from datetime import date

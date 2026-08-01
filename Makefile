@@ -32,10 +32,10 @@ feeds-onboard: feeds-generate feeds-validate feeds-merge
 # Create per-shard poll_state dirs so the sharded compose pollers can write their
 # heartbeats. Docker would otherwise create the bind-mount sources as root, but the
 # containers run as 1000:1000. Run this on the deploy host before `docker compose up`.
-# If your deploy user isn't uid 1000, follow with: sudo chown -R 1000:1000 poll_state/
+# If your deploy user isn't uid 1000, follow with: sudo chown -R 1000:1000 data/poll_state/
 shard-dirs:
-	@for i in $$(seq 0 $$(($(SHARDS) - 1))); do mkdir -p poll_state/shard-$$i; done
-	@echo "created poll_state/shard-0..$$(($(SHARDS) - 1)) (chown to 1000:1000 if needed)"
+	@for i in $$(seq 0 $$(($(SHARDS) - 1))); do mkdir -p data/poll_state/shard-$$i; done
+	@echo "created data/poll_state/shard-0..$$(($(SHARDS) - 1)) (chown to 1000:1000 if needed)"
 
 # --- Dashboard (dashboard/api + dashboard/web) ------------------------------
 

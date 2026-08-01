@@ -75,20 +75,20 @@ locals {
     # awsvpc puts every container in one netns, so the rollup reaches the
     # datadog-agent sidecar at 127.0.0.1:8125; env=prod matches the dashboard filter.
     python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
-    python rollup.py --config /tmp/fargate.yaml --day "$DAY"
+    python pipeline/rollup.py --config /tmp/fargate.yaml --day "$DAY"
     # Dedup last-write-wins alert snapshots from raw landing polls (curated/alerts
     # itself is a raw per-poll log — see analysis/alert_snapshot.py). Only needs
     # landing, not rollup's curated silver output, so it can run right after
     # rollup either way; grouped here for one clear place in the sequence.
-    python snapshot.py --config /tmp/fargate.yaml --day "$DAY"
-    python gold.py --config /tmp/fargate.yaml --day "$DAY"
-    python ship.py --config /tmp/fargate.yaml --day "$DAY"
+    python pipeline/snapshot.py --config /tmp/fargate.yaml --day "$DAY"
+    python pipeline/gold.py --config /tmp/fargate.yaml --day "$DAY"
+    python pipeline/ship.py --config /tmp/fargate.yaml --day "$DAY"
     # Cert-expiry probe: emits cert.days_remaining per agency (drives the TLS
     # monitors). Independent of --day. MUST use /tmp/fargate.yaml so telemetry is
     # enabled — the baked config has it off, which would silently NoOp the metric.
     # `|| true`: an auxiliary check must never abort the drain (set -e) and cost
     # the run's ship.* metrics.
-    python cert_check.py --config /tmp/fargate.yaml || true
+    python pipeline/cert_check.py --config /tmp/fargate.yaml || true
     # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
     # interval, so pause before the essential container exits (which SIGTERMs the
     # agent) to let the run's final ship.* metrics reach Datadog.

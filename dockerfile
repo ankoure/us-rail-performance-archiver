@@ -64,7 +64,7 @@ WORKDIR /app
 # unhealthy and let an external supervisor (autoheal) restart the container.
 # start-period covers startup before the first tick writes the file.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD find /app/poll_state/.heartbeat -mmin -2 2>/dev/null | grep -q . || exit 1
+    CMD find /app/data/poll_state/.heartbeat -mmin -2 2>/dev/null | grep -q . || exit 1
 
 # Run the application by default
 CMD ["python", "main.py", "--frequency", "15"]

@@ -49,7 +49,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--start", type=dt.date.fromisoformat, help="Inclusive range start")
     p.add_argument("--end", type=dt.date.fromisoformat, help="Inclusive range end")
-    p.add_argument("--curated-dir", type=Path, default=Path("curated"))
+    p.add_argument("--curated-dir", type=Path, default=Path("data/curated"))
     p.add_argument(
         "--max-wait-for-arrival-s",
         type=int,

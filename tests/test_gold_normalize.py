@@ -10,10 +10,10 @@ from zoneinfo import ZoneInfo
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-import gold
+from pipeline import gold
 from analysis.normalize import NORMALIZED_VEHICLES_SCHEMA
 from analysis.static_gtfs import StaticGtfs
-from gold import normalize_one, _raw_table_path, _normalized_path
+from pipeline.gold import normalize_one, _raw_table_path, _normalized_path
 
 EASTERN = ZoneInfo("America/New_York")
 DAY = dt.date(2026, 6, 16)

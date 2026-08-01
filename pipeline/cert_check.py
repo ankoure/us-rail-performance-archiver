@@ -1,12 +1,17 @@
 import os
 import ssl
+import sys
 import tempfile
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 
-from archiver.logger import logger
+# Make the repo root importable when run as `python pipeline/cert_check.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from archiver.logger import logger  # noqa: E402
 from dotenv import load_dotenv
-from archiver.loader import build_telemetry, load_config
+from archiver.loader import build_telemetry, load_config  # noqa: E402
 import argparse
 import logging
 

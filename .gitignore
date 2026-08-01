@@ -21,10 +21,10 @@ nohup.out
 
 # Runtime output
 archive/
-curated/
-static_gtfs/
+data/curated/
+data/static_gtfs/
 analysis/snapshots/
-poll_state/
+data/poll_state/
 
 # Feed-onboarding intermediates (regenerable via `make feeds-onboard`)
 config/feeds.candidates.yaml
