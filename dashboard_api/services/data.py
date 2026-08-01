@@ -24,6 +24,12 @@ _KINDS: dict[str, tuple[str, str | None]] = {
 }
 
 
+def _hot_path(subpath: str) -> str:
+    config = load_config(DEFAULT_CONFIG_PATH)
+    s3 = config.s3
+    return f"{s3.hot_bucket.rstrip('/')}/{s3.hot_prefix}{subpath}"
+
+
 def _kind_or_raise(kind: str) -> tuple[str, str | None]:
     try:
         return _KINDS[kind]
@@ -56,14 +62,11 @@ def _s3_filesystem() -> pafs.S3FileSystem:
 def _dataset_for_kind(kind: str) -> ds.Dataset:
     """Build a hive-partitioned dataset over hot_bucket/hot_prefix/<kind path>."""
     subpath, _ = _kind_or_raise(kind)
-    config = load_config(DEFAULT_CONFIG_PATH)
-    s3 = config.s3
 
     # hot_prefix is plain string concatenation (archiver/shipper.py's _hot_key
     # convention) — a non-empty prefix already carries its own trailing slash,
     # so don't insert one here.
-    root = f"{s3.hot_bucket.rstrip('/')}/{s3.hot_prefix}{subpath}"
-
+    root = _hot_path(subpath=subpath)
     return ds.dataset(
         root,
         filesystem=_s3_filesystem(),

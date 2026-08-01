@@ -101,7 +101,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
         for day in sorted(dates):
             try:
-                if build_snapshot_one(feed, day, source, config.writer.curated_dir, force=args.force):
+                if build_snapshot_one(
+                    feed, day, source, config.writer.curated_dir, force=args.force
+                ):
                     built += 1
             except Exception as exc:
                 print(f"[{feed.name} {day}] SKIP — {exc}", file=sys.stderr)
