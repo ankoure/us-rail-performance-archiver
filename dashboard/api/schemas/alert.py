@@ -33,12 +33,12 @@ class InformedEntity(BaseModel):
 class Alert(BaseModel):
     active_period: list[TimeRange] = []
     informed_entity: list[InformedEntity]
-    cause: str
-    effect: str
+    cause: str | None = None
+    effect: str | None = None
     url: TranslatedString | None = None
-    header_text: TranslatedString
+    header_text: TranslatedString | None = None
     description_text: TranslatedString | None = None
-    severity_level: str
+    severity_level: str | None = None
 
 
 class AlertRow(BaseModel):
