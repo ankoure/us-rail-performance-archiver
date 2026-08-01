@@ -103,32 +103,6 @@ variable "rollup_memory" {
   description = "Fargate task memory (MiB) for the rollup stage."
 }
 
-# gold/ship default to the same size as rollup (unmeasured standalone) — once
-# there's per-stage CloudWatch data, size these down independently.
-variable "gold_cpu" {
-  type        = string
-  default     = "4096"
-  description = "Fargate task CPU units for the gold stage."
-}
-
-variable "gold_memory" {
-  type        = string
-  default     = "10240"
-  description = "Fargate task memory (MiB) for the gold stage."
-}
-
-variable "ship_cpu" {
-  type        = string
-  default     = "4096"
-  description = "Fargate task CPU units for the ship stage."
-}
-
-variable "ship_memory" {
-  type        = string
-  default     = "10240"
-  description = "Fargate task memory (MiB) for the ship stage."
-}
-
 variable "env_secret_name" {
   type        = string
   default     = "rail-archiver/env"
