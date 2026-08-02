@@ -650,7 +650,7 @@
           {
             "definition": {
               "type": "note",
-              "content": "Storage cost estimated from CloudWatch's free daily BucketSizeBytes metric (pipeline/s3_storage_metrics.py, one gauge per bucket role: landing=Standard, cold=Deep Archive, hot=Intelligent-Tiering base tier). Rates as of 2026-08-02: Standard $0.023/GB-mo, Deep Archive $0.00099/GB-mo, Intelligent-Tiering $0.023/GB-mo (IT monitoring fee — $0.0025/1k objects — not included). Updates ~once/day since that's how often AWS publishes the metric.",
+              "content": "Storage cost estimated from CloudWatch's free daily BucketSizeBytes metric, summed across whatever StorageType series each bucket actually publishes (pipeline/s3_storage_metrics.py — one gauge per bucket role). Rates as of 2026-08-02 apply one assumed class per role regardless of what CloudWatch reports: landing+hot at Standard $0.023/GB-mo, cold at Deep Archive $0.00099/GB-mo (Intelligent-Tiering's base-tier rate is also $0.023/GB-mo if hot ever moves to that class — its per-1k-object monitoring fee is not included either way). Updates ~once/day since that's how often AWS publishes the metric.",
               "background_color": "gray",
               "font_size": "14",
               "text_align": "left",

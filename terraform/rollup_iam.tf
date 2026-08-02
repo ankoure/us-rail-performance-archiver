@@ -68,9 +68,11 @@ resource "aws_iam_role_policy" "rollup_task_s3" {
         Sid    = "ReadBucketSizeMetrics"
         Effect = "Allow"
         # pipeline/s3_storage_metrics.py reads the free daily BucketSizeBytes
-        # metric for the S3 storage-cost dashboard widgets. CloudWatch metric
-        # reads aren't resource-scoped, hence Resource "*".
-        Action   = ["cloudwatch:GetMetricStatistics"]
+        # metric for the S3 storage-cost dashboard widgets. ListMetrics
+        # discovers which StorageType series a bucket actually publishes (no
+        # "AllStorageTypes" catch-all exists); GetMetricStatistics reads each
+        # one. CloudWatch metric reads aren't resource-scoped, hence "*".
+        Action   = ["cloudwatch:ListMetrics", "cloudwatch:GetMetricStatistics"]
         Resource = ["*"]
       },
     ]
