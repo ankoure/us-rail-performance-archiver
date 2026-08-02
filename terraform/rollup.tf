@@ -75,6 +75,12 @@ locals {
     # awsvpc puts every container in one netns, so the rollup reaches the
     # datadog-agent sidecar at 127.0.0.1:8125; env=prod matches the dashboard filter.
     python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
+    # Task-level wall-clock duration, for the ECS runtime-cost dashboard
+    # widgets. `trap ... EXIT` fires on both the success path and any set -e
+    # early-exit, so a run that fails partway is still billed-cost-tracked
+    # instead of silently dropped.
+    START=$(date +%s)
+    trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --seconds $(( $(date +%s) - START )) || true' EXIT
     python pipeline/rollup.py --config /tmp/fargate.yaml --day "$DAY"
     # Dedup last-write-wins alert snapshots from raw landing polls (curated/alerts
     # itself is a raw per-poll log — see analysis/alert_snapshot.py). Only needs
@@ -89,6 +95,9 @@ locals {
     # `|| true`: an auxiliary check must never abort the drain (set -e) and cost
     # the run's ship.* metrics.
     python pipeline/cert_check.py --config /tmp/fargate.yaml || true
+    # S3 storage-cost dashboard widgets: reads CloudWatch's free daily
+    # BucketSizeBytes metric, doesn't touch the buckets themselves.
+    python pipeline/s3_storage_metrics.py --config /tmp/fargate.yaml || true
     # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
     # interval, so pause before the essential container exits (which SIGTERMs the
     # agent) to let the run's final ship.* metrics reach Datadog.

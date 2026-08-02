@@ -646,6 +646,114 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "type": "note",
+              "content": "Storage cost estimated from CloudWatch's free daily BucketSizeBytes metric (pipeline/s3_storage_metrics.py, one gauge per bucket role: landing=Standard, cold=Deep Archive, hot=Intelligent-Tiering base tier). Rates as of 2026-08-02: Standard $0.023/GB-mo, Deep Archive $0.00099/GB-mo, Intelligent-Tiering $0.023/GB-mo (IT monitoring fee — $0.0025/1k objects — not included). Updates ~once/day since that's how often AWS publishes the metric.",
+              "background_color": "gray",
+              "font_size": "14",
+              "text_align": "left",
+              "show_tick": false
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "S3 storage cost — current (est. $/mo)",
+              "precision": 2,
+              "custom_unit": "$",
+              "autoscale": false,
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "landing",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.bytes{$env, service:rail-archiver, bucket_role:landing}",
+                      "aggregator": "avg"
+                    },
+                    {
+                      "name": "cold",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.bytes{$env, service:rail-archiver, bucket_role:cold}",
+                      "aggregator": "avg"
+                    },
+                    {
+                      "name": "hot",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.bytes{$env, service:rail-archiver, bucket_role:hot}",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "(landing / 1073741824) * 0.023 + (cold / 1073741824) * 0.00099 + (hot / 1073741824) * 0.023"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "S3 storage bytes by bucket role",
+              "show_legend": true,
+              "yaxis": { "label": "bytes", "include_zero": true },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "area",
+                  "queries": [
+                    {
+                      "name": "bytes",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.bytes{$env, service:rail-archiver} by {bucket_role}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "bytes" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Estimated S3 storage cost by bucket role ($/mo)",
+              "show_legend": true,
+              "yaxis": { "label": "$", "include_zero": true },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "area",
+                  "queries": [
+                    {
+                      "name": "landing",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.bytes{$env, service:rail-archiver, bucket_role:landing}"
+                    },
+                    {
+                      "name": "cold",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.bytes{$env, service:rail-archiver, bucket_role:cold}"
+                    },
+                    {
+                      "name": "hot",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.bytes{$env, service:rail-archiver, bucket_role:hot}"
+                    }
+                  ],
+                  "formulas": [
+                    { "formula": "(landing / 1073741824) * 0.023", "alias": "landing" },
+                    { "formula": "(cold / 1073741824) * 0.00099", "alias": "cold" },
+                    { "formula": "(hot / 1073741824) * 0.023", "alias": "hot" }
+                  ]
+                }
+              ]
+            }
           }
         ]
       }
@@ -767,6 +875,126 @@
                   "formulas": [
                     { "formula": "mem_peak", "limit": { "count": 10, "order": "desc" } }
                   ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "layout_type": "ordered",
+        "title": "ECS runtime cost (estimated)",
+        "widgets": [
+          {
+            "definition": {
+              "type": "note",
+              "content": "Estimated from pipeline.task.duration (wall clock of the whole rollup/snapshot/gold/ship/cert_check Fargate task, emitted by pipeline/task_duration.py via a shell `trap ... EXIT` so a failed run still counts) x on-demand Fargate list pricing for the task's fixed size (4 vCPU / 8 GiB — terraform var.rollup_cpu/rollup_memory). Rates as of 2026-08-02, us-east-1: $0.04048/vCPU-hr, $0.004445/GB-hr. The task actually runs on FARGATE_SPOT, so real cost is typically lower and fluctuates with market rate — this is a conservative upper bound, not a live Spot price. One scheduled run/day (cron 30 3 * * ? *).",
+              "background_color": "gray",
+              "font_size": "14",
+              "text_align": "left",
+              "show_tick": false
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Last run duration (min)",
+              "precision": 1,
+              "autoscale": false,
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "duration_ms",
+                      "data_source": "metrics",
+                      "query": "avg:pipeline.task.duration.avg{$env, service:rail-archiver}",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [{ "formula": "duration_ms / 60000" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Est. cost per run ($)",
+              "precision": 3,
+              "custom_unit": "$",
+              "autoscale": false,
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "duration_ms",
+                      "data_source": "metrics",
+                      "query": "avg:pipeline.task.duration.avg{$env, service:rail-archiver}",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "(duration_ms / 3600000) * (4 * 0.04048 + 8 * 0.004445)"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "query_value",
+              "title": "Projected monthly ECS cost (est. $ = per-run x 30)",
+              "precision": 2,
+              "custom_unit": "$",
+              "autoscale": false,
+              "time": { "live_span": "1d" },
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "duration_ms",
+                      "data_source": "metrics",
+                      "query": "avg:pipeline.task.duration.avg{$env, service:rail-archiver}",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "(duration_ms / 3600000) * (4 * 0.04048 + 8 * 0.004445) * 30"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "pipeline.task.duration per run (minutes)",
+              "show_legend": false,
+              "yaxis": { "label": "min", "include_zero": true },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "bars",
+                  "queries": [
+                    {
+                      "name": "duration_ms",
+                      "data_source": "metrics",
+                      "query": "avg:pipeline.task.duration.avg{$env, service:rail-archiver}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "duration_ms / 60000" }]
                 }
               ]
             }

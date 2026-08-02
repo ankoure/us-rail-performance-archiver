@@ -64,6 +64,15 @@ resource "aws_iam_role_policy" "rollup_task_s3" {
           "arn:aws:s3:::${var.cold_bucket}", "arn:aws:s3:::${var.cold_bucket}/*",
         ]
       },
+      {
+        Sid    = "ReadBucketSizeMetrics"
+        Effect = "Allow"
+        # pipeline/s3_storage_metrics.py reads the free daily BucketSizeBytes
+        # metric for the S3 storage-cost dashboard widgets. CloudWatch metric
+        # reads aren't resource-scoped, hence Resource "*".
+        Action   = ["cloudwatch:GetMetricStatistics"]
+        Resource = ["*"]
+      },
     ]
   })
 }
