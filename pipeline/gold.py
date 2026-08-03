@@ -20,6 +20,12 @@ marts — a trip-stop fact table plus stop-day / route-day rollups:
     {curated}/metrics/stop_day_otp/...
     {curated}/metrics/route_day_otp/...
 
+It also writes a small routes-manifest mart (route_id -> short/long name,
+mode) off the same resolved GTFS snapshot, so dashboard/api can read a
+route list without resolving GTFS itself:
+
+    {curated}/metrics/routes/feed={feed}/year=/month=/day=/data.parquet
+
 OTP runs in the prod daily batch (pandas is a runtime dependency). It is still
 best-effort: it self-skips when an agency has no mdb_feed_id, when the schedule
 snapshot can't be resolved, or — defensively — when pandas is unavailable, and
@@ -80,6 +86,21 @@ _SOURCE_SUBDIR = {"vehicles": "vehicles", "trip-updates": "trip_updates"}
 _SCHEDULE_FREE_MARTS = ("stop_day", "route_day", "events")
 _OTP_MARTS = ("adherence", "stop_day_otp", "route_day_otp")
 _SPEED_MARTS = ("segment_speed", "segment_day")
+_ROUTES_MART = "routes"
+
+# One row per GTFS route_id — a small, rarely-changing reference table, rebuilt
+# daily alongside OTP (same gtfs_for resolver, no second download) so
+# dashboard/api can read it via the same S3 hot-bucket + read_kind path as
+# every other mart, instead of resolving GTFS itself at request time.
+ROUTES_SCHEMA = pa.schema(
+    [
+        pa.field("route_id", pa.string(), nullable=False),
+        pa.field("route_short_name", pa.string(), nullable=True),
+        pa.field("route_long_name", pa.string(), nullable=True),
+        pa.field("mode", pa.string(), nullable=False),
+        pa.field("service_date", pa.string(), nullable=False),
+    ]
+)
 
 # GTFS resolver defaults — duplicated from analysis.gtfs_fetcher rather than
 # imported, so gold.py's module import stays pandas-free. The on-time-performance
@@ -292,6 +313,7 @@ def build_one(
     sf_paths = {m: _mart_path(curated_dir, m, feed, day) for m in _SCHEDULE_FREE_MARTS}
     otp_paths = {m: _mart_path(curated_dir, m, feed, day) for m in _OTP_MARTS}
     speed_paths = {m: _mart_path(curated_dir, m, feed, day) for m in _SPEED_MARTS}
+    routes_path = _mart_path(curated_dir, _ROUTES_MART, feed, day)
     need_sf = force or not all(p.exists() for p in sf_paths.values())
     need_otp = gtfs_for is not None and (
         force or not all(p.exists() for p in otp_paths.values())
@@ -299,7 +321,8 @@ def build_one(
     need_speed = gtfs_for is not None and (
         force or not all(p.exists() for p in speed_paths.values())
     )
-    if not need_sf and not need_otp and not need_speed:
+    need_routes = gtfs_for is not None and (force or not routes_path.exists())
+    if not need_sf and not need_otp and not need_speed and not need_routes:
         print(f"[{feed} {day}] exists — skipping (use --force)", file=sys.stderr)
         return None
 
@@ -320,6 +343,7 @@ def build_one(
         "adherence": 0,
         "on_time": 0,
         "segments": 0,
+        "routes": 0,
     }
     if need_sf:
         stop_rows, route_rows = compute_marts(visits, feed, tz)
@@ -356,6 +380,11 @@ def build_one(
         n = _build_speed(feed, day, tz, visits, gtfs_for, speed_paths)
         if n is not None:
             result["segments"] = n
+
+    if need_routes:
+        n = _build_routes(feed, day, gtfs_for, routes_path)
+        if n is not None:
+            result["routes"] = n
 
     return result
 
@@ -433,6 +462,56 @@ def _build_otp(
         f"({rate:4.1f}% of {candidates:,} trip-visits matched schedule)"
     )
     return matched, on_time
+
+
+def _build_routes(
+    feed: str,
+    day: dt.date,
+    gtfs_for,
+    routes_path: Path,
+) -> int | None:
+    """Build the routes-manifest mart for one (feed, day). Returns row count, or None.
+
+    Shares gtfs_for(feed, day) with _build_otp — GtfsResolver memoizes snapshot
+    loads per agency, so when OTP already resolved this (feed, day) this call is
+    a cache hit, not a second download.
+    """
+    try:
+        gtfs_day = gtfs_for(feed, day)
+    except (LookupError, FileNotFoundError) as e:
+        print(f"[{feed} {day}] SKIP routes — GTFS lookup: {e}", file=sys.stderr)
+        return None
+    if gtfs_day is None:
+        print(
+            f"[{feed} {day}] no mdb_feed_id for this agency — skipping routes",
+            file=sys.stderr,
+        )
+        return None
+
+    route_modes = gtfs_day.route_modes
+    rows = []
+    for row in gtfs_day.routes.itertuples(index=False):
+        route_id = getattr(row, "route_id", None)
+        if not isinstance(route_id, str) or not route_id:
+            continue
+        short_name = getattr(row, "route_short_name", None)
+        long_name = getattr(row, "route_long_name", None)
+        rows.append(
+            {
+                "route_id": route_id,
+                "route_short_name": short_name if isinstance(short_name, str) else None,
+                "route_long_name": long_name if isinstance(long_name, str) else None,
+                "mode": route_modes.get(route_id, "other"),
+                "service_date": day.isoformat(),
+            }
+        )
+    if not rows:
+        print(f"[{feed} {day}] no routes in schedule — skipping", file=sys.stderr)
+        return None
+
+    _write_parquet(rows, ROUTES_SCHEMA, routes_path)
+    print(f"[{feed} {day}] {len(rows):>7,} routes")
+    return len(rows)
 
 
 def _build_speed(
@@ -771,6 +850,7 @@ def main(argv: list[str] | None = None) -> int:
         "adherence": 0,
         "on_time": 0,
         "segments": 0,
+        "routes": 0,
     }
     for feed in feeds:
         tz_str = feed_tz_map.get(feed)
@@ -813,6 +893,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         summary += f", {totals['adherence']:,} adherence rows ({otp_pct:.1f}% on-time)"
         summary += f", {totals['segments']:,} segment-speed rows"
+        summary += f", {totals['routes']:,} routes"
     print(summary)
     return 0
 
