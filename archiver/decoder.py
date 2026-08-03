@@ -539,6 +539,7 @@ class StandardDecoder(GtfsRtDecoder):
         ),
         StopTimeUpdateRow: TableSpec(
             "trip_updates",
+            dedup_keys=("trip_id", "stop_sequence", "trip_update_timestamp"),
             column_names={
                 "trip_update_timestamp": "trip_update.timestamp",
                 "trip_id": "trip_update.trip.trip_id",
