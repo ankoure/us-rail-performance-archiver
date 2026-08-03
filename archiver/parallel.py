@@ -19,15 +19,7 @@ def _run_one(feed_name: str, day: date, force: bool) -> tuple[str, date]:
     return (feed_name, day)
 
 
-def run_parallel(
-    rollup: Rollup,
-    config_path: str,
-    feed,
-    day,
-    force,
-    workers: int,
-    max_tasks_per_child: int,
-):
+def run_parallel(rollup: Rollup, config_path: str, feed, day, force, workers: int):
     pairs = list(rollup.discover(feed=feed, day=day))
     total = len(pairs)
     if total == 0:
@@ -38,7 +30,6 @@ def run_parallel(
         return
     with ProcessPoolExecutor(
         max_workers=max(1, workers),
-        max_tasks_per_child=max_tasks_per_child,
         initializer=_init_worker,
         initargs=(config_path,),
     ) as ex:

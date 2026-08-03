@@ -58,72 +58,6 @@ def _unwrap_optional(annotation):
     return non_none[0] if non_none else annotation
 
 
-class Deduper:
-    """
-    Tracks which dedup keys have been accepted so far, across both
-    the per-row dict path (append()) and the batch pa.Table/RecordBatch
-    path (write_batch()). One instance per (row_class, TableSpec) with
-    non-empty dedup_keys.
-
-    _seen stores hash(key) rather than the key tuple itself, to bound
-    memory -- a busy feed's dedup-key tuples (each holding its own
-    string/int objects) add up fast across a whole day's rows. This
-    accepts a vanishingly small false-duplicate risk on hash collision
-    in exchange for not retaining every key's actual contents.
-
-    Rows/records missing any dedup-key field are always accepted (never
-    dropped -- writes proceed unconditionally) and never added to _seen,
-    since a row that can't be keyed can't be proven a duplicate of
-    anything. This differs from TripUpdatesDay._dedupe_latest_per_key,
-    which filters at read time with the source row still recoverable in
-    curated; Deduper gates the write itself, so dropping here would mean
-    permanent data loss rather than a read-time choice.
-
-    filter_table expects flat pre-rename column names (the dataclass
-    field names dedup_keys is defined in terms of) -- call it on the raw
-    decoder batch, before _batch_to_parquet_table renames columns to
-    dotted parquet names. Accepts pa.RecordBatch (what rail_decoder.
-    decode_arrow() actually returns) or pa.Table -- both support
-    .select()/.filter()/.num_rows identically.
-    """
-
-    def __init__(self, dedup_keys: tuple[str, ...]):
-        self._dedup_keys = dedup_keys
-        self._seen: set[int] = set()
-
-    def _key(self, row: dict) -> tuple | None:
-        key = tuple(row.get(k) for k in self._dedup_keys)
-        if any(v is None for v in key):
-            return None
-        return key
-
-    def accepts(self, key: tuple) -> bool:
-        """Single source of truth for set-membership + insert."""
-        h = hash(key)
-        if h in self._seen:
-            return False
-        self._seen.add(h)
-        return True
-
-    def accepts_row(self, row: dict) -> bool:
-        key = self._key(row)
-        if key is None:
-            return True  # can't key it -> always write, never tracked
-        return self.accepts(key)
-
-    def filter_table(
-        self, table: pa.Table | pa.RecordBatch
-    ) -> pa.Table | pa.RecordBatch:
-        # NOTE: expects flat, pre-rename column names -- call on the raw
-        # decoder batch, before _batch_to_parquet_table's dotted rename.
-        cols = table.select(self._dedup_keys).to_pylist()
-        keep = []
-        for row in cols:
-            key = self._key(row)
-            keep.append(True if key is None else self.accepts(key))
-        return table.filter(pa.array(keep))
-
-
 class Rollup:
     _METADATA_KIND = "metadata"
 
@@ -203,14 +137,11 @@ class Rollup:
         with ExitStack() as stack:
             writers = {}
             batch_writers = {}
-            dedupers: dict[type, Deduper] = {}
             for row_class, spec in feed.decoder.produces.items():
                 path = self._curated_path(spec.name, feed_name, day)
                 if not force and path.exists():
                     continue
                 schema = _schema_for_spec(row_class, spec)
-                if spec.dedup_keys:
-                    dedupers[row_class] = Deduper(spec.dedup_keys)
                 if use_rust_decoder:
                     batch_writers[row_class] = (
                         stack.enter_context(self._batch_streaming_writer(path, schema)),
@@ -247,11 +178,6 @@ class Rollup:
                                 if entry is None or rust_batch.num_rows == 0:
                                     continue
                                 write_batch, schema, column_names = entry
-                                deduper = dedupers.get(row_class)
-                                if deduper is not None:
-                                    rust_batch = deduper.filter_table(rust_batch)
-                                    if rust_batch.num_rows == 0:
-                                        continue
                                 write_batch(
                                     _batch_to_parquet_table(
                                         rust_batch, schema, column_names
@@ -269,13 +195,7 @@ class Rollup:
                                 append = writers.get(type(row))
                                 if append is None:
                                     continue
-                                row_dict = asdict(row)
-                                deduper = dedupers.get(type(row))
-                                if deduper is not None and not deduper.accepts_row(
-                                    row_dict
-                                ):
-                                    continue
-                                append(row_dict)
+                                append(asdict(row))
 
                 except (ParseFailure, DecodeFailure, ValueError):
                     logger.warning("skipping malformed .bin: %s", name)

@@ -168,17 +168,11 @@ class S3Config(BaseModel):
         return self
 
 
-class RollupConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    max_tasks_per_child: int = 15
-
-
 class ArchiverConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     writer: WriterConfig
     telemetry: TelemetryConfig = TelemetryConfig()
     s3: S3Config = S3Config()
-    rollup: RollupConfig = RollupConfig()
     agencies: list[AgencyConfig]
 
     @field_validator("agencies")

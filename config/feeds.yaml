@@ -16,8 +16,6 @@ s3:
   hot_bucket: rail-performance-archiver-hot
   cold_prefix: "" # optional, prepended to S3 keys
   hot_prefix: "" # optional
-rollup:
-  max_tasks_per_child: 15
 
 telemetry:
   enabled: true
