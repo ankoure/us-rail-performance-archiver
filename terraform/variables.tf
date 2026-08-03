@@ -95,11 +95,13 @@ variable "rollup_cpu" {
 
 variable "rollup_memory" {
   type = string
-  # 8 GiB: the floor at cpu=4096 (Fargate's fixed cpu/memory tiers). Measured
-  # peak on the old combined rollup+gold+ship container was 4.59 GiB — this
-  # keeps ~3.5 GiB headroom over the observed peak (attributable mostly to
-  # rollup.py, per its OOM history) without touching the CPU tier.
-  default     = "8192"
+  # 10 GiB (was dropped to 8 GiB when this reverted to one combined task,
+  # against a pre-dedup measured peak of 4.59 GiB — see git history). Back to
+  # 10 GiB: the 2026-08-03 rollup run hit 7.8 GiB (90% of the 8 GiB ceiling)
+  # ~3.5 min in and triggered a BrokenProcessPool OOM kill across 4 concurrent
+  # ROLLUP_WORKERS, the first run after Deduper started holding a Python-level
+  # _seen set of dedup-key tuples per worker on top of the Arrow batch memory.
+  default     = "10240"
   description = "Fargate task memory (MiB) for the rollup stage."
 }
 
