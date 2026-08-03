@@ -620,3 +620,134 @@ def test_second_run_does_not_redo_work(tmp_path):
     # Bytes should be unchanged
     for path, original_bytes in snapshot.items():
         assert path.read_bytes() == original_bytes, f"{path} was rewritten"
+
+
+@dataclass
+class DedupFakeRow(Row):
+    key: str
+    value: int
+
+
+class DedupFakeDecoder(Decoder):
+    """Deterministic decoder for exercising Deduper end-to-end: yields five rows
+    where two share a dedup key, so the survivor count is a fixed, assertable
+    number rather than depending on real timestamps."""
+
+    produces = {DedupFakeRow: TableSpec("dedup_fakes", dedup_keys=("key",))}
+
+    def decode(self, raw: bytes, *, fetched_at: int | None = None) -> Iterator[Row]:
+        yield DedupFakeRow(key="A", value=1)
+        yield DedupFakeRow(key="A", value=2)  # duplicate key — should be dropped
+        yield DedupFakeRow(key="B", value=3)
+        yield DedupFakeRow(key="C", value=4)
+        yield DedupFakeRow(key="C", value=5)  # duplicate key — should be dropped
+
+
+def _write_fake_bin(landing_dir, feed_name: str, day: date, unix_ts: int, body: bytes):
+    path = (
+        landing_dir
+        / feed_name
+        / "raw"
+        / f"year={day.year}"
+        / f"month={day.month}"
+        / f"day={day.day}"
+        / f"{unix_ts}.bin"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body)
+    return path
+
+
+def test_dedup_keys_drops_duplicate_rows_on_python_path(tmp_path):
+    """FakeDecoder-family decoders never set use_rust_decoder, so this exercises
+    _rollup_data's per-row append() branch: Deduper.accepts_row runs on each row's
+    asdict() before append(), dropping later rows that repeat an earlier key."""
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    day = date(2026, 5, 1)
+
+    _write_metadata(
+        landing_dir,
+        "dedup-feed",
+        day,
+        rows=[{"status_code": 200, "fetched_at": 1234567890}],
+    )
+    _write_fake_bin(
+        landing_dir, "dedup-feed", day, unix_ts=1234567890, body=b"\x00\x01\x02\x03"
+    )
+
+    feed = Feed(
+        name="dedup-feed",
+        path="/whatever",
+        client=None,
+        parser=FakeParser(),
+        decoder=DedupFakeDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
+    )
+    rollup = Rollup(
+        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
+    rollup.rollup_one("dedup-feed", day, force=True)
+
+    out = (
+        curated_dir
+        / "dedup_fakes"
+        / "feed=dedup-feed"
+        / "year=2026"
+        / "month=5"
+        / "day=1"
+        / "data.parquet"
+    )
+    table = pq.ParquetFile(out).read()
+
+    assert table.num_rows == 3
+    assert sorted(table.column("key").to_pylist()) == ["A", "B", "C"]
+    # first occurrence of each duplicated key survives, not the second
+    got = dict(zip(table.column("key").to_pylist(), table.column("value").to_pylist()))
+    assert got["A"] == 1
+    assert got["C"] == 4
+
+
+def test_no_dedup_keys_keeps_all_rows(tmp_path):
+    """Sanity check that FakeDecoder's existing TableSpec("fakes") — no dedup_keys —
+    is unaffected: dedupers.get(row_class) is None so accepts_row is never consulted."""
+    landing_dir = tmp_path / "landing"
+    curated_dir = tmp_path / "curated"
+    day = date(2026, 5, 1)
+
+    _write_metadata(
+        landing_dir,
+        "fake-feed",
+        day,
+        rows=[{"status_code": 200, "fetched_at": 1234567890}],
+    )
+    _write_fake_bin(
+        landing_dir, "fake-feed", day, unix_ts=1234567890, body=b"\x00\x01\x02\x03"
+    )
+
+    feed = Feed(
+        name="fake-feed",
+        path="/whatever",
+        client=None,
+        parser=FakeParser(),
+        decoder=FakeDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
+    )
+    rollup = Rollup(
+        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
+    rollup.rollup_one("fake-feed", day, force=True)
+
+    out = (
+        curated_dir
+        / "fakes"
+        / "feed=fake-feed"
+        / "year=2026"
+        / "month=5"
+        / "day=1"
+        / "data.parquet"
+    )
+    table = pq.ParquetFile(out).read()
+    assert table.num_rows == 5  # FakeDecoder always yields 5, none deduped
