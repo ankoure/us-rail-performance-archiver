@@ -176,14 +176,23 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: s3.enabled=false or hot_bucket not set in config", file=sys.stderr)
         return 1
 
-    access_key, secret_key, token = _resolve_aws_credentials(args.profile)
-    client = boto3.client(
-        "s3",
-        region_name=config.s3.region,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        aws_session_token=token,
-    )
+    if args.profile:
+        # Named profile (e.g. an SSO profile like KourePowerUser) — botocore
+        # can't resolve those natively, so shell out to the aws CLI, same as
+        # s3_cost_report.py.
+        access_key, secret_key, token = _resolve_aws_credentials(args.profile)
+        client = boto3.client(
+            "s3",
+            region_name=config.s3.region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            aws_session_token=token,
+        )
+    else:
+        # No profile given: let boto3's default credential chain resolve it
+        # (e.g. the ECS task role when running via run-task) — no aws CLI
+        # dependency, which the container image doesn't have anyway.
+        client = boto3.client("s3", region_name=config.s3.region)
     bucket = config.s3.hot_bucket
 
     feeds = args.feed if args.feed else list_feeds(client, bucket)
