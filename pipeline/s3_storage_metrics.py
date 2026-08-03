@@ -110,6 +110,13 @@ def main(args):
         )
         logger.info("%s (%s): %.0f bytes", role, bucket, size)
 
+    # build_telemetry's DogStatsd client buffers metrics and flushes on a
+    # background timer (~300ms) — force it before exit so a fast run (e.g.
+    # buckets with no datapoints yet) can't race the timer and drop metrics.
+    statsd_client = getattr(telemetry, "client", None)
+    if statsd_client is not None:
+        statsd_client.flush()
+
 
 if __name__ == "__main__":
     main(parse_args())

@@ -43,6 +43,13 @@ def main(args):
     config = load_config(args.config)
     telemetry = build_telemetry(config.telemetry)
     telemetry.timing(args.metric, args.seconds * 1000)
+    # build_telemetry's DogStatsd client buffers metrics and flushes on a
+    # background timer (~300ms) — this script does no other work and can
+    # exit before that timer ever fires, silently dropping the metric.
+    # Force the flush before exit.
+    client = getattr(telemetry, "client", None)
+    if client is not None:
+        client.flush()
     logger.info("%s: %.0fs", args.metric, args.seconds)
 
 
