@@ -88,6 +88,12 @@ locals {
     # rollup either way; grouped here for one clear place in the sequence.
     python pipeline/snapshot.py --config /tmp/fargate.yaml --day "$DAY"
     python pipeline/gold.py --config /tmp/fargate.yaml --day "$DAY"
+    # Rewrites trip_updates to one row per stop visit (what every consumer
+    # already reduces it to — see pipeline/compact_trip_updates.py) before
+    # ship uploads it, so hot storage gets the compacted file, not the raw
+    # per-poll one. Non-critical: a failure here must not block shipping the
+    # (uncompacted but still correct) data.
+    python pipeline/compact_trip_updates.py --day "$DAY" || true
     python pipeline/ship.py --config /tmp/fargate.yaml --day "$DAY"
     # Cert-expiry probe: emits cert.days_remaining per agency (drives the TLS
     # monitors). Independent of --day. MUST use /tmp/fargate.yaml so telemetry is
