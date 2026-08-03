@@ -129,9 +129,7 @@ def discover_feeds(curated_dir: Path) -> list[str]:
     if not root.exists():
         return []
     return sorted(
-        p.name.removeprefix("feed=")
-        for p in root.glob("feed=*")
-        if p.is_dir()
+        p.name.removeprefix("feed=") for p in root.glob("feed=*") if p.is_dir()
     )
 
 
@@ -228,8 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     if total_before:
         pct = 100 * (1 - total_after / total_before)
         print(
-            f"---\ntotal: {total_before:,} -> {total_after:,} rows "
-            f"({pct:.1f}% smaller)"
+            f"---\ntotal: {total_before:,} -> {total_after:,} rows ({pct:.1f}% smaller)"
         )
     return 0
 

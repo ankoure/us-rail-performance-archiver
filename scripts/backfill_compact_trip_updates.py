@@ -41,12 +41,23 @@ from pathlib import Path
 
 import boto3
 import pyarrow.parquet as pq
+from botocore.config import Config as BotoConfig
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from archiver.loader import load_config  # noqa: E402
 from pipeline.compact_trip_updates import compact_table  # noqa: E402
 from scripts.migrate_rt_schema import classify  # noqa: E402
+
+# Partitions run up to ~500 MB (metromn-trips' biggest day); a stalled
+# connection on one of ThreadPoolExecutor's workers would otherwise hang that
+# thread — and eventually the whole run — forever, since boto3's defaults have
+# no timeout. Bounded retry for transient S3 errors too.
+_BOTO_CONFIG = BotoConfig(
+    connect_timeout=10,
+    read_timeout=120,
+    retries={"max_attempts": 3, "mode": "standard"},
+)
 
 
 def _resolve_aws_credentials(profile: str | None) -> tuple[str, str, str | None]:
@@ -96,9 +107,7 @@ def list_partitions(client, bucket: str, feed: str) -> list[str]:
     """Every trip_updates/feed=<feed>/.../data.parquet key for one feed."""
     paginator = client.get_paginator("list_objects_v2")
     keys = []
-    for page in paginator.paginate(
-        Bucket=bucket, Prefix=f"trip_updates/feed={feed}/"
-    ):
+    for page in paginator.paginate(Bucket=bucket, Prefix=f"trip_updates/feed={feed}/"):
         for obj in page.get("Contents", []):
             if obj["Key"].endswith("data.parquet"):
                 keys.append(obj["Key"])
@@ -165,7 +174,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="actually rewrite objects in place (default: dry run, report only)",
     )
-    p.add_argument("--workers", type=int, default=8)
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Parallel S3 download/compact workers (default: 4). Each worker "
+        "can hold a full downloaded partition in memory at once (largest "
+        "known partition so far: ~500 MB) — higher risks OOM on the task's "
+        "10 GiB ceiling if several land on large feeds simultaneously.",
+    )
     return p.parse_args(argv)
 
 
@@ -173,7 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     config = load_config(str(args.config))
     if not config.s3.enabled or not config.s3.hot_bucket:
-        print("ERROR: s3.enabled=false or hot_bucket not set in config", file=sys.stderr)
+        print(
+            "ERROR: s3.enabled=false or hot_bucket not set in config", file=sys.stderr
+        )
         return 1
 
     if args.profile:
@@ -187,20 +206,23 @@ def main(argv: list[str] | None = None) -> int:
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             aws_session_token=token,
+            config=_BOTO_CONFIG,
         )
     else:
         # No profile given: let boto3's default credential chain resolve it
         # (e.g. the ECS task role when running via run-task) — no aws CLI
         # dependency, which the container image doesn't have anyway.
-        client = boto3.client("s3", region_name=config.s3.region)
+        client = boto3.client("s3", region_name=config.s3.region, config=_BOTO_CONFIG)
     bucket = config.s3.hot_bucket
 
     feeds = args.feed if args.feed else list_feeds(client, bucket)
     if not feeds:
         print("no trip_updates feeds found", file=sys.stderr)
         return 0
-    print(f"feeds: {len(feeds)}  |  bucket: {bucket}  |  mode: "
-          f"{'APPLY' if args.apply else 'dry run'}")
+    print(
+        f"feeds: {len(feeds)}  |  bucket: {bucket}  |  mode: "
+        f"{'APPLY' if args.apply else 'dry run'}"
+    )
 
     keys: list[str] = []
     for feed in feeds:
@@ -214,7 +236,9 @@ def main(argv: list[str] | None = None) -> int:
     done = 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {ex.submit(compact_key, client, bucket, k, args.apply): k for k in keys}
+        futures = {
+            ex.submit(compact_key, client, bucket, k, args.apply): k for k in keys
+        }
         for fut in as_completed(futures):
             key = futures[fut]
             try:
@@ -238,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
         pct = 100 * (1 - total_after_bytes / total_before_bytes)
         print(
             f"\nrows:  {total_before_rows:,} -> {total_after_rows:,}\n"
-            f"bytes: {total_before_bytes/1e9:.2f} GB -> {total_after_bytes/1e9:.2f} GB "
+            f"bytes: {total_before_bytes / 1e9:.2f} GB -> {total_after_bytes / 1e9:.2f} GB "
             f"({pct:.1f}% smaller)"
         )
     if errors:

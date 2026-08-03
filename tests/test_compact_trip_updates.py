@@ -89,9 +89,10 @@ class TestLatestWins:
         ]
         result = compact_table(_table(rows))
         assert result.num_rows == 1
-        assert result.column("trip_update.stop_time_update.departure.time")[
-            0
-        ].as_py() == 1005
+        assert (
+            result.column("trip_update.stop_time_update.departure.time")[0].as_py()
+            == 1005
+        )
 
     def test_different_stops_kept_separately(self):
         rows = [_row(stop_id="S1"), _row(stop_id="S2")]
@@ -137,9 +138,7 @@ class TestJunkFiltering:
         assert result.num_rows == 1
 
     def test_neither_arrival_nor_departure_dropped(self):
-        result = compact_table(
-            _table([_row(arrival_time=None, departure_time=None)])
-        )
+        result = compact_table(_table([_row(arrival_time=None, departure_time=None)]))
         assert result.num_rows == 0
 
     def test_latest_junk_does_not_win_over_earlier_real_row(self):
@@ -152,9 +151,10 @@ class TestJunkFiltering:
         ]
         result = compact_table(_table(rows))
         assert result.num_rows == 1
-        assert result.column("trip_update.stop_time_update.departure.time")[
-            0
-        ].as_py() == 995
+        assert (
+            result.column("trip_update.stop_time_update.departure.time")[0].as_py()
+            == 995
+        )
 
 
 class TestEdgeCases:
