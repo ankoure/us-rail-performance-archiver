@@ -47,6 +47,7 @@ def main(args):
         day=args.day,
         force=args.force,
         workers=rollup_workers,
+        max_tasks_per_child=config.rollup.max_tasks_per_child,
     )
 
 

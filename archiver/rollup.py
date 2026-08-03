@@ -60,10 +60,16 @@ def _unwrap_optional(annotation):
 
 class Deduper:
     """
-    Tracks which dedup-key tuples have been accepted so far, across both
+    Tracks which dedup keys have been accepted so far, across both
     the per-row dict path (append()) and the batch pa.Table/RecordBatch
     path (write_batch()). One instance per (row_class, TableSpec) with
     non-empty dedup_keys.
+
+    _seen stores hash(key) rather than the key tuple itself, to bound
+    memory -- a busy feed's dedup-key tuples (each holding its own
+    string/int objects) add up fast across a whole day's rows. This
+    accepts a vanishingly small false-duplicate risk on hash collision
+    in exchange for not retaining every key's actual contents.
 
     Rows/records missing any dedup-key field are always accepted (never
     dropped -- writes proceed unconditionally) and never added to _seen,
@@ -83,7 +89,7 @@ class Deduper:
 
     def __init__(self, dedup_keys: tuple[str, ...]):
         self._dedup_keys = dedup_keys
-        self._seen: set[tuple] = set()
+        self._seen: set[int] = set()
 
     def _key(self, row: dict) -> tuple | None:
         key = tuple(row.get(k) for k in self._dedup_keys)
@@ -93,9 +99,10 @@ class Deduper:
 
     def accepts(self, key: tuple) -> bool:
         """Single source of truth for set-membership + insert."""
-        if key in self._seen:
+        h = hash(key)
+        if h in self._seen:
             return False
-        self._seen.add(key)
+        self._seen.add(h)
         return True
 
     def accepts_row(self, row: dict) -> bool:
