@@ -1,7 +1,6 @@
 # data
 archive/
-curated/
-static_gtfs/  # ~300MB runtime GTFS-zip cache; gold.py downloads on demand
+data/
 *.parquet
 *.jsonl
 *.bin
@@ -12,6 +11,17 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+
+# rust (rail-decoder) — local build artifacts; the rust-builder stage COPYs
+# rail-decoder/ directly, so leaving these in would bust that stage's cache
+# on every local cargo build/maturin develop.
+rail-decoder/target/
+rail-decoder/.venv/
+
+# separately-deployed / not needed in this image
+# dashboard/api -> Vercel, dashboard/web -> static export build, terraform -> IaC only
+dashboard/
+terraform/
 
 # vcs / ci
 .git/

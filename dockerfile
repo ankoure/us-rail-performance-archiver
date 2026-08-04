@@ -1,5 +1,26 @@
 # An example of using standalone Python builds with multistage images.
 
+# Compile the rail-decoder PyO3 extension in its own stage, scoped to
+# rail-decoder/ only, so unrelated repo changes don't bust its cache.
+FROM ghcr.io/astral-sh/uv:bookworm-slim AS rust-builder
+ARG TARGETARCH
+WORKDIR /build
+COPY rail-decoder/ rail-decoder/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.rustup \
+    --mount=type=cache,target=/root/.cargo \
+    --mount=type=cache,target=/build/rail-decoder/target \
+    mkdir -p /tmp/wheels && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl build-essential ca-certificates protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/* && \
+    ( [ -x /root/.cargo/bin/cargo ] || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal ) && \
+    . "$HOME/.cargo/env" && \
+    rustup default stable && \
+    (cd rail-decoder && uvx --python 3.13 maturin build --release --out /tmp/wheels) ; \
+    fi
+
 # First, build the application in the `/app` directory
 FROM ghcr.io/astral-sh/uv:bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
@@ -26,14 +47,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
 ARG TARGETARCH
+COPY --from=rust-builder /tmp/wheels /tmp/wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$TARGETARCH" = "amd64" ]; then \
-    apt-get update && \
-    apt-get install -y --no-install-recommends curl build-essential ca-certificates protobuf-compiler && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal && \
-    . "$HOME/.cargo/env" && \
-    (cd rail-decoder && uvx maturin build --release --out /tmp/wheels) && \
     uv pip install /tmp/wheels/*.whl ; \
     fi
 
