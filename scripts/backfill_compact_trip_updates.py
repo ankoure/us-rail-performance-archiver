@@ -36,6 +36,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -185,24 +186,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "the largest known partition), but several workers landing on large "
         "feeds at once still adds up against the task's 10 GiB ceiling.",
     )
+    # Internal: set by main()'s per-feed subprocess driver so the child knows
+    # where to write its stats for the parent to aggregate. Not for direct use.
+    p.add_argument("--result-file", type=Path, default=None, help=argparse.SUPPRESS)
     return p.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    config = load_config(str(args.config))
-    if not config.s3.enabled or not config.s3.hot_bucket:
-        print(
-            "ERROR: s3.enabled=false or hot_bucket not set in config", file=sys.stderr
-        )
-        return 1
-
+def _build_client(args: argparse.Namespace, config) -> "boto3.client":
     if args.profile:
         # Named profile (e.g. an SSO profile like KourePowerUser) — botocore
         # can't resolve those natively, so shell out to the aws CLI, same as
         # s3_cost_report.py.
         access_key, secret_key, token = _resolve_aws_credentials(args.profile)
-        client = boto3.client(
+        return boto3.client(
             "s3",
             region_name=config.s3.region,
             aws_access_key_id=access_key,
@@ -210,22 +206,18 @@ def main(argv: list[str] | None = None) -> int:
             aws_session_token=token,
             config=_BOTO_CONFIG,
         )
-    else:
-        # No profile given: let boto3's default credential chain resolve it
-        # (e.g. the ECS task role when running via run-task) — no aws CLI
-        # dependency, which the container image doesn't have anyway.
-        client = boto3.client("s3", region_name=config.s3.region, config=_BOTO_CONFIG)
-    bucket = config.s3.hot_bucket
+    # No profile given: let boto3's default credential chain resolve it (e.g.
+    # the ECS task role when running via run-task) — no aws CLI dependency,
+    # which the container image doesn't have anyway.
+    return boto3.client("s3", region_name=config.s3.region, config=_BOTO_CONFIG)
 
-    feeds = args.feed if args.feed else list_feeds(client, bucket)
-    if not feeds:
-        print("no trip_updates feeds found", file=sys.stderr)
-        return 0
-    print(
-        f"feeds: {len(feeds)}  |  bucket: {bucket}  |  mode: "
-        f"{'APPLY' if args.apply else 'dry run'}"
-    )
 
+def _run_feeds(
+    client, bucket: str, feeds: list[str], apply: bool, workers: int
+) -> dict:
+    """Compact every partition across `feeds` in the current process. Used
+    both for a direct --feed run and as what each per-feed child subprocess
+    does for its one assigned feed."""
     keys: list[str] = []
     for feed in feeds:
         keys.extend(list_partitions(client, bucket, feed))
@@ -237,10 +229,8 @@ def main(argv: list[str] | None = None) -> int:
     errors: list[str] = []
     done = 0
 
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {
-            ex.submit(compact_key, client, bucket, k, args.apply): k for k in keys
-        }
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(compact_key, client, bucket, k, apply): k for k in keys}
         for fut in as_completed(futures):
             key = futures[fut]
             try:
@@ -257,21 +247,133 @@ def main(argv: list[str] | None = None) -> int:
             if done % 50 == 0 or done == len(keys):
                 print(f"  {done}/{len(keys)} partitions processed…", flush=True)
 
+    return {
+        "partitions": len(keys),
+        "before_rows": total_before_rows,
+        "after_rows": total_after_rows,
+        "before_bytes": total_before_bytes,
+        "after_bytes": total_after_bytes,
+        "tally": tally,
+        "errors": errors,
+    }
+
+
+def _print_summary(stats: dict) -> None:
     print()
-    for status in sorted(tally):
-        print(f"  {status:<24} {tally[status]}")
-    if total_before_bytes:
-        pct = 100 * (1 - total_after_bytes / total_before_bytes)
+    for status in sorted(stats["tally"]):
+        print(f"  {status:<24} {stats['tally'][status]}")
+    if stats["before_bytes"]:
+        pct = 100 * (1 - stats["after_bytes"] / stats["before_bytes"])
         print(
-            f"\nrows:  {total_before_rows:,} -> {total_after_rows:,}\n"
-            f"bytes: {total_before_bytes / 1e9:.2f} GB -> {total_after_bytes / 1e9:.2f} GB "
-            f"({pct:.1f}% smaller)"
+            f"\nrows:  {stats['before_rows']:,} -> {stats['after_rows']:,}\n"
+            f"bytes: {stats['before_bytes'] / 1e9:.2f} GB -> "
+            f"{stats['after_bytes'] / 1e9:.2f} GB ({pct:.1f}% smaller)"
         )
-    if errors:
-        print(f"\n{len(errors)} errors:", file=sys.stderr)
-        for e in errors[:20]:
+    if stats["errors"]:
+        print(f"\n{len(stats['errors'])} errors:", file=sys.stderr)
+        for e in stats["errors"][:20]:
             print(f"  {e}", file=sys.stderr)
 
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    config = load_config(str(args.config))
+    if not config.s3.enabled or not config.s3.hot_bucket:
+        print(
+            "ERROR: s3.enabled=false or hot_bucket not set in config", file=sys.stderr
+        )
+        return 1
+
+    client = _build_client(args, config)
+    bucket = config.s3.hot_bucket
+
+    if args.feed:
+        # Explicit feed subset — small enough to run in-process directly
+        # (spot-checks). The full run below always forks per feed instead.
+        print(
+            f"feeds: {len(args.feed)}  |  bucket: {bucket}  |  mode: "
+            f"{'APPLY' if args.apply else 'dry run'}"
+        )
+        stats = _run_feeds(client, bucket, args.feed, args.apply, args.workers)
+        if args.result_file:
+            args.result_file.write_text(json.dumps(stats))
+        _print_summary(stats)
+        if not args.apply:
+            print("\n(dry run — re-run with --apply to rewrite)")
+        return 0
+
+    # Full run: one fresh child process per feed. Two earlier attempts were
+    # OOM-killed running thousands of partitions across all feeds in one
+    # long-lived process — even after bounding peak memory for any single
+    # file (compact_parquet's batching), pyarrow's memory pool still
+    # accumulates unreturned memory over thousands of sequential operations.
+    # A subprocess exiting fully releases everything back to the OS
+    # regardless of any allocator's reluctance to return it mid-run — same
+    # fix in spirit as ProcessPoolExecutor's max_tasks_per_child in
+    # archiver/parallel.py, just at the per-feed granularity here. A feed
+    # whose child gets OOM-killed is logged as an error and skipped rather
+    # than taking down the whole backfill.
+    feeds = list_feeds(client, bucket)
+    if not feeds:
+        print("no trip_updates feeds found", file=sys.stderr)
+        return 0
+    print(
+        f"feeds: {len(feeds)}  |  bucket: {bucket}  |  mode: "
+        f"{'APPLY' if args.apply else 'dry run'}"
+    )
+
+    grand = {
+        "partitions": 0,
+        "before_rows": 0,
+        "after_rows": 0,
+        "before_bytes": 0,
+        "after_bytes": 0,
+        "tally": {},
+        "errors": [],
+    }
+    for i, feed in enumerate(feeds, 1):
+        print(f"\n=== [{i}/{len(feeds)}] {feed} ===", flush=True)
+        result_file = Path(tempfile.mktemp(suffix=".json"))
+        cmd = [
+            sys.executable,
+            __file__,
+            "--feed",
+            feed,
+            "--workers",
+            str(args.workers),
+            "--config",
+            str(args.config),
+            "--result-file",
+            str(result_file),
+        ]
+        if args.apply:
+            cmd.append("--apply")
+        if args.profile:
+            cmd.extend(["--profile", args.profile])
+        # No capture_output: the child's own prints stream straight through
+        # to this task's stdout/CloudWatch logs, same as if it ran directly.
+        proc = subprocess.run(cmd)
+        try:
+            stats = json.loads(result_file.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            grand["errors"].append(
+                f"{feed}: child process failed (exit {proc.returncode}), "
+                "no result file — likely OOM-killed"
+            )
+            continue
+        finally:
+            result_file.unlink(missing_ok=True)
+        grand["partitions"] += stats["partitions"]
+        grand["before_rows"] += stats["before_rows"]
+        grand["after_rows"] += stats["after_rows"]
+        grand["before_bytes"] += stats["before_bytes"]
+        grand["after_bytes"] += stats["after_bytes"]
+        for k, v in stats["tally"].items():
+            grand["tally"][k] = grand["tally"].get(k, 0) + v
+        grand["errors"].extend(stats["errors"])
+
+    print("\n\n=== GRAND TOTAL ===")
+    _print_summary(grand)
     if not args.apply:
         print("\n(dry run — re-run with --apply to rewrite)")
     return 0
