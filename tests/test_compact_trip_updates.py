@@ -9,12 +9,13 @@ the full curated schema instead of that method's internal column subset.
 from __future__ import annotations
 
 import datetime as dt
+import io
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pipeline.compact_trip_updates import compact_one, compact_table
+from pipeline.compact_trip_updates import compact_one, compact_parquet, compact_table
 
 _SCHEMA = pa.schema(
     [
@@ -236,3 +237,98 @@ class TestCompactOne:
         assert first == (1, 1)
         assert second == (1, 1)
         assert mtime_after_first == mtime_after_second  # no rewrite on no-op
+
+
+class TestCompactParquetStreaming:
+    """compact_parquet reads and reduces row-group-at-a-time rather than the
+    whole table at once, so a bug here would only show up when a duplicate
+    key's rows land in *different* row groups — the partial-then-combine
+    boundary is exactly what these tests target."""
+
+    def test_duplicate_key_split_across_row_groups_still_resolves(self, tmp_path: Path):
+        rows = [
+            _row(feed_timestamp=1000, departure_time=995),  # row group 0
+            _row(feed_timestamp=2000, departure_time=1005),  # row group 1
+        ]
+        path = tmp_path / "data.parquet"
+        pq.write_table(_table(rows), path, row_group_size=1)
+        pf = pq.ParquetFile(path)
+        assert pf.num_row_groups == 2  # sanity check the fixture itself
+
+        before_rows, result = compact_parquet(pf)
+        assert before_rows == 2
+        assert result.num_rows == 1
+        assert (
+            result.column("trip_update.stop_time_update.departure.time")[0].as_py()
+            == 1005
+        )
+
+    def test_junk_in_one_row_group_does_not_shadow_real_row_in_another(self):
+        # Same critical case as TestJunkFiltering, but with the junk row and
+        # the real row forced into separate row groups (and separate
+        # per-row-group partial reductions) rather than the same table.
+        rows = [
+            _row(feed_timestamp=1000, departure_time=995, sched_rel="SCHEDULED"),
+            _row(feed_timestamp=2000, departure_time=None, sched_rel="SKIPPED"),
+        ]
+        buf = io.BytesIO()
+        pq.write_table(_table(rows), buf, row_group_size=1)
+        buf.seek(0)
+        pf = pq.ParquetFile(buf)
+        assert pf.num_row_groups == 2
+
+        before_rows, result = compact_parquet(pf)
+        assert before_rows == 2
+        assert result.num_rows == 1
+        assert (
+            result.column("trip_update.stop_time_update.departure.time")[0].as_py()
+            == 995
+        )
+
+    def test_matches_whole_table_result_for_larger_random_case(self):
+        # Cross-check: chunked (row_group_size=3) vs unchunked reduction of
+        # the same data should agree, not just on row count but on content.
+        rows = []
+        for trip in ("T1", "T2", "T3"):
+            for stop in ("S1", "S2"):
+                for i, ts in enumerate((1000, 2000, 3000)):
+                    rows.append(
+                        _row(
+                            trip_id=trip,
+                            stop_id=stop,
+                            feed_timestamp=ts,
+                            departure_time=900 + i,
+                        )
+                    )
+        whole = compact_table(_table(rows))
+
+        buf = io.BytesIO()
+        pq.write_table(_table(rows), buf, row_group_size=3)
+        buf.seek(0)
+        pf = pq.ParquetFile(buf)
+        assert pf.num_row_groups > 1  # actually exercising the chunked path
+
+        before_rows, chunked = compact_parquet(pf)
+        assert before_rows == len(rows)
+
+        key_cols = ["trip_update.trip.trip_id", "trip_update.stop_time_update.stop_id"]
+        whole_by_key = {
+            tuple(row[c] for c in key_cols): row for row in whole.to_pylist()
+        }
+        chunked_by_key = {
+            tuple(row[c] for c in key_cols): row for row in chunked.to_pylist()
+        }
+        assert whole_by_key == chunked_by_key
+
+    def test_all_row_groups_junk_returns_empty_with_correct_schema(
+        self, tmp_path: Path
+    ):
+        rows = [_row(sched_rel="SKIPPED"), _row(sched_rel="NO_DATA")]
+        path = tmp_path / "data.parquet"
+        pq.write_table(_table(rows), path, row_group_size=1)
+        pf = pq.ParquetFile(path)
+
+        before_rows, result = compact_parquet(pf)
+        assert before_rows == 2
+        assert result.num_rows == 0
+        assert result.column_names == _SCHEMA_COLS

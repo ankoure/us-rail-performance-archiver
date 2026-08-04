@@ -98,6 +98,53 @@ def compact_table(table: pa.Table) -> pa.Table:
     return deduped.rename_columns(new_names).select(table.column_names)
 
 
+def compact_parquet(
+    pf: pq.ParquetFile, batch_rows: int = 2_000_000
+) -> tuple[int, pa.Table]:
+    """Batched reduction: accumulate row groups until ~batch_rows, reduce that
+    batch, repeat, then one final combine pass over the (much smaller)
+    partials — bounding peak memory without the whole file ever being
+    materialized at once. metromn-trips' biggest day is 70M+ rows across
+    3,144 row groups (~23K rows each); materializing the whole table and
+    running sort+group_by over it in one shot is what OOM-killed the backfill
+    task even at low concurrency. But reducing every row group individually
+    is worse, not better — 3,144 separate sort+hash-aggregate calls leaves
+    pyarrow's memory pool holding far more than any single batch's own size,
+    since it doesn't cleanly return memory between many tiny operations.
+    Batching into ~30-40 calls instead of 3,144 avoids that overhead while
+    still keeping any single batch a small fraction of the full file.
+
+    Returns (total rows read, compacted table).
+    """
+    before_rows = pf.metadata.num_rows
+    partials: list[pa.Table] = []
+    batch: list[pa.Table] = []
+    batch_rows_seen = 0
+
+    def flush_batch() -> None:
+        nonlocal batch, batch_rows_seen
+        if not batch:
+            return
+        reduced = compact_table(pa.concat_tables(batch, promote_options="default"))
+        if reduced.num_rows > 0:
+            partials.append(reduced)
+        batch = []
+        batch_rows_seen = 0
+
+    for i in range(pf.num_row_groups):
+        rg = pf.read_row_group(i)
+        batch.append(rg)
+        batch_rows_seen += rg.num_rows
+        if batch_rows_seen >= batch_rows:
+            flush_batch()
+    flush_batch()
+
+    if not partials:
+        return before_rows, pf.schema_arrow.empty_table()
+    combined = pa.concat_tables(partials, promote_options="default")
+    return before_rows, compact_table(combined)
+
+
 def _partition_path(curated_dir: Path, feed: str, day: dt.date) -> Path:
     return (
         curated_dir
@@ -139,22 +186,22 @@ def compact_one(feed: str, day: dt.date, curated_dir: Path) -> tuple[int, int] |
     path = _partition_path(curated_dir, feed, day)
     if not path.exists():
         return None
-    # ParquetFile.read(), not pq.read_table(path): the latter auto-detects
-    # Hive-style partitioning from the feed=/year=/month=/day= path segments
-    # and silently injects those as extra dictionary-encoded columns, which
-    # both corrupts the output schema and breaks the hash aggregation below
-    # (no first/last kernel for dictionary types).
-    before = pq.ParquetFile(path).read()
-    if before.num_rows == 0:
+    # ParquetFile, not pq.read_table(path): the latter auto-detects Hive-style
+    # partitioning from the feed=/year=/month=/day= path segments and
+    # silently injects those as extra dictionary-encoded columns, which both
+    # corrupts the output schema and breaks the hash aggregation (no
+    # first/last kernel for dictionary types).
+    pf = pq.ParquetFile(path)
+    if pf.metadata.num_rows == 0:
         return None
-    after = compact_table(before)
-    if after.num_rows == before.num_rows:
-        return (before.num_rows, after.num_rows)
+    before_rows, after = compact_parquet(pf)
+    if after.num_rows == before_rows:
+        return (before_rows, after.num_rows)
 
     tmp = path.with_suffix(".parquet.tmp")
     pq.write_table(after, tmp)
     tmp.rename(path)
-    return (before.num_rows, after.num_rows)
+    return (before_rows, after.num_rows)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

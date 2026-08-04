@@ -46,7 +46,7 @@ from botocore.config import Config as BotoConfig
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from archiver.loader import load_config  # noqa: E402
-from pipeline.compact_trip_updates import compact_table  # noqa: E402
+from pipeline.compact_trip_updates import compact_parquet  # noqa: E402
 from scripts.migrate_rt_schema import classify  # noqa: E402
 
 # Partitions run up to ~500 MB (metromn-trips' biggest day); a stalled
@@ -127,8 +127,8 @@ def compact_key(client, bucket: str, key: str, apply: bool) -> dict:
         "status": "unchanged",
     }
 
-    schema_names = [f.name for f in pq.ParquetFile(io.BytesIO(body)).schema_arrow]
-    era = classify(schema_names)
+    pf = pq.ParquetFile(io.BytesIO(body))
+    era = classify([f.name for f in pf.schema_arrow])
     if era != "DOTTED":
         # Predates the current column-naming convention (see
         # scripts/migrate_rt_schema.py) — compact_table's column names won't
@@ -137,15 +137,17 @@ def compact_key(client, bucket: str, key: str, apply: bool) -> dict:
         result["status"] = f"needs-migration:{era}"
         return result
 
-    before = pq.ParquetFile(io.BytesIO(body)).read()
-    result["before_rows"] = before.num_rows
-    result["after_rows"] = before.num_rows
-    if before.num_rows == 0:
+    if pf.metadata.num_rows == 0:
         return result
 
-    after = compact_table(before)
+    # Row-group-at-a-time (pipeline.compact_trip_updates.compact_parquet),
+    # not a single whole-table read: metromn-trips' biggest day is 70M+ rows,
+    # and materializing + sorting/grouping that in one shot is what OOM-killed
+    # this task even at low --workers concurrency.
+    before_rows, after = compact_parquet(pf)
+    result["before_rows"] = before_rows
     result["after_rows"] = after.num_rows
-    if after.num_rows == before.num_rows:
+    if after.num_rows == before_rows:
         return result
 
     buf = io.BytesIO()
@@ -178,10 +180,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--workers",
         type=int,
         default=4,
-        help="Parallel S3 download/compact workers (default: 4). Each worker "
-        "can hold a full downloaded partition in memory at once (largest "
-        "known partition so far: ~500 MB) — higher risks OOM on the task's "
-        "10 GiB ceiling if several land on large feeds simultaneously.",
+        help="Parallel S3 download/compact workers (default: 4). "
+        "compact_parquet() batches its reduction (~2.6 GB measured peak on "
+        "the largest known partition), but several workers landing on large "
+        "feeds at once still adds up against the task's 10 GiB ceiling.",
     )
     return p.parse_args(argv)
 
