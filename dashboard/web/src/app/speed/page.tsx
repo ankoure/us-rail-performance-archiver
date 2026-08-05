@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
@@ -7,9 +8,9 @@ import { LinePicker, useLine } from "@/components/LinePicker";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { TimeSeriesChart } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
-import { directionLabel } from "@/lib/mbtaRailLines";
+import { directionLabel as fallbackDirectionLabel } from "@/lib/mbtaRailLines";
 import { useApiData } from "@/lib/useApiData";
-import type { SegmentDayRow } from "@/lib/types";
+import type { DirectionRow, SegmentDayRow, StopRow } from "@/lib/types";
 
 const MBTA_AGENCY_ID = "MBTA";
 const MIN_SAMPLES_FOR_SLOWEST = 5;
@@ -127,6 +128,41 @@ export default function SpeedPage() {
     () => api.segmentDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
   );
 
+  // Names/directions come from the latest static-GTFS snapshot, not tied to the
+  // selected date range — fetched once per agency, not per line or date change.
+  const { data: stopsData } = useApiData<StopRow[]>(`stops|${agency}`, isMbta, () => api.stops(agency!));
+  const { data: directionsData } = useApiData<DirectionRow[]>(
+    `directions|${agency}`,
+    isMbta,
+    () => api.directions(agency!),
+  );
+
+  const stopNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of stopsData ?? []) {
+      if (s.stop_name) m.set(s.stop_id, s.stop_name);
+    }
+    return m;
+  }, [stopsData]);
+
+  const directionLabelByRoute = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of directionsData ?? []) {
+      if (d.direction && d.direction_destination) {
+        m.set(`${d.route_id}|${d.direction_id}`, `${d.direction} to ${d.direction_destination}`);
+      }
+    }
+    return m;
+  }, [directionsData]);
+
+  function resolveDirectionLabel(routeId: string, directionId: number): string {
+    return directionLabelByRoute.get(`${routeId}|${directionId}`) ?? fallbackDirectionLabel(routeId, directionId);
+  }
+
+  function resolveStopName(stopId: string): string {
+    return stopNameById.get(stopId) ?? stopId;
+  }
+
   const speedSeries = data ? buildDailySeries(data, (r) => r.speed_p50_mph, "weighted_mean") : null;
   const travelSeries = data
     ? buildDailySeries(
@@ -174,7 +210,7 @@ export default function SpeedPage() {
                   dateKey="service_date"
                   series={speedSeries.directionIds.map((d, i) => ({
                     dataKey: seriesKeyFor(d),
-                    label: directionLabel(line, d),
+                    label: resolveDirectionLabel(line, d),
                     color: i === 0 ? "var(--series-1)" : "var(--series-2)",
                   }))}
                   valueFormatter={(v) => `${v.toFixed(0)} mph`}
@@ -199,7 +235,7 @@ export default function SpeedPage() {
                   dateKey="service_date"
                   series={travelSeries.directionIds.map((d, i) => ({
                     dataKey: seriesKeyFor(d),
-                    label: directionLabel(line, d),
+                    label: resolveDirectionLabel(line, d),
                     color: i === 0 ? "var(--series-1)" : "var(--series-2)",
                   }))}
                   valueFormatter={(v) => `${v.toFixed(0)} min`}
@@ -210,9 +246,7 @@ export default function SpeedPage() {
             <div className="card">
               <h2>Slowest segments</h2>
               <p className="card-hint">
-                Lowest average speed over the selected range (top {MAX_SLOWEST_SEGMENTS}, min{" "}
-                {MIN_SAMPLES_FOR_SLOWEST} samples). Stops are shown by GTFS stop_id — station name lookup is a
-                planned follow-up.
+                {`Lowest average speed over the selected range (top ${MAX_SLOWEST_SEGMENTS}, min ${MIN_SAMPLES_FOR_SLOWEST} samples). Station names are from the latest static-GTFS snapshot, not the schedule in effect on any particular day in this range.`}
               </p>
               {!slowest && <p className="empty-state">Loading…</p>}
               {slowest && slowest.length === 0 && <p className="empty-state">No segment data for this range.</p>}
@@ -232,9 +266,9 @@ export default function SpeedPage() {
                     <tbody>
                       {slowest.map((s, i) => (
                         <tr key={`${s.from_stop_id}-${s.to_stop_id}-${s.direction_id}-${i}`}>
-                          <td>{s.from_stop_id}</td>
-                          <td>{s.to_stop_id}</td>
-                          <td>{directionLabel(line, s.direction_id ?? -1)}</td>
+                          <td>{resolveStopName(s.from_stop_id)}</td>
+                          <td>{resolveStopName(s.to_stop_id)}</td>
+                          <td>{resolveDirectionLabel(line, s.direction_id ?? -1)}</td>
                           <td>{(s.distance_m / METERS_PER_MILE).toFixed(2)}</td>
                           <td>{s.avg_speed_mph.toFixed(1)}</td>
                           <td>{s.sample_count}</td>

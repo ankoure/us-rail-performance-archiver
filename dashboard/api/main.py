@@ -6,12 +6,14 @@ from api.routers import (
     adherence,
     agencies,
     alerts,
+    directions,
     health,
     route_day,
     route_day_otp,
     segment_day,
     stop_day,
     stop_day_otp,
+    stops,
     line_delays,
 )
 
@@ -31,6 +33,8 @@ app.include_router(route_day.router)
 app.include_router(stop_day_otp.router)
 app.include_router(route_day_otp.router)
 app.include_router(segment_day.router)
+app.include_router(stops.router)
+app.include_router(directions.router)
 app.include_router(adherence.router)
 app.include_router(alerts.router)
 app.include_router(line_delays.router)

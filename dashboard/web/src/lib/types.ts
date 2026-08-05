@@ -4,6 +4,21 @@ export interface AgencySummary {
   timezone: string;
 }
 
+export interface StopRow {
+  stop_id: string;
+  stop_code: string | null;
+  stop_name: string | null;
+  stop_lat: number | null;
+  stop_lon: number | null;
+}
+
+export interface DirectionRow {
+  route_id: string;
+  direction_id: number;
+  direction: string | null;
+  direction_destination: string | null;
+}
+
 export interface StopDayRow {
   feed: string;
   route_id: string;

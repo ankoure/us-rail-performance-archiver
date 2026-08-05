@@ -10,6 +10,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.fs as pafs
+import pyarrow.parquet as pq
 import yaml
 
 from api.config import settings
@@ -49,8 +50,24 @@ _KINDS: dict[str, tuple[str, str | None]] = {
     "stop_day_otp": ("metrics/stop_day_otp", "service_date"),
     "route_day_otp": ("metrics/route_day_otp", "service_date"),
     "segment_day": ("metrics/segment_day", "service_date"),
+    "gtfs_versions": ("metrics/gtfs_versions", "service_date"),
     "alerts": ("alerts", None),
 }
+
+# Version-partitioned marts (see docs/design/static-gtfs-normalization.md) live
+# at metrics/<kind>/feed=<feed>/version=<version_slug>/data.parquet -- one
+# fixed file per (feed, version), not a day-partitioned dataset. gtfs_versions
+# (day-partitioned, in _KINDS above) is the pointer from a service_date to the
+# version_slug in effect that day.
+_VERSION_KINDS = frozenset(
+    {
+        "gtfs_stops",
+        "gtfs_calendar",
+        "gtfs_calendar_dates",
+        "gtfs_shapes",
+        "gtfs_directions",
+    }
+)
 
 
 def _hot_path(subpath: str) -> str:
@@ -182,3 +199,44 @@ def read_kind(
     if limit is not None:
         return dataset.head(limit, filter=predicate)
     return dataset.to_table(filter=predicate)
+
+
+def _latest_version_slug(feed_name: str) -> str | None:
+    """Most recent version_slug for a feed, from the gtfs_versions pointer mart.
+
+    Wide-open date range: gtfs_versions is tiny (one row per feed per day), and
+    this only ever needs "whatever the newest pointer is," not a specific day.
+    """
+    table = read_kind("gtfs_versions", [feed_name], date(2020, 1, 1), date.today())
+    if table.num_rows == 0:
+        return None
+    dates = table.column("service_date").to_pylist()
+    versions = table.column("version_slug").to_pylist()
+    latest = max(range(len(dates)), key=lambda i: dates[i])
+    return versions[latest]
+
+
+def read_latest_version_mart(kind: str, feed_name: str) -> pa.Table:
+    """Read a version-partitioned mart's current data.parquet for one feed
+    (see docs/design/static-gtfs-normalization.md), resolved via
+    gtfs_versions' latest pointer rather than a hive-partitioned day scan.
+
+    Returns an empty table -- not an error -- when there's no version pointer
+    yet or the mart file itself is absent (e.g. the daily batch hasn't run
+    since this mart was added, or this feed's schedule doesn't populate the
+    underlying GTFS file). Both are "not populated yet," not a client error.
+    """
+    if kind not in _VERSION_KINDS:
+        raise ValueError(
+            f"Unknown version-partitioned kind {kind!r}; must be one of {sorted(_VERSION_KINDS)}"
+        )
+    version_slug = _latest_version_slug(feed_name)
+    if version_slug is None:
+        return pa.table({})
+    path = _hot_path(
+        f"metrics/{kind}/feed={feed_name}/version={version_slug}/data.parquet"
+    )
+    try:
+        return pq.read_table(path, filesystem=_s3_filesystem())
+    except OSError:
+        return pa.table({})
