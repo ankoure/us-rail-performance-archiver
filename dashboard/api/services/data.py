@@ -48,6 +48,7 @@ _KINDS: dict[str, tuple[str, str | None]] = {
     "adherence": ("metrics/adherence", "service_date"),
     "stop_day_otp": ("metrics/stop_day_otp", "service_date"),
     "route_day_otp": ("metrics/route_day_otp", "service_date"),
+    "segment_day": ("metrics/segment_day", "service_date"),
     "alerts": ("alerts", None),
 }
 

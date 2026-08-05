@@ -69,6 +69,21 @@ export interface RouteDayOtp extends OtpAggFields {
   distinct_stop_count: number;
 }
 
+export interface SegmentDayRow {
+  feed: string;
+  route_id: string;
+  direction_id: number | null;
+  from_stop_id: string;
+  to_stop_id: string;
+  service_date: string;
+  sample_count: number;
+  speed_p50_mph: number | null;
+  speed_p90_mph: number | null;
+  speed_mean_mph: number | null;
+  transit_p50_s: number | null;
+  distance_m: number;
+}
+
 export interface Adherence {
   feed: string;
   route_id: string;

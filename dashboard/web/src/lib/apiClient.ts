@@ -4,6 +4,7 @@ import type {
   RouteDayRow,
   StopDayOtp,
   RouteDayOtp,
+  SegmentDayRow,
   Adherence,
   AlertRow,
   LineDelaysSummary,
@@ -38,6 +39,14 @@ export interface DateRangeFilters {
   stop_id?: string[];
 }
 
+export interface SegmentDayFilters {
+  start_date: string;
+  end_date: string;
+  route_id?: string[];
+  from_stop_id?: string[];
+  to_stop_id?: string[];
+}
+
 export const api = {
   agencies: () => getJSON<AgencySummary[]>("/agencies"),
 
@@ -52,6 +61,9 @@ export const api = {
 
   routeDayOtp: (agency: string, filters: Omit<DateRangeFilters, "stop_id">) =>
     getJSON<RouteDayOtp[]>(`/agencies/${agency}/route_day_otp`, filters),
+
+  segmentDay: (agency: string, filters: SegmentDayFilters) =>
+    getJSON<SegmentDayRow[]>(`/agencies/${agency}/segment_day`, filters),
 
   adherence: (agency: string, filters: DateRangeFilters & { trip_id?: string[]; limit?: number }) =>
     getJSON<Adherence[]>(`/agencies/${agency}/adherence`, {
