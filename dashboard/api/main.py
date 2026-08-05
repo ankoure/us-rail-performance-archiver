@@ -10,6 +10,7 @@ from api.routers import (
     health,
     route_day,
     route_day_otp,
+    routes,
     segment_day,
     stop_day,
     stop_day_otp,
@@ -33,6 +34,7 @@ app.include_router(route_day.router)
 app.include_router(stop_day_otp.router)
 app.include_router(route_day_otp.router)
 app.include_router(segment_day.router)
+app.include_router(routes.router)
 app.include_router(stops.router)
 app.include_router(directions.router)
 app.include_router(adherence.router)

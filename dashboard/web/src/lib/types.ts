@@ -4,6 +4,13 @@ export interface AgencySummary {
   timezone: string;
 }
 
+export interface RouteRow {
+  route_id: string;
+  route_short_name: string | null;
+  route_long_name: string | null;
+  mode: string;
+}
+
 export interface StopRow {
   stop_id: string;
   stop_code: string | null;

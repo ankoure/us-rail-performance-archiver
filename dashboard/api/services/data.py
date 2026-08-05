@@ -2,7 +2,7 @@
 
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 
 import boto3
@@ -51,8 +51,15 @@ _KINDS: dict[str, tuple[str, str | None]] = {
     "route_day_otp": ("metrics/route_day_otp", "service_date"),
     "segment_day": ("metrics/segment_day", "service_date"),
     "gtfs_versions": ("metrics/gtfs_versions", "service_date"),
+    "routes": ("metrics/routes", "service_date"),
     "alerts": ("alerts", None),
 }
+
+# How far back to look for the routes manifest's most recent day. It's
+# rebuilt daily off gold.py's own GTFS resolver (see pipeline/gold.py
+# _build_routes) and rarely changes, so a wide-ish window just needs to
+# tolerate a handful of missed days, not track exact freshness.
+_ROUTES_LOOKBACK_DAYS = 14
 
 # Version-partitioned marts (see docs/design/static-gtfs-normalization.md) live
 # at metrics/<kind>/feed=<feed>/version=<version_slug>/data.parquet -- one
@@ -199,6 +206,24 @@ def read_kind(
     if limit is not None:
         return dataset.head(limit, filter=predicate)
     return dataset.to_table(filter=predicate)
+
+
+def read_current_routes(feed_name: str) -> pa.Table:
+    """The routes manifest's most recent day for one feed (route_id,
+    route_short_name, route_long_name, mode). Unlike the gtfs_* marts this is
+    plain day-partitioned data, not a version pointer -- rebuilt daily, so
+    "most recent day within the lookback window" is all "current" means here.
+    """
+    table = read_kind(
+        "routes",
+        [feed_name],
+        date.today() - timedelta(days=_ROUTES_LOOKBACK_DAYS),
+        date.today(),
+    )
+    if table.num_rows == 0:
+        return table
+    latest_day = max(table.column("service_date").to_pylist())
+    return table.filter(pc.field("service_date") == latest_day)
 
 
 def _latest_version_slug(feed_name: str) -> str | None:

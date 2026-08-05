@@ -8,11 +8,14 @@ import { LinePicker, useLine } from "@/components/LinePicker";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { TimeSeriesChart } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
-import { directionLabel as fallbackDirectionLabel } from "@/lib/mbtaRailLines";
 import { useApiData } from "@/lib/useApiData";
-import type { DirectionRow, SegmentDayRow, StopRow } from "@/lib/types";
+import type { DirectionRow, RouteRow, SegmentDayRow, StopRow } from "@/lib/types";
 
-const MBTA_AGENCY_ID = "MBTA";
+// "rapid" (subway/light rail) and "cr" (commuter rail) — see
+// analysis/static_gtfs.py's _categorize_route_type. Rail first, bus later is
+// the deliberate scope for this page; this is the one place that filter
+// would need to widen to add "bus".
+const RAIL_MODES = new Set(["rapid", "cr"]);
 const MIN_SAMPLES_FOR_SLOWEST = 5;
 const MAX_SLOWEST_SEGMENTS = 20;
 const METERS_PER_MILE = 1609.344;
@@ -119,22 +122,27 @@ export default function SpeedPage() {
   const line = useLine();
   const { start, end } = useDateRange();
 
-  const isMbta = agency === MBTA_AGENCY_ID;
-  const enabled = isMbta && Boolean(line);
+  const enabled = Boolean(agency) && Boolean(line);
+
+  // Routes/names/directions come from the latest static schedule, not tied to
+  // the selected date range — fetched once per agency, not per line or date
+  // change.
+  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
+    api.routes(agency!),
+  );
+  const { data: stopsData } = useApiData<StopRow[]>(`stops|${agency}`, Boolean(agency), () => api.stops(agency!));
+  const { data: directionsData } = useApiData<DirectionRow[]>(
+    `directions|${agency}`,
+    Boolean(agency),
+    () => api.directions(agency!),
+  );
+
+  const railRoutes = useMemo(() => (routesData ?? []).filter((r) => RAIL_MODES.has(r.mode)), [routesData]);
 
   const { data, error } = useApiData<SegmentDayRow[]>(
     `${agency}|${line}|${start}|${end}`,
     enabled,
     () => api.segmentDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
-  );
-
-  // Names/directions come from the latest static-GTFS snapshot, not tied to the
-  // selected date range — fetched once per agency, not per line or date change.
-  const { data: stopsData } = useApiData<StopRow[]>(`stops|${agency}`, isMbta, () => api.stops(agency!));
-  const { data: directionsData } = useApiData<DirectionRow[]>(
-    `directions|${agency}`,
-    isMbta,
-    () => api.directions(agency!),
   );
 
   const stopNameById = useMemo(() => {
@@ -156,7 +164,10 @@ export default function SpeedPage() {
   }, [directionsData]);
 
   function resolveDirectionLabel(routeId: string, directionId: number): string {
-    return directionLabelByRoute.get(`${routeId}|${directionId}`) ?? fallbackDirectionLabel(routeId, directionId);
+    // Most non-MBTA feeds omit directions.txt, so this is a plain "Direction N"
+    // fallback, not agency-specific guesswork — see analysis/static_gtfs.py's
+    // directions.txt handling for why the real data can't always be there.
+    return directionLabelByRoute.get(`${routeId}|${directionId}`) ?? `Direction ${directionId}`;
   }
 
   function resolveStopName(stopId: string): string {
@@ -178,17 +189,18 @@ export default function SpeedPage() {
     <>
       <div className="filter-bar">
         <AgencyPicker />
-        {isMbta && <LinePicker />}
+        {agency && railRoutes.length > 0 && <LinePicker routes={railRoutes} />}
         <DateRangePicker />
       </div>
       <main>
         {!agency && <NoAgencySelected />}
-        {agency && !isMbta && (
-          <p className="empty-state">
-            Speed &amp; Travel Time is available for MBTA rail lines only right now.
-          </p>
+        {agency && !routesData && <p className="empty-state">Loading routes…</p>}
+        {agency && routesData && railRoutes.length === 0 && (
+          <p className="empty-state">No rail routes found for this agency yet.</p>
         )}
-        {isMbta && !line && <p className="empty-state">Pick a line above to load speed data.</p>}
+        {agency && railRoutes.length > 0 && !line && (
+          <p className="empty-state">Pick a line above to load speed data.</p>
+        )}
         {enabled && error && <p className="error-state">Failed to load speed data: {error}</p>}
         {enabled && !error && (
           <>

@@ -5,6 +5,7 @@ import type {
   StopDayOtp,
   RouteDayOtp,
   SegmentDayRow,
+  RouteRow,
   StopRow,
   DirectionRow,
   Adherence,
@@ -66,6 +67,8 @@ export const api = {
 
   segmentDay: (agency: string, filters: SegmentDayFilters) =>
     getJSON<SegmentDayRow[]>(`/agencies/${agency}/segment_day`, filters),
+
+  routes: (agency: string) => getJSON<RouteRow[]>(`/agencies/${agency}/routes`),
 
   stops: (agency: string) => getJSON<StopRow[]>(`/agencies/${agency}/stops`),
 
