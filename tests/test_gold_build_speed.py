@@ -41,6 +41,26 @@ def _gtfs(tmp_path: Path) -> StaticGtfs:
     return StaticGtfs(zp)
 
 
+# An L-shaped shape passing through S1's corner then S2 — the along-shape
+# distance between them is necessarily longer than the S1-S2 straight line.
+_TRIPS_CSV = "trip_id,route_id,service_id,shape_id\nT1,R1,WEEKDAY,SHAPE1\n"
+_SHAPES_CSV = (
+    "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+    "SHAPE1,40.7580,-73.9855,1\n"
+    "SHAPE1,40.7580,-73.9971,2\n"
+    "SHAPE1,40.7506,-73.9971,3\n"
+)
+
+
+def _gtfs_with_shape(tmp_path: Path) -> StaticGtfs:
+    zp = tmp_path / "gtfs_shape.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("stops.txt", _STOPS_CSV)
+        z.writestr("trips.txt", _TRIPS_CSV)
+        z.writestr("shapes.txt", _SHAPES_CSV)
+    return StaticGtfs(zp)
+
+
 def _write_vehicles(curated: Path) -> None:
     """Write four pings: two STOPPED_AT S1, then two STOPPED_AT S2 (one trip)."""
     rows = [
@@ -123,3 +143,34 @@ def test_build_one_writes_speed_marts(tmp_path):
     # Schema compatibility — same check as test_analysis_segment_speed.py
     pa.Table.from_pylist(speed_table.to_pylist(), schema=SEGMENT_SPEED_SCHEMA)
     pa.Table.from_pylist(day_table.to_pylist(), schema=SEGMENT_DAY_SCHEMA)
+
+
+def test_build_one_uses_shape_distance_when_available(tmp_path):
+    """When trips.txt/shapes.txt are present, gold.py should pass trip/shape
+    geometry through to compute_segment_speeds and get shape-following
+    distance back, not the plain S1-S2 straight line."""
+    from analysis.geo import haversine_m
+
+    curated = tmp_path / "curated"
+    _write_vehicles(curated)
+    gtfs = _gtfs_with_shape(tmp_path)
+
+    result = gold.build_one(
+        FEED,
+        DAY,
+        EASTERN,
+        curated,
+        "vehicles",
+        merge_gap_seconds=60,
+        force=False,
+        gtfs_for=lambda f, d: gtfs,
+    )
+
+    assert result is not None
+    speed_path = _mart_path(curated, "segment_speed", FEED, DAY)
+    speed_table = pq.read_table(speed_path)
+    rows = speed_table.to_pylist()
+    assert len(rows) == 1
+
+    straight_line = haversine_m(40.7580, -73.9855, 40.7506, -73.9971)
+    assert rows[0]["distance_m"] > straight_line

@@ -221,3 +221,91 @@ class TestComputeSegmentSpeeds:
         _, seg = self._run([v1a, v2a, v1b, v2b])
         expected_d = _haversine_m(*COORDS["S1"], *COORDS["S2"])
         assert math.isclose(seg[0]["distance_m"], expected_d, rel_tol=1e-9)
+
+
+class TestShapeFollowingDistance:
+    """compute_segment_speeds prefers shape-following distance when given
+    shape_by_trip/shape_points, and falls back to haversine per trip when the
+    shape is missing, absent for that trip, or fails the sanity check."""
+
+    # An L-shaped shape passing through S1 and S2's corner — the along-shape
+    # distance between them is necessarily longer than the S1-S2 haversine.
+    BENT_SHAPE = [
+        COORDS["S1"],
+        (COORDS["S1"][0], COORDS["S2"][1]),  # corner
+        COORDS["S2"],
+    ]
+
+    def _run(self, visits, **kw):
+        return compute_segment_speeds(visits, COORDS, "feed", NY, **kw)
+
+    def test_uses_shape_distance_when_available(self):
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1")
+        v2 = _visit("S2", NOON + 630, trip_id="T1")
+        fact, _ = self._run(
+            [v1, v2],
+            shape_by_trip={"T1": "SHAPE1"},
+            shape_points={"SHAPE1": self.BENT_SHAPE},
+        )
+        haversine_distance = _haversine_m(*COORDS["S1"], *COORDS["S2"])
+        assert fact[0]["distance_m"] > haversine_distance
+
+    def test_falls_back_when_trip_has_no_shape(self):
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1")
+        v2 = _visit("S2", NOON + 630, trip_id="T1")
+        fact, _ = self._run(
+            [v1, v2],
+            shape_by_trip={},  # T1 not in the map
+            shape_points={"SHAPE1": self.BENT_SHAPE},
+        )
+        expected = _haversine_m(*COORDS["S1"], *COORDS["S2"])
+        assert math.isclose(fact[0]["distance_m"], expected, rel_tol=1e-9)
+
+    def test_falls_back_when_shape_id_unknown(self):
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1")
+        v2 = _visit("S2", NOON + 630, trip_id="T1")
+        fact, _ = self._run(
+            [v1, v2],
+            shape_by_trip={"T1": "MISSING_SHAPE"},
+            shape_points={"SHAPE1": self.BENT_SHAPE},
+        )
+        expected = _haversine_m(*COORDS["S1"], *COORDS["S2"])
+        assert math.isclose(fact[0]["distance_m"], expected, rel_tol=1e-9)
+
+    def test_falls_back_when_shape_too_short(self):
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1")
+        v2 = _visit("S2", NOON + 630, trip_id="T1")
+        fact, _ = self._run(
+            [v1, v2],
+            shape_by_trip={"T1": "SHAPE1"},
+            shape_points={"SHAPE1": [COORDS["S1"]]},  # only one point
+        )
+        expected = _haversine_m(*COORDS["S1"], *COORDS["S2"])
+        assert math.isclose(fact[0]["distance_m"], expected, rel_tol=1e-9)
+
+    def test_falls_back_when_shape_distance_implausible(self):
+        # A shape that both stops project onto near the same point (e.g. a
+        # loop far from either stop) should be rejected by the ratio check,
+        # not silently produce a wildly wrong distance.
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1")
+        v2 = _visit("S2", NOON + 630, trip_id="T1")
+        far_away_loop = [(0.0, 0.0), (0.0, 0.001), (0.0001, 0.001), (0.0001, 0.0)]
+        fact, _ = self._run(
+            [v1, v2],
+            shape_by_trip={"T1": "SHAPE1"},
+            shape_points={"SHAPE1": far_away_loop},
+        )
+        expected = _haversine_m(*COORDS["S1"], *COORDS["S2"])
+        assert math.isclose(fact[0]["distance_m"], expected, rel_tol=1e-9)
+
+    def test_shared_shape_across_trips_is_memoized_consistently(self):
+        v1a = _visit("S1", NOON, NOON + 30, trip_id="T1")
+        v2a = _visit("S2", NOON + 630, trip_id="T1")
+        v1b = _visit("S1", NOON + 3600, NOON + 3630, trip_id="T2")
+        v2b = _visit("S2", NOON + 4230, trip_id="T2")
+        fact, _ = self._run(
+            [v1a, v2a, v1b, v2b],
+            shape_by_trip={"T1": "SHAPE1", "T2": "SHAPE1"},
+            shape_points={"SHAPE1": self.BENT_SHAPE},
+        )
+        assert math.isclose(fact[0]["distance_m"], fact[1]["distance_m"], rel_tol=1e-9)

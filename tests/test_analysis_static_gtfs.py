@@ -469,6 +469,92 @@ class TestTripDirections:
         }
 
 
+class TestTrips:
+    def test_absent_file_degrades_to_empty_frame(self, tmp_path):
+        # trips.txt is required by the GTFS spec, but degrades like every
+        # other table here — callers like trip_shapes/trip_directions only
+        # check column presence, they don't assume the file exists.
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))  # no trips.txt at all
+        df = gtfs.trips
+        assert df.empty
+        assert "trip_id" in df.columns
+        assert "shape_id" in df.columns
+
+
+class TestTripShapes:
+    """trip_shapes powers shape-following distance in segment_speed.py."""
+
+    def test_basic_mapping(self, tmp_path):
+        trips = (
+            "trip_id,route_id,service_id,shape_id\n"
+            "T1,R,WEEKDAY,SHAPE1\n"
+            "T2,R,WEEKDAY,SHAPE2\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
+        assert gtfs.trip_shapes == {"T1": "SHAPE1", "T2": "SHAPE2"}
+
+    def test_missing_shape_id_column_yields_empty(self, tmp_path):
+        # shape_id is itself GTFS-optional on trips.txt.
+        trips = "trip_id,route_id,service_id\nT1,R,WEEKDAY\n"
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
+        assert gtfs.trip_shapes == {}
+
+    def test_blank_shape_id_is_omitted(self, tmp_path):
+        trips = (
+            "trip_id,route_id,service_id,shape_id\nT1,R,WEEKDAY,SHAPE1\nT2,R,WEEKDAY,\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
+        assert gtfs.trip_shapes == {"T1": "SHAPE1"}
+
+    def test_absent_trips_file_yields_empty(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))
+        assert gtfs.trip_shapes == {}
+
+
+class TestShapePoints:
+    """shape_points powers shape-following distance in segment_speed.py."""
+
+    def test_orders_points_by_sequence(self, tmp_path):
+        # Deliberately out of sequence order in the file.
+        shapes = (
+            "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+            "S1,42.36,-71.05,2\n"
+            "S1,42.35,-71.06,1\n"
+            "S1,42.37,-71.04,3\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, shapes=shapes))
+        assert gtfs.shape_points["S1"] == [
+            (42.35, -71.06),
+            (42.36, -71.05),
+            (42.37, -71.04),
+        ]
+
+    def test_separates_multiple_shapes(self, tmp_path):
+        shapes = (
+            "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+            "S1,42.35,-71.06,1\n"
+            "S2,40.75,-73.98,1\n"
+            "S1,42.36,-71.05,2\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, shapes=shapes))
+        assert list(gtfs.shape_points.keys()) == ["S1", "S2"]
+        assert len(gtfs.shape_points["S1"]) == 2
+        assert len(gtfs.shape_points["S2"]) == 1
+
+    def test_absent_file_yields_empty(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))
+        assert gtfs.shape_points == {}
+
+    def test_rows_missing_lat_lon_are_dropped(self, tmp_path):
+        shapes = (
+            "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\n"
+            "S1,42.35,-71.06,1\n"
+            "S1,,,2\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, shapes=shapes))
+        assert gtfs.shape_points["S1"] == [(42.35, -71.06)]
+
+
 class TestCategorizeRouteType:
     @pytest.mark.parametrize(
         "rt, expected",

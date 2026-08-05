@@ -70,25 +70,43 @@ class StaticGtfs:
 
     @cached_property
     def trips(self) -> pd.DataFrame:
-        return self._read(
-            "trips.txt",
-            usecols=lambda c: (
-                c
-                in {
+        """trips.txt. Required by the GTFS spec, but degrades to an empty
+        frame rather than raising when absent, matching routes/stops/shapes —
+        several callers (e.g. [[trip_directions]], [[trip_shapes]]) only need
+        to check column presence, not have the file guaranteed to exist."""
+        try:
+            return self._read(
+                "trips.txt",
+                usecols=lambda c: (
+                    c
+                    in {
+                        "trip_id",
+                        "route_id",
+                        "service_id",
+                        "direction_id",
+                        "trip_short_name",
+                        "shape_id",
+                    }
+                ),
+                dtype={
+                    "trip_id": str,
+                    "route_id": str,
+                    "service_id": str,
+                    "trip_short_name": str,
+                    "shape_id": str,
+                },
+            )
+        except KeyError:
+            return pd.DataFrame(
+                columns=[
                     "trip_id",
                     "route_id",
                     "service_id",
                     "direction_id",
                     "trip_short_name",
-                }
-            ),
-            dtype={
-                "trip_id": str,
-                "route_id": str,
-                "service_id": str,
-                "trip_short_name": str,
-            },
-        )
+                    "shape_id",
+                ]
+            )
 
     @cached_property
     def routes(self) -> pd.DataFrame:
@@ -283,6 +301,55 @@ class StaticGtfs:
             except (TypeError, ValueError):
                 continue
             out[sid] = (lat, lon)
+        return out
+
+    @cached_property
+    def trip_shapes(self) -> dict[str, str]:
+        """Map trip_id -> shape_id from trips.txt.
+
+        Used to look up the polyline a trip follows for shape-following
+        distance (see [[shape_points]]). Returns {} when trips.txt is missing
+        trip_id, or when shape_id is absent — it's optional per the GTFS spec
+        and not every producer publishes it.
+        """
+        if "trip_id" not in self.trips.columns or "shape_id" not in self.trips.columns:
+            return {}
+        out: dict[str, str] = {}
+        for row in self.trips.itertuples(index=False):
+            trip_id = getattr(row, "trip_id", None)
+            shape_id = getattr(row, "shape_id", None)
+            if isinstance(trip_id, str) and isinstance(shape_id, str) and shape_id:
+                out[trip_id] = shape_id
+        return out
+
+    @cached_property
+    def shape_points(self) -> dict[str, list[tuple[float, float]]]:
+        """Map shape_id -> ordered list of (lat, lon) points from shapes.txt.
+
+        Points are sorted by shape_pt_sequence. Used with [[trip_shapes]] to
+        project a stop onto its trip's shape polyline for shape-following
+        distance instead of assuming a straight line between stations — see
+        analysis.geo.project_point_to_polyline. Missing shapes.txt, or shapes
+        with fewer than 2 usable points, degrade to an absent/empty entry
+        rather than raising, matching [[stop_coords]].
+        """
+        df = self.shapes
+        required = {"shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence"}
+        if not required.issubset(df.columns):
+            return {}
+        df = df.dropna(subset=list(required)).sort_values(
+            ["shape_id", "shape_pt_sequence"]
+        )
+        out: dict[str, list[tuple[float, float]]] = {}
+        for row in df.itertuples(index=False):
+            sid = getattr(row, "shape_id", None)
+            if not isinstance(sid, str) or not sid:
+                continue
+            try:
+                lat, lon = float(row.shape_pt_lat), float(row.shape_pt_lon)
+            except (TypeError, ValueError):
+                continue
+            out.setdefault(sid, []).append((lat, lon))
         return out
 
     @cached_property

@@ -525,9 +525,11 @@ def _build_speed(
     """Build the segment-speed marts for one (feed, day). Returns fact row count or None.
 
     Resolves the same GTFS snapshot as OTP (so no extra network I/O when both run
-    together) and passes stop coordinates to compute_segment_speeds. Skips silently
-    when the feed has no mdb_feed_id, the GTFS lookup fails, or the zip carries no
-    stop coordinates.
+    together) and passes stop coordinates plus trip/shape geometry to
+    compute_segment_speeds, which prefers shape-following distance and falls
+    back to straight-line per trip (see analysis/segment_speed.py). Skips
+    silently when the feed has no mdb_feed_id, the GTFS lookup fails, or the
+    zip carries no stop coordinates.
     """
     from analysis.segment_speed import (
         SEGMENT_DAY_SCHEMA,
@@ -550,7 +552,14 @@ def _build_speed(
         )
         return None
 
-    fact_rows, seg_day_rows = compute_segment_speeds(visits, stop_coords, feed, tz)
+    fact_rows, seg_day_rows = compute_segment_speeds(
+        visits,
+        stop_coords,
+        feed,
+        tz,
+        shape_by_trip=gtfs_day.trip_shapes,
+        shape_points=gtfs_day.shape_points,
+    )
     if not fact_rows:
         print(f"[{feed} {day}] no segment speed rows", file=sys.stderr)
         return None
