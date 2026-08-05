@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/otp", label: "OTP" },
   { href: "/headways-dwells", label: "Headways & Dwells" },
+  { href: "/speed", label: "Speed" },
   { href: "/alerts", label: "Alerts" },
   { href: "/line-delays", label: "Line Delays" },
 ];
