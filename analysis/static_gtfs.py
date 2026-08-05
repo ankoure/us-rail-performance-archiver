@@ -131,6 +131,135 @@ class StaticGtfs:
             )
 
     @cached_property
+    def shapes(self) -> pd.DataFrame:
+        """shapes.txt — route geometry as ordered (lat, lon) points per shape_id.
+
+        Optional per the GTFS spec (only required when trips.txt references
+        shape_id); missing shapes.txt degrades to an empty frame rather than
+        raising, matching routes/stops. shape_dist_traveled is itself an
+        optional column within shapes.txt — `usecols` simply omits it when absent.
+        """
+        try:
+            return self._read(
+                "shapes.txt",
+                usecols=lambda c: (
+                    c
+                    in {
+                        "shape_id",
+                        "shape_pt_lat",
+                        "shape_pt_lon",
+                        "shape_pt_sequence",
+                        "shape_dist_traveled",
+                    }
+                ),
+                dtype={"shape_id": str},
+            )
+        except KeyError:
+            return pd.DataFrame(
+                columns=[
+                    "shape_id",
+                    "shape_pt_lat",
+                    "shape_pt_lon",
+                    "shape_pt_sequence",
+                    "shape_dist_traveled",
+                ]
+            )
+
+    @cached_property
+    def route_patterns(self) -> pd.DataFrame:
+        """route_patterns.txt — an MBTA GTFS extension, one row per route pattern.
+
+        Groups a route+direction's trips into named, typicality-ranked
+        patterns (typical/deviation/atypical/diversion), each with a
+        representative_trip_id. Most non-MBTA feeds omit this file; missing
+        route_patterns.txt degrades to an empty frame, matching routes/stops/shapes.
+        """
+        try:
+            return self._read(
+                "route_patterns.txt",
+                usecols=lambda c: (
+                    c
+                    in {
+                        "route_pattern_id",
+                        "route_id",
+                        "direction_id",
+                        "route_pattern_name",
+                        "route_pattern_typicality",
+                        "representative_trip_id",
+                    }
+                ),
+                dtype={
+                    "route_pattern_id": str,
+                    "route_id": str,
+                    "route_pattern_name": str,
+                    "representative_trip_id": str,
+                },
+            )
+        except KeyError:
+            return pd.DataFrame(
+                columns=[
+                    "route_pattern_id",
+                    "route_id",
+                    "direction_id",
+                    "route_pattern_name",
+                    "route_pattern_typicality",
+                    "representative_trip_id",
+                ]
+            )
+
+    @cached_property
+    def directions(self) -> pd.DataFrame:
+        """directions.txt — an MBTA GTFS extension: human-readable direction names.
+
+        Maps (route_id, direction_id) -> a short direction label (e.g.
+        "Outbound") and destination (e.g. "Alewife"). Most non-MBTA feeds
+        omit this file; missing directions.txt degrades to an empty frame.
+        """
+        try:
+            return self._read(
+                "directions.txt",
+                usecols=lambda c: (
+                    c
+                    in {
+                        "route_id",
+                        "direction_id",
+                        "direction",
+                        "direction_destination",
+                    }
+                ),
+                dtype={"route_id": str, "direction": str, "direction_destination": str},
+            )
+        except KeyError:
+            return pd.DataFrame(
+                columns=[
+                    "route_id",
+                    "direction_id",
+                    "direction",
+                    "direction_destination",
+                ]
+            )
+
+    @cached_property
+    def checkpoints(self) -> pd.DataFrame:
+        """checkpoints.txt — an MBTA GTFS extension: named reporting points.
+
+        checkpoint_id -> checkpoint_name only. stop_times.txt rows may carry a
+        checkpoint_id (exposed on [[stop_times]] when present) but this class
+        doesn't derive a stop->checkpoint mapping from it, since checkpoint_id
+        is per stop_time (per trip), not guaranteed stable per stop. Most
+        non-MBTA feeds omit this file; missing checkpoints.txt degrades to an
+        empty frame.
+        """
+        try:
+            return self._read(
+                "checkpoints.txt",
+                usecols=lambda c: c in {"checkpoint_id", "checkpoint_name"},
+                dtype={"checkpoint_id": str, "checkpoint_name": str},
+            )
+        except KeyError:
+            return pd.DataFrame(columns=["checkpoint_id", "checkpoint_name"])
+
+    @cached_property
     def stop_coords(self) -> dict[str, tuple[float, float]]:
         """Map stop_id → (latitude, longitude) from stops.txt.
 
@@ -299,6 +428,11 @@ class StaticGtfs:
         The HH:MM:SS time strings (which GTFS allows past 24:00 for next-day
         continuations) are converted to seconds via [[_hms_to_seconds]] so
         scheduled_tt and scheduled_headway are plain integer subtractions.
+
+        Also exposes `checkpoint_id` (an MBTA extension column) when present,
+        for callers that want to join to [[checkpoints]] themselves — this
+        class doesn't derive a stop->checkpoint mapping, since checkpoint_id
+        is per stop_time (per trip), not guaranteed stable per stop.
         """
         df = self._read(
             "stop_times.txt",
@@ -310,9 +444,10 @@ class StaticGtfs:
                     "stop_id",
                     "arrival_time",
                     "departure_time",
+                    "checkpoint_id",
                 }
             ),
-            dtype={"trip_id": str, "stop_id": str},
+            dtype={"trip_id": str, "stop_id": str, "checkpoint_id": str},
         )
         # GTFS allows times like "25:30:00" (next-day continuation). Convert to seconds-since-noon-of-service-date
         # following the GTFS convention (noon-12h is the practical reference; using midnight is fine for our use

@@ -420,6 +420,35 @@ One row per (route, direction, stop, service_date), aggregating `adherence`. `ro
 
 One row per (route, direction, service_date). Same aggregate columns as `stop_day_otp` plus `distinct_stop_count`, minus `stop_id`; delay percentiles are pooled across the route's stops. See [ROUTE_DAY_OTP_SCHEMA](analysis/adherence.py).
 
+### `metrics/routes` (gold, written by [pipeline/gold.py](pipeline/gold.py))
+
+A small, rarely-changing routes reference table, rebuilt daily off the same GTFS resolver as OTP so `dashboard/api` can read it via the same day-partition path as every other mart instead of resolving GTFS itself. `route_id`, `route_short_name` (nullable), `route_long_name` (nullable), `mode` (`rapid`/`bus`/`cr`/`other`), `service_date`. See `ROUTES_SCHEMA` in [pipeline/gold.py](pipeline/gold.py).
+
+### `metrics/gtfs_versions` (written by [pipeline/gtfs.py](pipeline/gtfs.py))
+
+One row per (feed, service_date) — a day-partitioned pointer to the GTFS snapshot in effect that day. `service_date`, `version_slug`, `feed_version` (nullable), `feed_start_date`, `feed_end_date`. Pair this with the version-partitioned marts below to answer "what was the schedule on day D" without re-hitting the archived-feeds catalog. See [GTFS_VERSIONS_SCHEMA](pipeline/gtfs.py).
+
+### `metrics/gtfs_stops`, `metrics/gtfs_calendar`, `metrics/gtfs_calendar_dates`, `metrics/gtfs_shapes` (written by [pipeline/gtfs.py](pipeline/gtfs.py))
+
+Static GTFS, normalized and persisted once per `(feed, version_slug)` rather than per day — see [docs/design/static-gtfs-normalization.md](docs/design/static-gtfs-normalization.md) for why. Partition path: `metrics/<mart>/feed=…/version=…/data.parquet`.
+
+- `gtfs_stops` — `stop_id`, `stop_code` (nullable), `stop_name` (nullable), `stop_lat` (nullable), `stop_lon` (nullable), `version_slug`.
+- `gtfs_calendar` — typed passthrough of `calendar.txt`: `service_id`, `monday`…`sunday` (bool), `start_date`, `end_date`, `version_slug`.
+- `gtfs_calendar_dates` — typed passthrough of `calendar_dates.txt`: `service_id`, `date`, `exception_type` (1=added, 2=removed), `version_slug`.
+- `gtfs_shapes` — one row per shape point: `shape_id`, `shape_pt_sequence`, `shape_pt_lat`, `shape_pt_lon`, `shape_dist_traveled` (nullable), `version_slug`.
+
+See [GTFS_STOPS_SCHEMA / GTFS_CALENDAR_SCHEMA / GTFS_CALENDAR_DATES_SCHEMA / GTFS_SHAPES_SCHEMA](pipeline/gtfs.py).
+
+### `metrics/gtfs_route_patterns`, `metrics/gtfs_directions`, `metrics/gtfs_checkpoints` (written by [pipeline/gtfs.py](pipeline/gtfs.py))
+
+MBTA GTFS extensions, version-partitioned the same way as `gtfs_stops` above; most non-MBTA feeds don't publish these files, so they degrade to an empty-but-present mart rather than being absent.
+
+- `gtfs_route_patterns` — `route_pattern_id`, `route_id`, `direction_id`, `route_pattern_name` (nullable), `route_pattern_typicality` (nullable; 0=not defined, 1=typical, 2=deviation, 3=atypical, 4=diversion), `representative_trip_id` (nullable), `version_slug`.
+- `gtfs_directions` — `route_id`, `direction_id`, `direction` (nullable), `direction_destination` (nullable), `version_slug`.
+- `gtfs_checkpoints` — reference table only: `checkpoint_id`, `checkpoint_name` (nullable), `version_slug`. MBTA's `checkpoint_id` lives on `stop_times.txt` (per trip, not per stop), so this mart doesn't derive a stop→checkpoint mapping — `StaticGtfs.stop_times` exposes `checkpoint_id` directly for callers that want that join themselves.
+
+See [GTFS_ROUTE_PATTERNS_SCHEMA / GTFS_DIRECTIONS_SCHEMA / GTFS_CHECKPOINTS_SCHEMA](pipeline/gtfs.py).
+
 ---
 
 ## Analysis layer
@@ -472,6 +501,15 @@ uv run python pipeline/gold.py --feed wmata-vehicles --day 2026-05-20   # schedu
 uv run python pipeline/gold.py --all-days --no-otp                      # every feed/day on disk, schedule-free only
 ```
 
+### Static GTFS reference tier
+
+[pipeline/gtfs.py](pipeline/gtfs.py) persists each agency's static GTFS schedule as normalized parquet: `metrics/gtfs_stops`, `metrics/gtfs_calendar`, `metrics/gtfs_calendar_dates`, `metrics/gtfs_shapes`, and the MBTA-extension marts `metrics/gtfs_route_patterns`, `metrics/gtfs_directions`, `metrics/gtfs_checkpoints`. Unlike every other mart these are **not** day-partitioned — a schedule snapshot is valid for weeks or months, so they're written once per `(feed, version_slug)` and paired with a tiny day-partitioned `metrics/gtfs_versions` pointer mart that resolves "the schedule on day D" to a version. See [docs/design/static-gtfs-normalization.md](docs/design/static-gtfs-normalization.md) for the full design and why it departs from the day-partitioned convention every other mart uses.
+
+```bash
+uv run python pipeline/gtfs.py --feed wmata-vehicles --day 2026-05-20   # resolves + persists that day's schedule snapshot if new
+uv run python pipeline/gtfs.py --all-days                                # every feed/day on disk
+```
+
 ---
 
 ## Adding a new feed
@@ -513,7 +551,7 @@ Production runs on a single EC2 box via Docker Compose (`compose.prod.yml`):
 
 - **`app`** — the poller, pulled from `ghcr.io/ankoure/us-rail-performance-archiver`, labeled `autoheal=true`.
 - **`autoheal`** — a sidecar that watches the container `HEALTHCHECK` (which stats `poll_state/.heartbeat`) and restarts the poller if the loop goes stale.
-- **`batch`** — a daily loop that runs `pipeline/rollup.py --day yesterday && pipeline/gold.py --day yesterday && pipeline/ship.py --day yesterday` (its inherited healthcheck is disabled since it never writes the heartbeat).
+- **`batch`** — a daily loop that runs `pipeline/rollup.py --day yesterday && pipeline/gtfs.py --day yesterday && pipeline/gold.py --day yesterday && pipeline/ship.py --day yesterday && pipeline/cert_check.py` (its inherited healthcheck is disabled since it never writes the heartbeat).
 - **`datadog-agent`** — receives DogStatsD metrics/spans.
 
 CI deploys on every push to `main`: GitHub Actions builds the image, pushes to GHCR, assumes an AWS role via OIDC (no static keys), and triggers `docker compose up -d` on the instance over SSM. Full one-time setup (IAM, OIDC, EC2 bootstrap, secrets) is in [deploy/README.md](deploy/README.md).

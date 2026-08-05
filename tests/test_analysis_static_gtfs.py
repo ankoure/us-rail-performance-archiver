@@ -23,6 +23,10 @@ def build_gtfs_zip(
     stop_times: str | None = None,
     routes: str | None = None,
     stops: str | None = None,
+    shapes: str | None = None,
+    route_patterns: str | None = None,
+    directions: str | None = None,
+    checkpoints: str | None = None,
 ) -> Path:
     """Write a minimal GTFS zip with whatever tables the caller cares to specify."""
     zip_path = tmp_path / "feed.zip"
@@ -39,6 +43,14 @@ def build_gtfs_zip(
             z.writestr("routes.txt", routes)
         if stops is not None:
             z.writestr("stops.txt", stops)
+        if shapes is not None:
+            z.writestr("shapes.txt", shapes)
+        if route_patterns is not None:
+            z.writestr("route_patterns.txt", route_patterns)
+        if directions is not None:
+            z.writestr("directions.txt", directions)
+        if checkpoints is not None:
+            z.writestr("checkpoints.txt", checkpoints)
     return zip_path
 
 
@@ -234,6 +246,121 @@ class TestScheduledStops:
     def test_returns_empty_on_inactive_date(self, simple_gtfs):
         # Saturday is outside the WD service
         assert simple_gtfs.scheduled_stops(dt.date(2026, 5, 23)).empty
+
+
+class TestShapes:
+    _COLUMNS = [
+        "shape_id",
+        "shape_pt_lat",
+        "shape_pt_lon",
+        "shape_pt_sequence",
+        "shape_dist_traveled",
+    ]
+
+    def test_reads_points_in_order(self, tmp_path):
+        shapes = (
+            "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled\n"
+            "S1,42.35,-71.06,1,0.0\n"
+            "S1,42.36,-71.05,2,120.5\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, shapes=shapes))
+        df = gtfs.shapes
+        assert list(df.columns) == self._COLUMNS
+        assert df["shape_id"].tolist() == ["S1", "S1"]
+        assert df["shape_pt_sequence"].tolist() == [1, 2]
+
+    def test_absent_file_degrades_to_empty_frame(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))  # no shapes.txt at all
+        df = gtfs.shapes
+        assert df.empty
+        assert list(df.columns) == self._COLUMNS
+
+    def test_missing_shape_dist_traveled_column(self, tmp_path):
+        # shape_dist_traveled is itself GTFS-optional within shapes.txt.
+        shapes = (
+            "shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nS1,42.35,-71.06,1\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, shapes=shapes))
+        df = gtfs.shapes
+        assert "shape_dist_traveled" not in df.columns
+        assert df["shape_id"].tolist() == ["S1"]
+
+
+class TestMbtaExtensions:
+    """route_patterns.txt / directions.txt / checkpoints.txt — MBTA GTFS extensions."""
+
+    def test_route_patterns(self, tmp_path):
+        route_patterns = (
+            "route_pattern_id,route_id,direction_id,route_pattern_name,"
+            "route_pattern_typicality,representative_trip_id\n"
+            "R-1-0,R,0,Harvard - Nubian,1,T1\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, route_patterns=route_patterns))
+        df = gtfs.route_patterns
+        assert df["route_pattern_id"].tolist() == ["R-1-0"]
+        assert df["route_pattern_typicality"].tolist() == [1]
+        assert df["representative_trip_id"].tolist() == ["T1"]
+
+    def test_route_patterns_absent_degrades_to_empty(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))
+        df = gtfs.route_patterns
+        assert df.empty
+        assert "representative_trip_id" in df.columns
+
+    def test_directions(self, tmp_path):
+        directions = (
+            "route_id,direction_id,direction,direction_destination\n"
+            "R,0,Outbound,Alewife\nR,1,Inbound,Braintree\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, directions=directions))
+        df = gtfs.directions
+        assert df["direction"].tolist() == ["Outbound", "Inbound"]
+        assert df["direction_destination"].tolist() == ["Alewife", "Braintree"]
+
+    def test_directions_absent_degrades_to_empty(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))
+        df = gtfs.directions
+        assert df.empty
+        assert list(df.columns) == [
+            "route_id",
+            "direction_id",
+            "direction",
+            "direction_destination",
+        ]
+
+    def test_checkpoints(self, tmp_path):
+        checkpoints = (
+            "checkpoint_id,checkpoint_name\nHARSQ,Harvard Square\nNUBN,Nubian\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, checkpoints=checkpoints))
+        df = gtfs.checkpoints
+        assert df["checkpoint_id"].tolist() == ["HARSQ", "NUBN"]
+        assert df["checkpoint_name"].tolist() == ["Harvard Square", "Nubian"]
+
+    def test_checkpoints_absent_degrades_to_empty(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))
+        df = gtfs.checkpoints
+        assert df.empty
+        assert list(df.columns) == ["checkpoint_id", "checkpoint_name"]
+
+    def test_stop_times_exposes_checkpoint_id_when_present(self, tmp_path):
+        stop_times = (
+            "trip_id,arrival_time,departure_time,stop_id,stop_sequence,checkpoint_id\n"
+            "T1,06:00:00,06:00:30,S1,1,HARSQ\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, stop_times=stop_times))
+        assert gtfs.stop_times["checkpoint_id"].tolist() == ["HARSQ"]
+
+    def test_stop_times_without_checkpoint_id_column_still_works(self, tmp_path):
+        # Regression: widening usecols/dtype for checkpoint_id must not break
+        # feeds (the overwhelming majority) whose stop_times.txt lacks it.
+        stop_times = (
+            "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+            "T1,06:00:00,06:00:30,S1,1\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, stop_times=stop_times))
+        assert "checkpoint_id" not in gtfs.stop_times.columns
+        assert gtfs.stop_times["trip_id"].tolist() == ["T1"]
 
 
 class TestEnrichEvents:
