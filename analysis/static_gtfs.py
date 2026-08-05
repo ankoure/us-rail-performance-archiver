@@ -135,17 +135,41 @@ class StaticGtfs:
 
     @cached_property
     def stops(self) -> pd.DataFrame:
+        """stops.txt. `parent_station` groups platform-level stops under their
+        station (e.g. MBTA subway platforms under a `place-*` id) — optional
+        per the GTFS spec, so a feed without it just gets an all-null column
+        rather than a missing one."""
         try:
             return self._read(
                 "stops.txt",
                 usecols=lambda c: (
-                    c in {"stop_id", "stop_code", "stop_name", "stop_lat", "stop_lon"}
+                    c
+                    in {
+                        "stop_id",
+                        "stop_code",
+                        "stop_name",
+                        "stop_lat",
+                        "stop_lon",
+                        "parent_station",
+                    }
                 ),
-                dtype={"stop_id": str, "stop_code": str, "stop_name": str},
+                dtype={
+                    "stop_id": str,
+                    "stop_code": str,
+                    "stop_name": str,
+                    "parent_station": str,
+                },
             )
         except KeyError:
             return pd.DataFrame(
-                columns=["stop_id", "stop_code", "stop_name", "stop_lat", "stop_lon"]
+                columns=[
+                    "stop_id",
+                    "stop_code",
+                    "stop_name",
+                    "stop_lat",
+                    "stop_lon",
+                    "parent_station",
+                ]
             )
 
     @cached_property

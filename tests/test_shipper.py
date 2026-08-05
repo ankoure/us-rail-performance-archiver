@@ -119,6 +119,61 @@ def test_ship_one_hot_upload_includes_gold_marts(dirs, shipper):
     assert f"curated/vehicles/feed={FEED}/{part}/data.parquet" in hot_keys
 
 
+def test_ship_one_hot_upload_includes_version_partitioned_marts(dirs, shipper):
+    """Regression: pipeline/gtfs.py's marts (gtfs_stops, gtfs_shapes, etc. —
+    see docs/design/static-gtfs-normalization.md) are keyed by (feed,
+    version_slug), not (feed, day). A first version of this shipping fix only
+    handled the day-partition glob shape and silently never uploaded these —
+    computed on Fargate's ephemeral disk, then discarded when the task exited."""
+    version = "20260521T005740"
+    for mart in ("gtfs_stops", "gtfs_shapes"):
+        mart_dir = (
+            dirs / "curated" / "metrics" / mart / f"feed={FEED}" / f"version={version}"
+        )
+        mart_dir.mkdir(parents=True)
+        (mart_dir / "data.parquet").write_bytes(b"PAR1fake")
+
+    shipper.ship_one(FEED, DAY)
+    hot_keys = {u.key for u in shipper.uploader.uploads if u.bucket == "hot-bucket"}
+
+    assert (
+        f"curated/metrics/gtfs_stops/feed={FEED}/version={version}/data.parquet"
+        in hot_keys
+    )
+    assert (
+        f"curated/metrics/gtfs_shapes/feed={FEED}/version={version}/data.parquet"
+        in hot_keys
+    )
+    # the day-partitioned silver parquet still ships too
+    part = f"year={DAY.year}/month={DAY.month}/day={DAY.day}"
+    assert f"curated/vehicles/feed={FEED}/{part}/data.parquet" in hot_keys
+
+
+def test_ship_one_version_partitioned_mart_skipped_when_already_shipped(dirs, shipper):
+    """The S3 key for a version-partitioned mart has no day component, so once
+    any prior day's run has shipped a given (feed, version_slug), a later run
+    that recomputes the same version locally must not re-upload it."""
+    version = "20260521T005740"
+    mart_dir = (
+        dirs
+        / "curated"
+        / "metrics"
+        / "gtfs_stops"
+        / f"feed={FEED}"
+        / f"version={version}"
+    )
+    mart_dir.mkdir(parents=True)
+    (mart_dir / "data.parquet").write_bytes(b"PAR1fake")
+
+    key = f"curated/metrics/gtfs_stops/feed={FEED}/version={version}/data.parquet"
+    shipper.uploader.mark_existing("hot-bucket", key)
+
+    shipper.ship_one(FEED, DAY)
+    hot_keys = [u.key for u in shipper.uploader.uploads if u.bucket == "hot-bucket"]
+
+    assert key not in hot_keys
+
+
 # --- S3 landing source (the Fargate path) --------------------------------- #
 def test_ship_one_cold_and_hot_from_s3_source(tmp_path):
     """Regression: on Fargate the landing lives in S3, not on local disk. Ship

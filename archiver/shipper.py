@@ -1,4 +1,5 @@
 import io
+import itertools
 import shutil
 import tarfile
 import tempfile
@@ -109,7 +110,11 @@ class Shipper:
 
     def _ship_hot(self, feed_name, day, *, force):
         agency = self.feed_agency.get(feed_name, "unknown")
-        for parquet in self._curated_parquets(feed_name, day):
+        parquets = itertools.chain(
+            self._curated_parquets(feed_name, day),
+            self._curated_version_parquets(feed_name),
+        )
+        for parquet in parquets:
             parts = parquet.relative_to(self.curated_dir).parts
             # First path segment is <kind>; gold marts nest one deeper
             # (metrics/stop_day, metrics/route_day) so keep both for telemetry.
@@ -174,6 +179,20 @@ class Shipper:
         partition = f"feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.parquet"
         yield from self.curated_dir.glob(f"*/{partition}")
         yield from self.curated_dir.glob(f"metrics/*/{partition}")
+
+    def _curated_version_parquets(self, feed_name: str) -> Iterator[Path]:
+        # Version-partitioned marts (gtfs_stops, gtfs_shapes, etc. — see
+        # docs/design/static-gtfs-normalization.md) are keyed by (feed,
+        # version_slug), not (feed, day), so they don't fit the day-partition
+        # glob _curated_parquets uses. The S3 key derived from this path has no
+        # day component either, so _ship_hot's existing exists() check already
+        # skips a version once any prior run has shipped it — no separate
+        # "already shipped" tracking needed here. Wildcarding the mart name
+        # (not naming gtfs_stops/gtfs_calendar/etc. explicitly) means any future
+        # mart adopting this same layout ships for free.
+        yield from self.curated_dir.glob(
+            f"metrics/*/feed={feed_name}/version=*/data.parquet"
+        )
 
     def _curated_snapshots(self, feed_name: str, day: date) -> Iterator[Path]:
         # Snapshots only have one kind today (alerts), but the directory already

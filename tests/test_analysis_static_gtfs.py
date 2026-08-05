@@ -248,6 +248,29 @@ class TestScheduledStops:
         assert simple_gtfs.scheduled_stops(dt.date(2026, 5, 23)).empty
 
 
+class TestStops:
+    def test_exposes_parent_station_when_present(self, tmp_path):
+        stops = (
+            "stop_id,stop_name,stop_lat,stop_lon,parent_station\n"
+            "70061,Alewife,42.39,-71.14,place-alfcl\n"
+        )
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, stops=stops))
+        assert gtfs.stops["parent_station"].tolist() == ["place-alfcl"]
+
+    def test_missing_parent_station_column_is_omitted(self, tmp_path):
+        # parent_station is itself GTFS-optional on stops.txt — matches
+        # shape_dist_traveled's precedent: omitted, not backfilled with null.
+        stops = "stop_id,stop_name,stop_lat,stop_lon\n70061,Alewife,42.39,-71.14\n"
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path, stops=stops))
+        assert "parent_station" not in gtfs.stops.columns
+
+    def test_absent_file_degrades_to_empty_frame(self, tmp_path):
+        gtfs = StaticGtfs(build_gtfs_zip(tmp_path))  # no stops.txt at all
+        df = gtfs.stops
+        assert df.empty
+        assert "parent_station" in df.columns
+
+
 class TestShapes:
     _COLUMNS = [
         "shape_id",

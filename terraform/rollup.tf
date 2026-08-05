@@ -87,6 +87,11 @@ locals {
     # landing, not rollup's curated silver output, so it can run right after
     # rollup either way; grouped here for one clear place in the sequence.
     python pipeline/snapshot.py --config /tmp/fargate.yaml --day "$DAY"
+    # Persists this day's static-GTFS schedule as version-partitioned marts
+    # (gtfs_stops/gtfs_calendar/gtfs_shapes/etc. — see
+    # docs/design/static-gtfs-normalization.md). Independent of gold.py's own
+    # GTFS resolution below, which doesn't read these marts yet.
+    python pipeline/gtfs.py --config /tmp/fargate.yaml --day "$DAY"
     python pipeline/gold.py --config /tmp/fargate.yaml --day "$DAY"
     # Rewrites trip_updates to one row per stop visit (what every consumer
     # already reduces it to — see pipeline/compact_trip_updates.py) before
