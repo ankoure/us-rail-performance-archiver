@@ -51,7 +51,8 @@ export interface SegmentDayFilters {
 }
 
 export const api = {
-  agencies: () => getJSON<AgencySummary[]>("/agencies"),
+  agencies: (params?: { railOnly?: boolean }) =>
+    getJSON<AgencySummary[]>("/agencies", { rail_only: params?.railOnly ? "true" : undefined }),
 
   stopDay: (agency: string, filters: DateRangeFilters) =>
     getJSON<StopDayRow[]>(`/agencies/${agency}/stop_day`, filters),

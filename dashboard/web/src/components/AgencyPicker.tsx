@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/apiClient";
 import type { AgencySummary } from "@/lib/types";
 
-export function AgencyPicker() {
+export function AgencyPicker({ railOnly = false }: { railOnly?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -16,10 +16,10 @@ export function AgencyPicker() {
 
   useEffect(() => {
     api
-      .agencies()
+      .agencies({ railOnly })
       .then((rows) => setAgencies([...rows].sort((a, b) => a.name.localeCompare(b.name))))
       .catch((e) => setError(String(e)));
-  }, []);
+  }, [railOnly]);
 
   function onChange(nextAgency: string) {
     const params = new URLSearchParams(searchParams.toString());

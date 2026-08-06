@@ -188,7 +188,7 @@ export default function SpeedPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
+        <AgencyPicker railOnly />
         {agency && railRoutes.length > 0 && <LinePicker routes={railRoutes} />}
         <DateRangePicker />
       </div>
