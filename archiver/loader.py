@@ -243,7 +243,11 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
         cold_prefix=config.s3.cold_prefix,
         hot_prefix=config.s3.hot_prefix,
         telemetry=telemetry,
-        feed_names=[f.name for f in build_feeds(config)],
+        # Names only, straight from config -- NOT build_feeds(config), which
+        # builds a live APIClient per agency (reading its API key env var) for
+        # every configured feed. Shipping never makes an HTTP request against
+        # an agency, so it shouldn't need that agency's secret to be present.
+        feed_names=[feed.name for agency in config.agencies for feed in agency.feeds],
         feed_agency={
             feed.name: agency.agency_id
             for agency in config.agencies
