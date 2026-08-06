@@ -46,5 +46,7 @@ jobs:
           workspaces: rail-decoder
       - name: Install protoc
         uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: test code with cargo test
         run: cargo test
