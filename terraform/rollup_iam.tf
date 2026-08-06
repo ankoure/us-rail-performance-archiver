@@ -64,17 +64,9 @@ resource "aws_iam_role_policy" "rollup_task_s3" {
           "arn:aws:s3:::${var.cold_bucket}", "arn:aws:s3:::${var.cold_bucket}/*",
         ]
       },
-      {
-        Sid    = "ReadBucketSizeMetrics"
-        Effect = "Allow"
-        # pipeline/s3_storage_metrics.py reads the free daily BucketSizeBytes
-        # metric for the S3 storage-cost dashboard widgets. ListMetrics
-        # discovers which StorageType series a bucket actually publishes (no
-        # "AllStorageTypes" catch-all exists); GetMetricStatistics reads each
-        # one. CloudWatch metric reads aren't resource-scoped, hence "*".
-        Action   = ["cloudwatch:ListMetrics", "cloudwatch:GetMetricStatistics"]
-        Resource = ["*"]
-      },
+      # ReadBucketSizeMetrics moved to aws_iam_role.s3_storage_metrics_task
+      # (s3_storage_metrics.tf) when pipeline/s3_storage_metrics.py split out
+      # into its own task — this role no longer runs that script.
     ]
   })
 }

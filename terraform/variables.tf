@@ -132,3 +132,35 @@ variable "log_retention_days" {
   type    = number
   default = 14
 }
+
+# --- Aux tasks split out of the rollup task -------------------------------- #
+# cert_check and s3_storage_metrics used to run as extra steps inside the
+# rollup container (see the removed lines in rollup.tf's locals.rollup_script).
+# Neither touches curated_dir or takes --day, so they don't need the rollup's
+# shared local disk and can run on their own schedule instead. Same cautious
+# rollout as rollup_schedule_enabled: start disabled, verify with a manual
+# run-task, then flip to true.
+
+variable "cert_check_schedule_enabled" {
+  type        = bool
+  default     = false
+  description = "Whether the daily EventBridge schedule for the standalone cert_check task is ENABLED."
+}
+
+variable "cert_check_schedule_expression" {
+  type        = string
+  default     = "cron(0 5 * * ? *)"
+  description = "EventBridge Scheduler expression (UTC) for the daily cert-expiry probe. No longer tied to the rollup window since it shares nothing with it."
+}
+
+variable "s3_storage_metrics_schedule_enabled" {
+  type        = bool
+  default     = false
+  description = "Whether the daily EventBridge schedule for the standalone s3_storage_metrics task is ENABLED."
+}
+
+variable "s3_storage_metrics_schedule_expression" {
+  type        = string
+  default     = "cron(15 5 * * ? *)"
+  description = "EventBridge Scheduler expression (UTC) for the daily S3 storage-cost metrics. CloudWatch's BucketSizeBytes only updates once/day, so once is enough; offset a few minutes from cert_check just to keep their log streams from interleaving."
+}

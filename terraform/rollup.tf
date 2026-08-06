@@ -100,15 +100,11 @@ locals {
     # (uncompacted but still correct) data.
     python pipeline/compact_trip_updates.py --day "$DAY" || true
     python pipeline/ship.py --config /tmp/fargate.yaml --day "$DAY"
-    # Cert-expiry probe: emits cert.days_remaining per agency (drives the TLS
-    # monitors). Independent of --day. MUST use /tmp/fargate.yaml so telemetry is
-    # enabled — the baked config has it off, which would silently NoOp the metric.
-    # `|| true`: an auxiliary check must never abort the drain (set -e) and cost
-    # the run's ship.* metrics.
-    python pipeline/cert_check.py --config /tmp/fargate.yaml || true
-    # S3 storage-cost dashboard widgets: reads CloudWatch's free daily
-    # BucketSizeBytes metric, doesn't touch the buckets themselves.
-    python pipeline/s3_storage_metrics.py --config /tmp/fargate.yaml || true
+    # cert_check.py and s3_storage_metrics.py used to run here as auxiliary
+    # `|| true` steps. Split out 2026-08-06 into their own scheduled ECS tasks
+    # (cert_check.tf, aux_schedule.tf) — neither touches curated_dir or takes
+    # --day, so unlike rollup/gtfs/gold/ship they don't need this task's shared
+    # local disk and don't need to ride along in this ~2.5h window.
     # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
     # interval, so pause before the essential container exits (which SIGTERMs the
     # agent) to let the run's final ship.* metrics reach Datadog.
