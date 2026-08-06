@@ -46,8 +46,11 @@ _COLUMN_MAP = {
 class Visit:
     """A single dwell of one vehicle at one stop.
 
-    arrival_ts and departure_ts are the first and last STOPPED_AT pings in the
-    run; for a single-ping visit they are equal.
+    For status-based runs, arrival_ts and departure_ts are the first and last
+    STOPPED_AT pings in the run; for a single-ping visit they are equal. For
+    position-based runs (see `Vehicle._raw_dwells`), both equal the run's last
+    ping — there's no separately observable arrival vs. departure, so
+    duration_s is 0 rather than a fabricated dwell time.
     """
 
     vehicle_id: str
@@ -139,9 +142,17 @@ class Vehicle:
           - **position-based**: when no ping carries `current_status`, a run is
             simply consecutive pings sharing the same non-null stop_id. Used
             for feeds (e.g. septa-rail, metra, uta) that publish stop_id but
-            omit the status enum. The resulting visit's arrival_ts marks when
-            the vehicle first reported that stop — which may include approach
-            time, not just dwell — so timing is coarser than status-based.
+            omit the status enum — per the GTFS-RT spec, an omitted
+            current_status defaults to IN_TRANSIT_TO, so stop_id here names
+            the stop the vehicle is *approaching*, not one it's dwelling at.
+            A run's pings span the whole inbound segment, ending right as the
+            vehicle reaches the stop and stop_id flips to the next one — so
+            the run's *last* ping, not its first, is the best estimate of
+            arrival. There's no separately observable departure, so
+            arrival_ts is set equal to departure_ts (both = the run's last
+            ping), matching the convention TripUpdatesDay uses when only one
+            true timestamp is available: downstream tools see dwell == 0
+            rather than a fabricated dwell/transit split.
         """
         if any(r.get("current_status") for r in self._rows):
             return self._status_based_dwells()
@@ -151,13 +162,18 @@ class Vehicle:
         return self._dwells_by(lambda r: r.get("current_status") == "STOPPED_AT")
 
     def _position_based_dwells(self) -> list[Visit]:
-        return self._dwells_by(lambda r: True)
+        return self._dwells_by(lambda r: True, arrival_at_run_end=True)
 
-    def _dwells_by(self, is_dwelling) -> list[Visit]:
+    def _dwells_by(self, is_dwelling, arrival_at_run_end: bool = False) -> list[Visit]:
         """Group consecutive same-stop pings into Visits.
 
         `is_dwelling(row)` gates whether a row can extend or open a run. A row
         with no stop_id, or where `is_dwelling` is False, closes the current run.
+
+        `arrival_at_run_end` selects which end of the run approximates arrival
+        (see `_raw_dwells`): False for true dwell runs (STOPPED_AT), where the
+        first ping is the arrival; True for position-based/IN_TRANSIT_TO runs,
+        where the last ping is the arrival and departure_ts is set equal to it.
         """
         visits: list[Visit] = []
         run: list[dict] = []
@@ -166,11 +182,16 @@ class Vehicle:
             if not run:
                 return
             first, last = run[0], run[-1]
+            arrival_ts = (
+                last["vehicle_timestamp"]
+                if arrival_at_run_end
+                else first["vehicle_timestamp"]
+            )
             visits.append(
                 Visit(
                     vehicle_id=self.vehicle_id,
                     stop_id=first["stop_id"],
-                    arrival_ts=first["vehicle_timestamp"],
+                    arrival_ts=arrival_ts,
                     departure_ts=last["vehicle_timestamp"],
                     ping_count=len(run),
                     route_id=first.get("route_id"),

@@ -166,11 +166,14 @@ class TestVehicleDwellsPositionBased:
         v = Vehicle("V1", rows, merge_gap_seconds=0)
         assert len(v.dwells) == 2
         assert v.dwells[0].stop_id == "A"
-        assert v.dwells[0].arrival_ts == 100
+        # Position-based runs are IN_TRANSIT_TO segments, not real dwells: the
+        # run's last ping (not first) approximates arrival, and there's no
+        # separately observable departure.
+        assert v.dwells[0].arrival_ts == 130
         assert v.dwells[0].departure_ts == 130
         assert v.dwells[0].ping_count == 3
         assert v.dwells[1].stop_id == "B"
-        assert v.dwells[1].arrival_ts == 145
+        assert v.dwells[1].arrival_ts == 160
         assert v.dwells[1].departure_ts == 160
 
     def test_null_stop_id_breaks_the_run(self):
