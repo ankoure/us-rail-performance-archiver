@@ -60,7 +60,15 @@ resource "aws_scheduler_schedule" "cert_check" {
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.cert_check.arn
       task_count          = 1
-      launch_type         = "FARGATE_SPOT"
+
+      # EventBridge Scheduler's ecs_parameters.launch_type only accepts
+      # EC2/FARGATE/EXTERNAL -- Spot has to go through capacity_provider_strategy
+      # instead, same as the cluster's own default (rollup.tf's
+      # aws_ecs_cluster_capacity_providers).
+      capacity_provider_strategy {
+        capacity_provider = "FARGATE_SPOT"
+        weight            = 1
+      }
 
       # Reuses the rollup task's egress-only SG + public default subnets (see
       # rollup.tf) — same requirement: reach agency HTTPS + Datadog over the IGW.
@@ -91,7 +99,11 @@ resource "aws_scheduler_schedule" "s3_storage_metrics" {
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.s3_storage_metrics.arn
       task_count          = 1
-      launch_type         = "FARGATE_SPOT"
+
+      capacity_provider_strategy {
+        capacity_provider = "FARGATE_SPOT"
+        weight            = 1
+      }
 
       network_configuration {
         subnets          = data.aws_subnets.default.ids
