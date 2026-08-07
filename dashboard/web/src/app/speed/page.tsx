@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
@@ -9,6 +10,7 @@ import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { TimeSeriesChart } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
 import { useApiData } from "@/lib/useApiData";
+import { aggregateSegmentSpeeds, type SegmentSpeedAgg } from "@/lib/segments";
 import type { DirectionRow, RouteRow, SegmentDayRow, StopRow } from "@/lib/types";
 
 // "rapid" (subway/light rail) and "cr" (commuter rail) — see
@@ -35,15 +37,6 @@ const MIN_SAMPLES_FOR_TRAVEL_TIME_SUM = 10;
 interface DayPoint {
   service_date: string;
   [seriesKey: string]: string | number | null;
-}
-
-interface SegmentAgg {
-  from_stop_id: string;
-  to_stop_id: string;
-  direction_id: number | null;
-  distance_m: number;
-  sample_count: number;
-  weighted_speed_sum: number;
 }
 
 function seriesKeyFor(directionId: number | null): string {
@@ -92,26 +85,9 @@ function buildDailySeries(
   return { points, directionIds: [...directionIds].sort() };
 }
 
-function buildSlowestSegments(rows: SegmentDayRow[]): (SegmentAgg & { avg_speed_mph: number })[] {
-  const byKey = new Map<string, SegmentAgg>();
-  for (const row of rows) {
-    if (row.speed_p50_mph === null) continue;
-    const key = `${row.from_stop_id}|${row.to_stop_id}|${row.direction_id}`;
-    const existing = byKey.get(key) ?? {
-      from_stop_id: row.from_stop_id,
-      to_stop_id: row.to_stop_id,
-      direction_id: row.direction_id,
-      distance_m: row.distance_m,
-      sample_count: 0,
-      weighted_speed_sum: 0,
-    };
-    existing.sample_count += row.sample_count;
-    existing.weighted_speed_sum += row.speed_p50_mph * row.sample_count;
-    byKey.set(key, existing);
-  }
-  return [...byKey.values()]
+function buildSlowestSegments(rows: SegmentDayRow[]): SegmentSpeedAgg[] {
+  return aggregateSegmentSpeeds(rows)
     .filter((s) => s.sample_count >= MIN_SAMPLES_FOR_SLOWEST)
-    .map((s) => ({ ...s, avg_speed_mph: s.weighted_speed_sum / s.sample_count }))
     .sort((a, b) => a.avg_speed_mph - b.avg_speed_mph)
     .slice(0, MAX_SLOWEST_SEGMENTS);
 }
@@ -204,6 +180,11 @@ export default function SpeedPage() {
         {enabled && error && <p className="error-state">Failed to load speed data: {error}</p>}
         {enabled && !error && (
           <>
+            <p className="card-hint">
+              <Link href={`/speed/map?agency=${agency}&line=${line}&start=${start}&end=${end}`}>
+                View on map →
+              </Link>
+            </p>
             <div className="card">
               <h2>
                 Average speed (p50), {line}, {start} – {end}

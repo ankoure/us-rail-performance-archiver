@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from analysis.geo import cumulative_arc_length_m, project_point_to_polyline
+
 # GTFS calendar.txt has one column per weekday, named lower-case English.
 _WEEKDAY_COLS = [
     "monday",
@@ -374,6 +376,90 @@ class StaticGtfs:
             except (TypeError, ValueError):
                 continue
             out.setdefault(sid, []).append((lat, lon))
+        return out
+
+    @cached_property
+    def route_direction_shapes(self) -> dict[tuple[str, int], list[str]]:
+        """Map (route_id, direction_id) -> every distinct shape_id its trips
+        use, most-common first (ties broken by lowest shape_id).
+
+        A route+direction commonly runs more than one shape — a branching
+        line (e.g. MBTA Red Line's Ashmont/Braintree branches share a trunk
+        but diverge) has one shape per branch even within a single
+        direction_id, and collapsing to a single "canonical" shape would
+        silently drop whichever branch has fewer trips. Callers that draw
+        the route on a map should draw every shape in this list, not just
+        the first. Empty when trips.txt lacks route_id, direction_id, or
+        shape_id.
+        """
+        required = {"route_id", "direction_id", "shape_id"}
+        if not required.issubset(self.trips.columns):
+            return {}
+        df = self.trips.dropna(subset=list(required))
+        if df.empty:
+            return {}
+        counts = (
+            df.groupby(["route_id", "direction_id", "shape_id"])
+            .size()
+            .reset_index(name="n")
+            .sort_values(["n", "shape_id"], ascending=[False, True])
+        )
+        out: dict[tuple[str, int], list[str]] = {}
+        for row in counts.itertuples(index=False):
+            key = (row.route_id, int(row.direction_id))
+            out.setdefault(key, []).append(row.shape_id)
+        return out
+
+    def route_direction_stop_offsets(
+        self, route_id: str, direction_id: int
+    ) -> dict[str, dict[str, float]]:
+        """shape_id -> {stop_id -> distance (metres) along that shape}, for
+        every shape this route+direction uses (see [[route_direction_shapes]])
+        and every stop a trip running that exact shape visits.
+
+        A stop shared by multiple branches (e.g. a trunk station before a
+        Y-split) gets one entry per shape it actually appears on, each with
+        that shape's own arc-length offset — a caller slicing a segment
+        between two stops needs both stops resolved on the *same* shape, so
+        it should try [[route_direction_shapes]]' shapes in order and use
+        the first one covering both. A stop pair spanning two different
+        shapes with no shared coverage (e.g. one endpoint on a branch the
+        other doesn't reach) has no entry on any single shape; callers
+        should fall back to straight-line stop coordinates for those, the
+        same way [[shape_points]]'s consumer
+        (analysis/segment_speed.py's `_shape_distance_m`) falls back to
+        haversine whenever shape projection isn't available.
+        """
+        shape_ids = self.route_direction_shapes.get((route_id, direction_id), [])
+        trips = self.trips
+        out: dict[str, dict[str, float]] = {}
+        for shape_id in shape_ids:
+            points = self.shape_points.get(shape_id)
+            if not points or len(points) < 2:
+                continue
+            cumulative = cumulative_arc_length_m(points)
+            trip_ids = set(
+                trips.loc[
+                    (trips["route_id"] == route_id)
+                    & (trips["direction_id"] == direction_id)
+                    & (trips["shape_id"] == shape_id),
+                    "trip_id",
+                ]
+            )
+            stop_ids = set(
+                self.stop_times.loc[
+                    self.stop_times["trip_id"].isin(trip_ids), "stop_id"
+                ]
+            )
+            offsets: dict[str, float] = {}
+            for stop_id in stop_ids:
+                coords = self.stop_coords.get(stop_id)
+                if coords is None:
+                    continue
+                dist = project_point_to_polyline(*coords, points, cumulative)
+                if dist is not None:
+                    offsets[stop_id] = dist
+            out[shape_id] = offsets
         return out
 
     @cached_property

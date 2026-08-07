@@ -279,6 +279,8 @@ class TestProcessFeedDay:
             "gtfs_route_patterns": 1,
             "gtfs_directions": 1,
             "gtfs_checkpoints": 1,
+            "route_shapes": 0,
+            "route_shape_stops": 0,
             "manifest": 1,
         }
         assert len(written) == 1

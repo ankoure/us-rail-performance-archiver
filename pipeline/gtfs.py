@@ -10,6 +10,8 @@ landing-zone storage). Instead:
     {curated}/metrics/gtfs_calendar/feed={feed}/version={version_slug}/data.parquet
     {curated}/metrics/gtfs_calendar_dates/feed={feed}/version={version_slug}/data.parquet
     {curated}/metrics/gtfs_shapes/feed={feed}/version={version_slug}/data.parquet
+    {curated}/metrics/route_shapes/feed={feed}/version={version_slug}/data.parquet
+    {curated}/metrics/route_shape_stops/feed={feed}/version={version_slug}/data.parquet
 
 are written exactly once per (feed, snapshot version) regardless of how many
 days that snapshot is in effect. `version_slug` comes from
@@ -37,6 +39,14 @@ checkpoint_id lives on stop_times.txt (per stop_time, i.e. per trip), not on
 stops.txt, and isn't guaranteed stable per stop. `StaticGtfs.stop_times`
 exposes `checkpoint_id` directly (when present) for a caller who wants that
 join themselves.
+
+route_shapes / route_shape_stops derive one canonical polyline per
+route+direction (see `StaticGtfs.route_direction_shapes`/
+`route_direction_stop_offsets`) for callers that want to draw a route on a
+map — route_shapes is the ordered polyline with cumulative arc-length
+`dist_m`, route_shape_stops is each stop's projected `dist_m` along it, so a
+caller can slice the polyline between any two stops without redoing the
+shape-projection math itself.
 
 Calendar ships as a typed passthrough of calendar.txt + calendar_dates.txt,
 not a resolved service_id-per-date expansion — that join is cheap, in-memory
@@ -84,6 +94,7 @@ from dotenv import load_dotenv
 # Make the repo root importable when run as `python pipeline/gtfs.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from analysis.geo import cumulative_arc_length_m  # noqa: E402
 from analysis.gtfs_fetcher import GtfsResolver, pick_snapshot  # noqa: E402
 from archiver.loader import load_config  # noqa: E402
 
@@ -100,6 +111,8 @@ _VERSION_MARTS = (
     "gtfs_route_patterns",
     "gtfs_directions",
     "gtfs_checkpoints",
+    "route_shapes",
+    "route_shape_stops",
 )
 _VERSIONS_MART = "gtfs_versions"
 
@@ -206,6 +219,36 @@ GTFS_CHECKPOINTS_SCHEMA = pa.schema(
     ]
 )
 
+# Every shape a route+direction uses (see StaticGtfs.route_direction_shapes —
+# a branching line like MBTA Red Line's Ashmont/Braintree split has more than
+# one shape per direction_id) and each stop's projected position along each
+# of those shapes — for drawing a route+direction's full branch structure on
+# a map and slicing between any two stops without redoing the projection.
+
+ROUTE_SHAPES_SCHEMA = pa.schema(
+    [
+        pa.field("route_id", pa.string(), nullable=False),
+        pa.field("direction_id", pa.int8(), nullable=False),
+        pa.field("shape_id", pa.string(), nullable=False),
+        pa.field("point_sequence", pa.int32(), nullable=False),
+        pa.field("lat", pa.float64(), nullable=False),
+        pa.field("lon", pa.float64(), nullable=False),
+        pa.field("dist_m", pa.float64(), nullable=False),
+        pa.field("version_slug", pa.string(), nullable=False),
+    ]
+)
+
+ROUTE_SHAPE_STOPS_SCHEMA = pa.schema(
+    [
+        pa.field("route_id", pa.string(), nullable=False),
+        pa.field("direction_id", pa.int8(), nullable=False),
+        pa.field("shape_id", pa.string(), nullable=False),
+        pa.field("stop_id", pa.string(), nullable=False),
+        pa.field("dist_m", pa.float64(), nullable=False),
+        pa.field("version_slug", pa.string(), nullable=False),
+    ]
+)
+
 _MART_SCHEMAS = {
     "gtfs_stops": GTFS_STOPS_SCHEMA,
     "gtfs_calendar": GTFS_CALENDAR_SCHEMA,
@@ -214,6 +257,8 @@ _MART_SCHEMAS = {
     "gtfs_route_patterns": GTFS_ROUTE_PATTERNS_SCHEMA,
     "gtfs_directions": GTFS_DIRECTIONS_SCHEMA,
     "gtfs_checkpoints": GTFS_CHECKPOINTS_SCHEMA,
+    "route_shapes": ROUTE_SHAPES_SCHEMA,
+    "route_shape_stops": ROUTE_SHAPE_STOPS_SCHEMA,
 }
 
 
@@ -551,6 +596,49 @@ def _checkpoints_rows(gtfs, version_slug: str) -> list[dict]:
     return rows
 
 
+def _route_shapes_rows(gtfs, version_slug: str) -> list[dict]:
+    rows = []
+    for (route_id, direction_id), shape_ids in gtfs.route_direction_shapes.items():
+        for shape_id in shape_ids:
+            points = gtfs.shape_points.get(shape_id)
+            if not points or len(points) < 2:
+                continue
+            cumulative = cumulative_arc_length_m(points)
+            for i, (lat, lon) in enumerate(points):
+                rows.append(
+                    {
+                        "route_id": route_id,
+                        "direction_id": direction_id,
+                        "shape_id": shape_id,
+                        "point_sequence": i,
+                        "lat": lat,
+                        "lon": lon,
+                        "dist_m": cumulative[i],
+                        "version_slug": version_slug,
+                    }
+                )
+    return rows
+
+
+def _route_shape_stops_rows(gtfs, version_slug: str) -> list[dict]:
+    rows = []
+    for route_id, direction_id in gtfs.route_direction_shapes:
+        by_shape = gtfs.route_direction_stop_offsets(route_id, direction_id)
+        for shape_id, offsets in by_shape.items():
+            for stop_id, dist_m in offsets.items():
+                rows.append(
+                    {
+                        "route_id": route_id,
+                        "direction_id": direction_id,
+                        "shape_id": shape_id,
+                        "stop_id": stop_id,
+                        "dist_m": dist_m,
+                        "version_slug": version_slug,
+                    }
+                )
+    return rows
+
+
 _ROW_BUILDERS = {
     "gtfs_stops": _stops_rows,
     "gtfs_calendar": _calendar_rows,
@@ -559,6 +647,8 @@ _ROW_BUILDERS = {
     "gtfs_route_patterns": _route_patterns_rows,
     "gtfs_directions": _directions_rows,
     "gtfs_checkpoints": _checkpoints_rows,
+    "route_shapes": _route_shapes_rows,
+    "route_shape_stops": _route_shape_stops_rows,
 }
 
 
@@ -604,7 +694,9 @@ def process_feed_day(
             f"{result['gtfs_shapes']:>7,} shape points  "
             f"{result['gtfs_route_patterns']:>4,} route_patterns  "
             f"{result['gtfs_directions']:>3,} directions  "
-            f"{result['gtfs_checkpoints']:>4,} checkpoints"
+            f"{result['gtfs_checkpoints']:>4,} checkpoints  "
+            f"{result['route_shapes']:>6,} route_shape points  "
+            f"{result['route_shape_stops']:>4,} route_shape_stops"
         )
     written_versions.add(key)
 
@@ -693,6 +785,8 @@ def main(argv: list[str] | None = None) -> int:
         f"{totals['gtfs_route_patterns']:,} route_patterns rows, "
         f"{totals['gtfs_directions']:,} directions rows, "
         f"{totals['gtfs_checkpoints']:,} checkpoints rows, "
+        f"{totals['route_shapes']:,} route_shape points, "
+        f"{totals['route_shape_stops']:,} route_shape_stops rows, "
         f"{totals['manifest']:,} version-manifest rows"
     )
     return 0

@@ -73,6 +73,8 @@ _VERSION_KINDS = frozenset(
         "gtfs_calendar_dates",
         "gtfs_shapes",
         "gtfs_directions",
+        "route_shapes",
+        "route_shape_stops",
     }
 )
 

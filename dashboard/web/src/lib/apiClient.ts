@@ -8,6 +8,7 @@ import type {
   RouteRow,
   StopRow,
   DirectionRow,
+  RouteShapeResponse,
   Adherence,
   AlertRow,
   LineDelaysSummary,
@@ -74,6 +75,9 @@ export const api = {
   stops: (agency: string) => getJSON<StopRow[]>(`/agencies/${agency}/stops`),
 
   directions: (agency: string) => getJSON<DirectionRow[]>(`/agencies/${agency}/directions`),
+
+  routeShape: (agency: string, routeId: string) =>
+    getJSON<RouteShapeResponse>(`/agencies/${agency}/route_shape`, { route_id: routeId }),
 
   adherence: (agency: string, filters: DateRangeFilters & { trip_id?: string[]; limit?: number }) =>
     getJSON<Adherence[]>(`/agencies/${agency}/adherence`, {

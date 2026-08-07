@@ -106,6 +106,29 @@ export interface SegmentDayRow {
   distance_m: number;
 }
 
+export interface RouteShapePoint {
+  route_id: string;
+  direction_id: number;
+  shape_id: string;
+  point_sequence: number;
+  lat: number;
+  lon: number;
+  dist_m: number;
+}
+
+export interface RouteShapeStop {
+  route_id: string;
+  direction_id: number;
+  shape_id: string;
+  stop_id: string;
+  dist_m: number;
+}
+
+export interface RouteShapeResponse {
+  points: RouteShapePoint[];
+  stops: RouteShapeStop[];
+}
+
 export interface Adherence {
   feed: string;
   route_id: string;
