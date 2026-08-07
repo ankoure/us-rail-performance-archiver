@@ -1,0 +1,3 @@
+api.transit.andrewkoure.com {
+	reverse_proxy api:8000
+}

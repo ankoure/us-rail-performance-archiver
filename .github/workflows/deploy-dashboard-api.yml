@@ -1,0 +1,125 @@
+name: deploy-dashboard-api
+
+# Builds dashboard/api's own (much lighter) image and deploys it to the
+# gtfs-rt-rater EC2 box, which also runs a Caddy sidecar for automatic
+# HTTPS at api.transit.andrewkoure.com. Separate from build.yml/deploy.yml
+# (the poller image + poller box) — dashboard/api used to deploy to Vercel
+# on every push automatically; this replaces that with the same push-to-main
+# trigger, scoped to the paths that actually affect this image.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/api/**"
+      - "analysis/**"
+      - "config/feeds.yaml"
+      - "requirements.txt"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dashboard-api-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  IMAGE: ghcr.io/${{ github.repository }}-dashboard-api
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: tag
+        run: echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./dashboard/api/Dockerfile
+          # Sole deploy target is the gtfs-rt-rater box (t4g, arm64) — unlike
+          # the poller image, this one doesn't also need to serve an amd64
+          # Fargate task, so no qemu/multi-platform build here.
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.value }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: SSM RunCommand to pull and restart
+        env:
+          INSTANCE_ID: ${{ secrets.DASHBOARD_API_INSTANCE_ID }}
+          IMAGE_TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          SCRIPT=$(cat <<EOF
+          set -euo pipefail
+          cd /opt/dashboard-api
+          git fetch --quiet origin main
+          git reset --hard origin/main
+          export IMAGE_TAG="$IMAGE_TAG"
+          docker compose -f dashboard/api/compose.prod.yml pull
+          docker compose -f dashboard/api/compose.prod.yml up -d --remove-orphans
+          docker image prune -af
+          EOF
+          )
+
+          B64=$(printf '%s' "$SCRIPT" | base64 -w 0)
+          PARAMS=$(jq -n --arg c "echo $B64 | base64 -d | bash" '{commands:[$c]}')
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy dashboard-api ${SHA:0:7}" \
+            --parameters "$PARAMS" \
+            --query 'Command.CommandId' --output text)
+
+          echo "SSM command: $CMD_ID"
+
+          aws ssm wait command-executed \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" || true
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'Status' --output text)
+
+          echo "::group::stdout"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text
+          echo "::endgroup::"
+          echo "::group::stderr"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text
+          echo "::endgroup::"
+
+          [[ "$STATUS" == "Success" ]] || { echo "Deploy failed: $STATUS"; exit 1; }

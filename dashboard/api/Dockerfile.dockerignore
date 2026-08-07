@@ -1,0 +1,21 @@
+# Overrides the root .dockerignore for this Dockerfile specifically (Docker
+# looks for `<Dockerfile>.dockerignore` before falling back to the
+# context-root .dockerignore, which excludes dashboard/ and terraform/ for
+# the *poller* image — this image needs dashboard/api/ itself).
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+archive/
+data/
+*.parquet
+*.jsonl
+*.bin
+rail-decoder/
+dashboard/web/
+terraform/
+.env
+config/feeds.candidates*.yaml
