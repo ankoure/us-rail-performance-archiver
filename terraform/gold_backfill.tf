@@ -39,11 +39,26 @@ resource "aws_iam_role_policy" "gold_backfill_task" {
       {
         Sid    = "ReadWriteHot"
         Effect = "Allow"
-        # GetObject: pull the already-shipped vehicles parquet back down, and
-        # authorize ship_one's exists() gate. PutObject: ship the rebuilt
-        # metrics marts back.
-        Action   = ["s3:GetObject", "s3:PutObject"]
+        # GetObject: pull the already-shipped vehicles parquet back down.
+        # HeadObject: authorize Uploader.exists()'s HeadObject call -- a
+        # distinct IAM action from GetObject, not covered by it. PutObject:
+        # ship the rebuilt metrics marts back.
+        Action   = ["s3:GetObject", "s3:HeadObject", "s3:PutObject"]
         Resource = ["arn:aws:s3:::${var.hot_bucket}/*"]
+      },
+      {
+        # Without bucket-level ListBucket, S3 can't tell "key doesn't exist"
+        # from "you can't see it" and returns 403 instead of 404 for
+        # HeadObject on a genuinely-missing key -- which Uploader.exists()
+        # doesn't recognize as "missing" (it only special-cases 404/NoSuchKey),
+        # so it re-raises. gold_backfill.py's exists() gate is exactly how it
+        # detects a (feed, day) with no shipped vehicles parquet yet to skip
+        # gracefully (see its module docstring: "gaps are expected"), so
+        # without this the loop dies on the first ordinary gap instead.
+        Sid      = "ListHotForExists"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = ["arn:aws:s3:::${var.hot_bucket}"]
       },
     ]
   })
@@ -72,10 +87,16 @@ resource "aws_ecs_task_definition" "gold_backfill" {
   family                   = "rail-archiver-gold-backfill"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "1024"
-  memory                   = "2048"
-  execution_role_arn       = aws_iam_role.rollup_execution.arn
-  task_role_arn            = aws_iam_role.gold_backfill_task.arn
+  # Reuse rollup's cpu/memory rather than guessing a smaller number: gold.py's
+  # per-day compute (GTFS resolution, pandas OTP, segment speed) is the same
+  # memory-hungry step that runs inside the combined rollup task rollup_memory
+  # was sized for (see its comment -- a real 7.8 GiB measured peak), so gold.py
+  # alone should comfortably fit under the same ceiling. The original 1024/2048
+  # here was an unmeasured guess and SIGKILL'd (OOM) partway through gcrta-vehicles.
+  cpu                = var.rollup_cpu
+  memory             = var.rollup_memory
+  execution_role_arn = aws_iam_role.rollup_execution.arn
+  task_role_arn      = aws_iam_role.gold_backfill_task.arn
 
   runtime_platform {
     operating_system_family = "LINUX"
