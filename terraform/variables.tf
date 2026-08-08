@@ -164,3 +164,15 @@ variable "s3_storage_metrics_schedule_expression" {
   default     = "cron(15 5 * * ? *)"
   description = "EventBridge Scheduler expression (UTC) for the daily S3 storage-cost metrics. CloudWatch's BucketSizeBytes only updates once/day, so once is enough; offset a few minutes from cert_check just to keep their log streams from interleaving."
 }
+
+variable "historic_511_schedule_enabled" {
+  type        = bool
+  default     = false
+  description = "Whether the monthly EventBridge schedule for the historic_511 task is ENABLED. Same cautious rollout as the other schedule vars: apply disabled, verify with a manual run-task, then flip to true."
+}
+
+variable "historic_511_schedule_expression" {
+  type        = string
+  default     = "cron(0 6 5 * ? *)"
+  description = "EventBridge Scheduler expression (UTC) for the monthly 511.org historic-archive pull — 5th of the month, giving 511 a few days' buffer to publish the prior month's archive."
+}
