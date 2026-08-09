@@ -51,7 +51,16 @@ locals {
     python -c 'import yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
     START=$(date +%s)
     trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --metric pipeline.historic_511.duration --seconds $(( $(date +%s) - START )) || true' EXIT
-    python pipeline/historic_511.py --config /tmp/fargate.yaml
+    # MONTH is optional -- historic_511.py defaults to the previous UTC month
+    # when --month is omitted. Set it via an environment override (not a
+    # command override, which would skip the yaml overlay above) to backfill
+    # an arbitrary past month, e.g.:
+    #   --overrides '{"containerOverrides":[{"name":"historic-511","environment":[{"name":"MONTH","value":"2026-02"}]}]}'
+    if [ -n "$${MONTH:-}" ]; then
+      python pipeline/historic_511.py --config /tmp/fargate.yaml --month "$MONTH"
+    else
+      python pipeline/historic_511.py --config /tmp/fargate.yaml
+    fi
     # Drain: let the run's final historic.511.* metric reach the sidecar before SIGTERM.
     sleep 15
   EOT
