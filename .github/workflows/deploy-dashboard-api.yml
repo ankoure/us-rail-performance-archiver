@@ -83,7 +83,7 @@ jobs:
 
           SCRIPT=$(cat <<EOF
           set -euo pipefail
-          git config --global --get-all safe.directory | grep -qx /opt/dashboard-api || git config --global --add safe.directory /opt/dashboard-api
+          git config --system --get-all safe.directory | grep -qx /opt/dashboard-api || git config --system --add safe.directory /opt/dashboard-api
           cd /opt/dashboard-api
           git fetch --quiet origin main
           git reset --hard origin/main
