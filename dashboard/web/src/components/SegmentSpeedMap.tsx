@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Map as MaplibreMap, NavigationControl, Popup } from "maplibre-gl";
+import { Map as MaplibreMap, NavigationControl, Popup, setWorkerUrl } from "maplibre-gl";
 import type {
   ExpressionSpecification,
   LngLat,
@@ -10,15 +10,29 @@ import type {
   StyleSpecification,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { aggregateSegmentSpeeds, assignSpeedBuckets, segmentKey, INSUFFICIENT_DATA_COLOR_VAR } from "@/lib/segments";
-import {
-  buildStopCoords,
-  groupPointsByShape,
-  groupStopOffsetsByShape,
-  shapesByDirection,
-  sliceSegmentGeometry,
-} from "@/lib/routeGeometry";
-import type { RouteShapeResponse, SegmentDayRow, StopRow } from "@/lib/types";
+import { SPEED_BUCKET_COLOR_VARS, INSUFFICIENT_DATA_COLOR_VAR } from "@/lib/segments";
+import type { SegmentFeatureProperties, SegmentSpeedMapResponse, StopFeatureProperties } from "@/lib/types";
+
+// maplibre-gl resolves its worker script from *its own* bundled module's
+// `import.meta.url` by default (see maplibre-gl/build/readme.md's Workers
+// section) -- under webpack/Turbopack that isn't a real http(s) URL, so the
+// default resolution silently yields "" and `new Worker("")` fails. GeoJSON
+// sources depend on that worker to tile/index their data, so every
+// line/circle layer here would attach real data and valid paint properties
+// yet render nothing, while the raster basemap (no worker needed) renders
+// fine.
+//
+// Routing setWorkerUrl() through `new URL(..., import.meta.url)` (the usual
+// bundler-asset fix) isn't enough here: the bundler emits the requested
+// worker file but treats it as an opaque asset, so it doesn't also emit (or
+// rewrite the reference to) "./maplibre-gl-shared.mjs", which the worker
+// bundle itself imports via a bare relative specifier -- that fetch then
+// 404s/aborts and the worker dies silently. Serving both files verbatim
+// from public/maplibre/ (copied from node_modules/maplibre-gl/dist/ -- see
+// that directory's README) sidesteps the bundler entirely, so the worker's
+// own relative import resolves normally. Re-copy both files if maplibre-gl
+// is upgraded.
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 // No API key, no signup — see the plan's basemap decision. Attribution is
 // required by OSM's tile usage policy; maplibre surfaces it automatically
@@ -48,33 +62,11 @@ function resolveCssColor(varName: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
 }
 
-interface SegmentFeatureProps {
-  from_stop_id: string;
-  to_stop_id: string;
-  direction_id: number;
-  bucket: number;
-  avg_speed_mph: number;
-  sample_count: number;
-  from_name: string;
-  to_name: string;
-  direction_label: string;
-}
-
 export interface SegmentSpeedMapProps {
-  routeShape: RouteShapeResponse;
-  segments: SegmentDayRow[];
-  stops: StopRow[];
-  resolveDirectionLabel: (directionId: number) => string;
-  resolveStopName: (stopId: string) => string;
+  data: SegmentSpeedMapResponse;
 }
 
-export function SegmentSpeedMap({
-  routeShape,
-  segments,
-  stops,
-  resolveDirectionLabel,
-  resolveStopName,
-}: SegmentSpeedMapProps) {
+export function SegmentSpeedMap({ data }: SegmentSpeedMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MaplibreMap | null>(null);
   const popupRef = useRef<Popup | null>(null);
@@ -85,81 +77,46 @@ export function SegmentSpeedMap({
   // are stable per direction/stops, so each only needs attaching once ever.
   const attachedListenersRef = useRef<Set<string>>(new Set());
 
-  const pointsByShape = useMemo(() => groupPointsByShape(routeShape.points), [routeShape]);
-  const stopOffsetsByShape = useMemo(() => groupStopOffsetsByShape(routeShape.stops), [routeShape]);
-  const shapeIdsByDirection = useMemo(() => shapesByDirection(routeShape.points), [routeShape]);
-  const stopCoords = useMemo(() => buildStopCoords(stops), [stops]);
-  const directionIds = useMemo(
-    () => [...shapeIdsByDirection.keys()].sort((a, b) => a - b),
-    [shapeIdsByDirection],
-  );
-
-  const aggregated = useMemo(
-    () => aggregateSegmentSpeeds(segments).filter((s) => s.direction_id !== null),
-    [segments],
-  );
-  const qualifying = useMemo(() => aggregated.filter((s) => s.sample_count >= MIN_SAMPLES), [aggregated]);
-  const { bucketByKey, legend } = useMemo(() => assignSpeedBuckets(qualifying), [qualifying]);
-
   const featureCollections = useMemo(() => {
-    const byDirection = new Map<number, GeoJSON.FeatureCollection<GeoJSON.LineString, SegmentFeatureProps>>();
-    for (const s of aggregated) {
-      const directionId = s.direction_id as number;
-      const sliced = sliceSegmentGeometry(
-        shapeIdsByDirection.get(directionId),
-        pointsByShape,
-        stopOffsetsByShape,
-        s.from_stop_id,
-        s.to_stop_id,
-        stopCoords,
-      );
-      if (!sliced) continue;
-      // A low-sample fallback (no shape covers both stops) is almost always
-      // a poller-gap artifact — one rare "segment" spanning several real
-      // stations — not a genuinely uncovered branch; drawing it as a long,
-      // geographically nonsensical chord is worse than omitting it. See
-      // sliceSegmentGeometry's doc.
-      if (sliced.isFallback && s.sample_count < MIN_SAMPLES) continue;
-      const bucket = bucketByKey.get(segmentKey(s)) ?? -1;
+    const byDirection = new Map<number, GeoJSON.FeatureCollection<GeoJSON.LineString, SegmentFeatureProperties>>();
+    for (const feature of data.segments.features) {
+      const directionId = feature.properties.direction_id;
       const fc = byDirection.get(directionId) ?? { type: "FeatureCollection", features: [] };
-      fc.features.push({
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: sliced.coordinates },
-        properties: {
-          from_stop_id: s.from_stop_id,
-          to_stop_id: s.to_stop_id,
-          direction_id: directionId,
-          bucket,
-          avg_speed_mph: s.avg_speed_mph,
-          sample_count: s.sample_count,
-          from_name: resolveStopName(s.from_stop_id),
-          to_name: resolveStopName(s.to_stop_id),
-          direction_label: resolveDirectionLabel(directionId),
-        },
-      });
+      fc.features.push(feature);
       byDirection.set(directionId, fc);
     }
     return byDirection;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aggregated, shapeIdsByDirection, pointsByShape, stopOffsetsByShape, stopCoords, bucketByKey]);
+  }, [data.segments]);
+
+  const directionIds = useMemo(
+    () => [...featureCollections.keys()].sort((a, b) => a - b),
+    [featureCollections],
+  );
 
   const bounds = useMemo((): LngLatBoundsLike | null => {
     let minLon = Infinity;
     let minLat = Infinity;
     let maxLon = -Infinity;
     let maxLat = -Infinity;
-    for (const p of routeShape.points) {
-      if (p.lon < minLon) minLon = p.lon;
-      if (p.lon > maxLon) maxLon = p.lon;
-      if (p.lat < minLat) minLat = p.lat;
-      if (p.lat > maxLat) maxLat = p.lat;
+    function visit(lon: number, lat: number) {
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+    for (const feature of data.segments.features) {
+      for (const [lon, lat] of feature.geometry.coordinates) visit(lon, lat);
+    }
+    for (const feature of data.stops.features) {
+      const [lon, lat] = feature.geometry.coordinates;
+      visit(lon, lat);
     }
     if (minLon === Infinity) return null;
     return [
       [minLon, minLat],
       [maxLon, maxLat],
     ];
-  }, [routeShape.points]);
+  }, [data.segments, data.stops]);
 
   // Mount the map once.
   useEffect(() => {
@@ -186,10 +143,10 @@ export function SegmentSpeedMap({
     if (!map) return;
 
     function render(map: MaplibreMap) {
-      const critical = resolveCssColor("--status-critical");
-      const serious = resolveCssColor("--status-serious");
-      const warning = resolveCssColor("--status-warning");
-      const good = resolveCssColor("--status-good");
+      const critical = resolveCssColor(SPEED_BUCKET_COLOR_VARS[0]);
+      const serious = resolveCssColor(SPEED_BUCKET_COLOR_VARS[1]);
+      const warning = resolveCssColor(SPEED_BUCKET_COLOR_VARS[2]);
+      const good = resolveCssColor(SPEED_BUCKET_COLOR_VARS[3]);
       const insufficient = resolveCssColor(INSUFFICIENT_DATA_COLOR_VAR);
       const surface = resolveCssColor("--surface");
       const lineColor: ExpressionSpecification = [
@@ -218,10 +175,10 @@ export function SegmentSpeedMap({
 
       directionIds.forEach((directionId, i) => {
         const sourceId = `${SEGMENTS_SOURCE_PREFIX}-${directionId}`;
-        const data = featureCollections.get(directionId) ?? { type: "FeatureCollection", features: [] };
+        const sourceData = featureCollections.get(directionId) ?? { type: "FeatureCollection", features: [] };
         const offset = directionIds.length > 1 ? (i === 0 ? -2.5 : 2.5) : 0;
 
-        map.addSource(sourceId, { type: "geojson", data });
+        map.addSource(sourceId, { type: "geojson", data: sourceData });
         map.addLayer({
           id: `${sourceId}-casing`,
           type: "line",
@@ -243,7 +200,7 @@ export function SegmentSpeedMap({
             map.getCanvas().style.cursor = "pointer";
             const feature = e.features?.[0];
             if (!feature) return;
-            const props = feature.properties as unknown as SegmentFeatureProps;
+            const props = feature.properties as unknown as SegmentFeatureProperties;
             showPopup(map, popupRef, e.lngLat, props);
           });
           map.on("mouseleave", lineLayerId, () => {
@@ -254,21 +211,7 @@ export function SegmentSpeedMap({
         }
       });
 
-      const stopIds = new Set(routeShape.stops.map((s) => s.stop_id));
-      const stopFeatures: GeoJSON.Feature<GeoJSON.Point, { stop_id: string; name: string }>[] = [];
-      for (const stopId of stopIds) {
-        const coords = stopCoords.get(stopId);
-        if (!coords) continue;
-        stopFeatures.push({
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [coords.lon, coords.lat] },
-          properties: { stop_id: stopId, name: resolveStopName(stopId) },
-        });
-      }
-      map.addSource(STOPS_SOURCE_ID, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: stopFeatures },
-      });
+      map.addSource(STOPS_SOURCE_ID, { type: "geojson", data: data.stops });
       map.addLayer({
         id: `${STOPS_SOURCE_ID}-layer`,
         type: "circle",
@@ -286,7 +229,7 @@ export function SegmentSpeedMap({
           map.getCanvas().style.cursor = "pointer";
           const feature = e.features?.[0];
           if (!feature) return;
-          const name = (feature.properties as { name: string }).name;
+          const { name } = feature.properties as unknown as StopFeatureProperties;
           const node = document.createElement("div");
           node.className = "map-popup";
           const title = document.createElement("div");
@@ -311,19 +254,18 @@ export function SegmentSpeedMap({
 
     if (map.isStyleLoaded()) render(map);
     else map.once("load", () => render(map));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [featureCollections, directionIds, bounds]);
+  }, [featureCollections, directionIds, data.stops, bounds]);
 
   return (
     <div className="map-container">
       <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-      {legend.length > 0 && (
+      {data.legend.length > 0 && (
         <div className="map-legend legend" style={{ flexDirection: "column", gap: "6px" }}>
-          {legend.map((entry) => (
+          {data.legend.map((entry) => (
             <div className="legend-item" key={entry.bucket}>
-              <span className="legend-swatch" style={{ background: `var(${entry.colorVar})` }} />
+              <span className="legend-swatch" style={{ background: `var(${SPEED_BUCKET_COLOR_VARS[entry.bucket]})` }} />
               <span>
-                {entry.label} ({entry.minMph.toFixed(0)}–{entry.maxMph.toFixed(0)} mph)
+                {entry.label} ({entry.min_mph.toFixed(0)}–{entry.max_mph.toFixed(0)} mph)
               </span>
             </div>
           ))}
@@ -341,7 +283,7 @@ function showPopup(
   map: MaplibreMap,
   popupRef: React.MutableRefObject<Popup | null>,
   lngLat: LngLat,
-  props: SegmentFeatureProps,
+  props: SegmentFeatureProperties,
 ) {
   const node = document.createElement("div");
   node.className = "map-popup";

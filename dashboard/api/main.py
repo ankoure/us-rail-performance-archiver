@@ -13,6 +13,7 @@ from api.routers import (
     route_shape,
     routes,
     segment_day,
+    segment_speed_map,
     stop_day,
     stop_day_otp,
     stops,
@@ -35,6 +36,7 @@ app.include_router(route_day.router)
 app.include_router(stop_day_otp.router)
 app.include_router(route_day_otp.router)
 app.include_router(segment_day.router)
+app.include_router(segment_speed_map.router)
 app.include_router(routes.router)
 app.include_router(stops.router)
 app.include_router(route_shape.router)

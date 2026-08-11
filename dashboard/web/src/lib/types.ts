@@ -129,6 +129,36 @@ export interface RouteShapeResponse {
   stops: RouteShapeStop[];
 }
 
+export interface SegmentFeatureProperties {
+  from_stop_id: string;
+  to_stop_id: string;
+  direction_id: number;
+  bucket: number;
+  avg_speed_mph: number;
+  sample_count: number;
+  from_name: string;
+  to_name: string;
+  direction_label: string;
+}
+
+export interface StopFeatureProperties {
+  stop_id: string;
+  name: string;
+}
+
+export interface SpeedBucketLegendEntry {
+  bucket: number;
+  label: string;
+  min_mph: number;
+  max_mph: number;
+}
+
+export interface SegmentSpeedMapResponse {
+  segments: GeoJSON.FeatureCollection<GeoJSON.LineString, SegmentFeatureProperties>;
+  stops: GeoJSON.FeatureCollection<GeoJSON.Point, StopFeatureProperties>;
+  legend: SpeedBucketLegendEntry[];
+}
+
 export interface Adherence {
   feed: string;
   route_id: string;

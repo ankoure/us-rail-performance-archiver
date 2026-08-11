@@ -9,7 +9,7 @@ import { LinePicker, useLine } from "@/components/LinePicker";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { api } from "@/lib/apiClient";
 import { useApiData } from "@/lib/useApiData";
-import type { DirectionRow, RouteRow, RouteShapeResponse, SegmentDayRow, StopRow } from "@/lib/types";
+import type { RouteRow, SegmentSpeedMapResponse } from "@/lib/types";
 
 // maplibre-gl touches window/canvas at import time — must never be part of
 // the server-rendered bundle for this statically-exported app. See
@@ -32,55 +32,17 @@ export default function SpeedMapPage() {
   const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
     api.routes(agency!),
   );
-  const { data: stopsData } = useApiData<StopRow[]>(`stops|${agency}`, Boolean(agency), () => api.stops(agency!));
-  const { data: directionsData } = useApiData<DirectionRow[]>(
-    `directions|${agency}`,
-    Boolean(agency),
-    () => api.directions(agency!),
-  );
 
   const railRoutes = useMemo(() => (routesData ?? []).filter((r) => RAIL_MODES.has(r.mode)), [routesData]);
 
-  const { data: segmentData, error: segmentError } = useApiData<SegmentDayRow[]>(
-    `map-segment-day|${agency}|${line}|${start}|${end}`,
+  const { data: mapData, error } = useApiData<SegmentSpeedMapResponse>(
+    `segment-speed-map|${agency}|${line}|${start}|${end}`,
     enabled,
-    () => api.segmentDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
+    () => api.segmentSpeedMap(agency!, { route_id: line!, start_date: start, end_date: end }),
   );
 
-  const { data: routeShape, error: routeShapeError } = useApiData<RouteShapeResponse>(
-    `route-shape|${agency}|${line}`,
-    enabled,
-    () => api.routeShape(agency!, line),
-  );
-
-  const stopNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of stopsData ?? []) {
-      if (s.stop_name) m.set(s.stop_id, s.stop_name);
-    }
-    return m;
-  }, [stopsData]);
-
-  const directionLabelByRoute = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const d of directionsData ?? []) {
-      if (d.direction && d.direction_destination) {
-        m.set(`${d.route_id}|${d.direction_id}`, `${d.direction} to ${d.direction_destination}`);
-      }
-    }
-    return m;
-  }, [directionsData]);
-
-  function resolveDirectionLabel(directionId: number): string {
-    return directionLabelByRoute.get(`${line}|${directionId}`) ?? `Direction ${directionId}`;
-  }
-
-  function resolveStopName(stopId: string): string {
-    return stopNameById.get(stopId) ?? stopId;
-  }
-
-  const error = segmentError ?? routeShapeError;
-  const ready = Boolean(segmentData) && Boolean(routeShape) && Boolean(stopsData);
+  const ready = Boolean(mapData);
+  const hasGeometry = Boolean(mapData) && (mapData!.segments.features.length > 0 || mapData!.stops.features.length > 0);
 
   return (
     <>
@@ -111,18 +73,8 @@ export default function SpeedMapPage() {
               hover a segment for exact figures.
             </p>
             {!ready && <p className="empty-state">Loading…</p>}
-            {ready && routeShape!.points.length === 0 && (
-              <p className="empty-state">No shape geometry published for this route yet.</p>
-            )}
-            {ready && routeShape!.points.length > 0 && (
-              <SegmentSpeedMap
-                routeShape={routeShape!}
-                segments={segmentData!}
-                stops={stopsData!}
-                resolveDirectionLabel={resolveDirectionLabel}
-                resolveStopName={resolveStopName}
-              />
-            )}
+            {ready && !hasGeometry && <p className="empty-state">No shape geometry published for this route yet.</p>}
+            {ready && hasGeometry && <SegmentSpeedMap data={mapData!} />}
           </div>
         )}
       </main>
