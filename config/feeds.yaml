@@ -880,6 +880,33 @@ agencies:
         decoder: passio_json
         poll_interval_seconds: 15
 
+  - agency_id: PVTA
+    name: Pioneer Valley Transit Authority
+    region: Pioneer Valley
+    timezone: America/New_York
+    base_url: https://api.goswift.ly/real-time/pioneer-valley-pvta
+    mdb_feed_id: mdb-2416
+    auth:
+      type: api_key
+      header: Authorization
+      env: SWIFTLY_API_KEY
+    feeds:
+      - name: pvta-vehicles
+        path: /gtfs-rt-vehicle-positions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: pvta-trips
+        path: /gtfs-rt-trip-updates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: pvta-alerts
+        path: /gtfs-rt-alerts/v2
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+
   - agency_id: METRO_HOUSTON
     name: Houston METRO (METRORail)
     region: Houston
