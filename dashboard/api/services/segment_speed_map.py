@@ -196,7 +196,11 @@ def _slice_segment_hops(
     dashboard/web/src/lib/routeGeometry.ts's sliceSegmentGeometry port --
     see that function's doc for the underlying branching-shape rationale."""
     covering = _find_covering_shape(
-        candidate_shape_ids, points_by_shape, stop_offsets_by_shape, from_stop_id, to_stop_id
+        candidate_shape_ids,
+        points_by_shape,
+        stop_offsets_by_shape,
+        from_stop_id,
+        to_stop_id,
     )
     if covering is not None:
         _shape_id, points, offsets = covering
@@ -213,7 +217,11 @@ def _slice_segment_hops(
             key=lambda item: item[1],
             reverse=not forward,
         )
-        hop_stop_ids = [from_stop_id, *(stop_id for stop_id, _ in intermediates), to_stop_id]
+        hop_stop_ids = [
+            from_stop_id,
+            *(stop_id for stop_id, _ in intermediates),
+            to_stop_id,
+        ]
         is_interpolated = len(hop_stop_ids) > 2
         hops = []
         for a_id, b_id in zip(hop_stop_ids, hop_stop_ids[1:]):

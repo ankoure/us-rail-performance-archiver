@@ -499,9 +499,7 @@ class TestDirectionByTrip:
 
     def test_basic_mapping(self, tmp_path):
         trips = (
-            "trip_id,route_id,service_id,direction_id\n"
-            "T1,R,WEEKDAY,0\n"
-            "T2,R,WEEKDAY,1\n"
+            "trip_id,route_id,service_id,direction_id\nT1,R,WEEKDAY,0\nT2,R,WEEKDAY,1\n"
         )
         gtfs = StaticGtfs(build_gtfs_zip(tmp_path, trips=trips))
         assert gtfs.direction_by_trip == {"T1": 0, "T2": 1}

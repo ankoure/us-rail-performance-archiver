@@ -234,7 +234,9 @@ def compute_segment_speeds(
         static_direction_id = direction_by_trip.get(trip_id)
         for a, b in zip(trip_visits, trip_visits[1:]):
             direction_id = (
-                static_direction_id if static_direction_id is not None else a.direction_id
+                static_direction_id
+                if static_direction_id is not None
+                else a.direction_id
             )
             if direction_id is not None and direction_id not in _VALID_DIRECTION_IDS:
                 continue
