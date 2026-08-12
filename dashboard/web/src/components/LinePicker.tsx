@@ -12,7 +12,7 @@ function lineLabel(route: RouteRow): string {
   return route.route_long_name ?? route.route_short_name ?? route.route_id;
 }
 
-export function LinePicker({ routes }: { routes: RouteRow[] }) {
+export function LinePicker({ routes, allowAll = false }: { routes: RouteRow[]; allowAll?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -32,7 +32,7 @@ export function LinePicker({ routes }: { routes: RouteRow[] }) {
     <div className="field">
       <label htmlFor="line-picker">Line</label>
       <select id="line-picker" value={line} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Select a line…</option>
+        <option value="">{allowAll ? "All routes" : "Select a line…"}</option>
         {[...routes]
           .sort((a, b) => lineLabel(a).localeCompare(lineLabel(b)))
           .map((r) => (

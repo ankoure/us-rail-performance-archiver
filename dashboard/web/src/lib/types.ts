@@ -4,6 +4,17 @@ export interface AgencySummary {
   timezone: string;
 }
 
+export interface AgencyMetricsSummary {
+  agency_id: string;
+  name: string;
+  on_time_pct: number | null;
+  matched_count: number;
+  avg_speed_mph: number | null;
+  total_delay_minutes: number;
+  alert_count: number;
+  delay_alert_count: number;
+}
+
 export interface RouteRow {
   route_id: string;
   route_short_name: string | null;

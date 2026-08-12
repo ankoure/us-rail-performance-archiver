@@ -1,14 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
+import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
+import { FilterContext } from "@/components/FilterContext";
+import { LinePicker, useLine } from "@/components/LinePicker";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { MetricBarChart } from "@/components/MetricBarChart";
 import { api } from "@/lib/apiClient";
 import { topByRoute } from "@/lib/rankings";
 import { useApiData } from "@/lib/useApiData";
-import type { RouteDayRow, StopDayRow } from "@/lib/types";
+import type { RouteDayRow, RouteRow, StopDayRow } from "@/lib/types";
 
 interface RouteAgg {
   route_id: string;
@@ -54,15 +58,20 @@ function busiestRoutes(routeAgg: RouteAgg[]): RouteAgg[] {
 export default function HeadwaysDwellsPage() {
   const searchParams = useSearchParams();
   const agency = searchParams.get("agency");
+  const line = useLine();
   const { start, end } = useDateRange();
 
-  const { data, error } = useApiData<[RouteDayRow[], StopDayRow[]]>(
-    `${agency}|${start}|${end}`,
+  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
+    api.routes(agency!),
+  );
+
+  const { data, error, loading } = useApiData<[RouteDayRow[], StopDayRow[]]>(
+    `${agency}|${line}|${start}|${end}`,
     Boolean(agency),
     () =>
       Promise.all([
-        api.routeDay(agency!, { start_date: start, end_date: end }),
-        api.stopDay(agency!, { start_date: start, end_date: end }),
+        api.routeDay(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
+        api.stopDay(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
       ]),
   );
   const routeRows = data?.[0] ?? null;
@@ -83,17 +92,19 @@ export default function HeadwaysDwellsPage() {
     <>
       <div className="filter-bar">
         <AgencyPicker />
+        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} allowAll />}
         <DateRangePicker />
       </div>
+      {agency && <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />}
       <main>
         {!agency && <NoAgencySelected />}
-        {agency && error && <p className="error-state">Failed to load data: {error}</p>}
+        {agency && error && <ErrorState what="data">{error}</ErrorState>}
         {agency && !error && (
           <>
             <div className="card">
               <h2>Headway (p50), average by route, {start} – {end}</h2>
-              {!routeAgg && <p className="empty-state">Loading…</p>}
-              {routeAgg && routeAgg.length === 0 && <p className="empty-state">No data for this range.</p>}
+              {loading && <LoadingState />}
+              {routeAgg && routeAgg.length === 0 && <EmptyState>No data for this range.</EmptyState>}
               {chartRoutes && chartRoutes.length > 0 && (
                 <>
                   {routeAgg && routeAgg.length > MAX_CHART_ROUTES && (
@@ -130,9 +141,9 @@ export default function HeadwaysDwellsPage() {
                 Highest headway coefficient of variation over the selected range (top 25, min {MIN_VISITS_FOR_RANKING}{" "}
                 visits, max {MAX_STOPS_PER_ROUTE} per route).
               </p>
-              {!mostVariableStops && <p className="empty-state">Loading…</p>}
+              {loading && <LoadingState />}
               {mostVariableStops && mostVariableStops.length === 0 && (
-                <p className="empty-state">No stop data for this range.</p>
+                <EmptyState>No stop data for this range.</EmptyState>
               )}
               {mostVariableStops && mostVariableStops.length > 0 && (
                 <div className="table-scroll">
@@ -153,7 +164,11 @@ export default function HeadwaysDwellsPage() {
                       {mostVariableStops.map((r, i) => (
                         <tr key={`${r.stop_id}-${r.service_date}-${i}`}>
                           <td>{r.stop_id}</td>
-                          <td>{r.route_id}</td>
+                          <td>
+                            <Link href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}>
+                              {r.route_id}
+                            </Link>
+                          </td>
                           <td>{r.service_date}</td>
                           <td>{r.headway_cov?.toFixed(2) ?? "—"}</td>
                           <td>{r.headway_p50_s ?? "—"}</td>

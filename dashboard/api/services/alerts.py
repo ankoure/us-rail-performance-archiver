@@ -1,10 +1,15 @@
 # dashboard/api/services/alerts.py
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 from api.services.data import _hot_path, _s3_filesystem
 from analysis.alert_classifier import DELAY_BY_TYPE, summarize_snapshot
+
+# Alert snapshots have no dataset to scan (unlike route_day/segment_day) —
+# a ranged read is one snapshot fetch per feed per day, so this bounds the
+# fan-out rather than letting an open-ended range hammer S3.
+_MAX_RANGE_DAYS = 62
 
 
 def _snapshot_path(feed_name: str, day: date) -> str:
@@ -64,6 +69,28 @@ def get_line_delays(feed_names: list[str], day: date) -> dict:
             continue
         summaries.append(summarize_snapshot(snapshot))
     return _merge_summaries(summaries)
+
+
+def get_line_delays_range(
+    feed_names: list[str], start_date: date, end_date: date
+) -> list[dict]:
+    """Daily delay summaries across a date range, one get_line_delays() call
+    per day since there's no dataset to scan in one shot for alerts. Always
+    returns one entry per calendar day (with zeroed-out fields on days with
+    no snapshot), so a chart can plot the full range without gaps.
+    """
+    if (end_date - start_date).days > _MAX_RANGE_DAYS:
+        raise ValueError(f"Range too wide; max {_MAX_RANGE_DAYS} days")
+
+    results: list[dict] = []
+    day = start_date
+    while day <= end_date:
+        summary = get_line_delays(feed_names, day)
+        if summary["service_date"] is None:
+            summary = {**summary, "service_date": day.isoformat()}
+        results.append(summary)
+        day += timedelta(days=1)
+    return results
 
 
 def get_alerts(feed_names: list[str], day: date) -> list[dict]:

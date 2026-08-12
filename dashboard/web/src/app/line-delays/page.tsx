@@ -3,20 +3,35 @@
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { DayPicker, useDay } from "@/components/DayPicker";
+import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
+import { FilterContext } from "@/components/FilterContext";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { MetricBarChart } from "@/components/MetricBarChart";
-import { StatTile } from "@/components/StatTile";
+import { StatTile, type StatDelta } from "@/components/StatTile";
 import { api } from "@/lib/apiClient";
+import { dayBefore } from "@/lib/dates";
 import { useApiData } from "@/lib/useApiData";
+
+function minutesDelta(current: number, prev: number): StatDelta {
+  const diff = current - prev;
+  const direction: StatDelta["direction"] = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+  return { direction, text: `${diff >= 0 ? "+" : ""}${diff.toLocaleString()} min vs. previous day` };
+}
 
 export default function LineDelaysPage() {
   const searchParams = useSearchParams();
   const agency = searchParams.get("agency");
   const day = useDay();
 
-  const { data: summary, error } = useApiData(`${agency}|${day}`, Boolean(agency), () =>
+  const { data: summary, error, loading } = useApiData(`${agency}|${day}`, Boolean(agency), () =>
     api.lineDelays(agency!, day),
   );
+
+  const prevDay = dayBefore(day);
+  const { data: prevSummary } = useApiData(`prev-line-delays|${agency}|${prevDay}`, Boolean(agency), () =>
+    api.lineDelays(agency!, prevDay),
+  );
+  const delayDelta = summary && prevSummary ? minutesDelta(summary.total_delay_minutes, prevSummary.total_delay_minutes) : undefined;
 
   const minutesByType = summary
     ? Object.entries(summary.delay_by_type)
@@ -35,17 +50,22 @@ export default function LineDelaysPage() {
         <AgencyPicker />
         <DayPicker />
       </div>
+      {agency && <FilterContext agency={agency} when={day} />}
       <main>
         {!agency && <NoAgencySelected />}
-        {agency && error && <p className="error-state">Failed to load line delays: {error}</p>}
-        {agency && !error && !summary && <p className="empty-state">Loading…</p>}
+        {agency && error && <ErrorState what="line delays">{error}</ErrorState>}
+        {agency && !error && loading && <LoadingState />}
         {summary && (
           <div className="card">
             <h2>Line delays, {summary.service_date ?? day}</h2>
             <div className="stat-row">
               <StatTile label="Total alerts" value={String(summary.alert_count)} />
               <StatTile label="Delay alerts" value={String(summary.delay_alert_count)} />
-              <StatTile label="Total delay (min)" value={summary.total_delay_minutes.toLocaleString()} />
+              <StatTile
+                label="Total delay (min)"
+                value={summary.total_delay_minutes.toLocaleString()}
+                delta={delayDelta}
+              />
               <StatTile label="Feeds" value={String(summary.feeds.length)} />
             </div>
           </div>
@@ -74,7 +94,7 @@ export default function LineDelaysPage() {
         )}
 
         {summary && minutesByType?.length === 0 && countByType?.length === 0 && (
-          <p className="empty-state">No delay alerts recorded for {day}.</p>
+          <EmptyState>No delay alerts recorded for {day}.</EmptyState>
         )}
       </main>
     </>

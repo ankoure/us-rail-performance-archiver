@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { AlertRow } from "@/lib/types";
 
 const SEVERITY_STYLE: Record<string, { color: string; background: string }> = {
@@ -15,7 +16,7 @@ function formatUnix(seconds: number | null): string {
   return new Date(seconds * 1000).toLocaleString();
 }
 
-export function AlertCard({ row }: { row: AlertRow }) {
+export function AlertCard({ row, agency, day }: { row: AlertRow; agency?: string; day?: string }) {
   const { alert } = row;
   const header = firstTranslation(alert.header_text) ?? "(no header text)";
   const description = firstTranslation(alert.description_text);
@@ -41,7 +42,21 @@ export function AlertCard({ row }: { row: AlertRow }) {
       <div className="legend">
         {alert.cause && <span>Cause: {alert.cause}</span>}
         {alert.effect && <span>Effect: {alert.effect}</span>}
-        {routes.length > 0 && <span>Routes: {routes.join(", ")}</span>}
+        {routes.length > 0 && (
+          <span>
+            Routes:{" "}
+            {routes.map((r, i) => (
+              <span key={r}>
+                {i > 0 && ", "}
+                {agency && day ? (
+                  <Link href={`/route?agency=${agency}&line=${r}&start=${day}&end=${day}`}>{r}</Link>
+                ) : (
+                  r
+                )}
+              </span>
+            ))}
+          </span>
+        )}
       </div>
       <p className="card-hint">
         First seen {formatUnix(row.first_seen)} · last seen {formatUnix(row.last_seen)} · {row.poll_count} polls

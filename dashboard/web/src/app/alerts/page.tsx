@@ -3,6 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { DayPicker, useDay } from "@/components/DayPicker";
+import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
+import { FilterContext } from "@/components/FilterContext";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { AlertCard } from "@/components/AlertCard";
 import { api } from "@/lib/apiClient";
@@ -21,7 +23,7 @@ export default function AlertsPage() {
   const agency = searchParams.get("agency");
   const day = useDay();
 
-  const { data, error } = useApiData<AlertRow[]>(`${agency}|${day}`, Boolean(agency), () =>
+  const { data, error, loading } = useApiData<AlertRow[]>(`${agency}|${day}`, Boolean(agency), () =>
     api.alerts(agency!, day),
   );
   const allRows = data
@@ -35,12 +37,13 @@ export default function AlertsPage() {
         <AgencyPicker />
         <DayPicker />
       </div>
+      {agency && <FilterContext agency={agency} when={day} />}
       <main>
         {!agency && <NoAgencySelected />}
-        {agency && error && <p className="error-state">Failed to load alerts: {error}</p>}
-        {agency && !error && !rows && <p className="empty-state">Loading…</p>}
+        {agency && error && <ErrorState what="alerts">{error}</ErrorState>}
+        {agency && !error && loading && <LoadingState />}
         {agency && !error && rows && rows.length === 0 && (
-          <p className="empty-state">No alerts recorded for {day}.</p>
+          <EmptyState>No alerts recorded for {day}.</EmptyState>
         )}
         {allRows && allRows.length > MAX_ALERTS && (
           <p className="card-hint">
@@ -48,7 +51,7 @@ export default function AlertsPage() {
           </p>
         )}
         {rows?.map((row) => (
-          <AlertCard key={row.alert_id} row={row} />
+          <AlertCard key={row.alert_id} row={row} agency={agency ?? undefined} day={day} />
         ))}
       </main>
     </>

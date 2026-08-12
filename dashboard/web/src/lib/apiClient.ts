@@ -1,5 +1,6 @@
 import type {
   AgencySummary,
+  AgencyMetricsSummary,
   StopDayRow,
   RouteDayRow,
   StopDayOtp,
@@ -56,6 +57,9 @@ export const api = {
   agencies: (params?: { railOnly?: boolean }) =>
     getJSON<AgencySummary[]>("/agencies", { rail_only: params?.railOnly ? "true" : undefined }),
 
+  agenciesSummary: (params: { agency: string[]; start_date: string; end_date: string }) =>
+    getJSON<AgencyMetricsSummary[]>("/agencies_summary", params),
+
   stopDay: (agency: string, filters: DateRangeFilters) =>
     getJSON<StopDayRow[]>(`/agencies/${agency}/stop_day`, filters),
 
@@ -93,4 +97,7 @@ export const api = {
 
   lineDelays: (agency: string, day: string) =>
     getJSON<LineDelaysSummary>(`/agencies/${agency}/line_delays/${day}`),
+
+  lineDelaysRange: (agency: string, filters: { start_date: string; end_date: string }) =>
+    getJSON<LineDelaysSummary[]>(`/agencies/${agency}/line_delays`, filters),
 };

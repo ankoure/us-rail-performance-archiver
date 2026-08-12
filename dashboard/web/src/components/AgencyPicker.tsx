@@ -37,6 +37,9 @@ export function AgencyPicker({ railOnly = false }: { railOnly?: boolean }) {
       <select id="agency-picker" value={agency} onChange={(e) => onChange(e.target.value)}>
         <option value="">Select an agency…</option>
         {error && <option disabled>Failed to load agencies</option>}
+        {agencies && agency && !agencies.some((a) => a.agency_id === agency) && (
+          <option value={agency}>{agency} (no rail data)</option>
+        )}
         {agencies?.map((a) => (
           <option key={a.agency_id} value={a.agency_id}>
             {a.name}

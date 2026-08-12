@@ -1,15 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
+import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
+import { FilterContext } from "@/components/FilterContext";
+import { LinePicker, useLine } from "@/components/LinePicker";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { OtpStackedBarChart, type OtpBarDatum } from "@/components/OtpStackedBarChart";
-import { StatTile } from "@/components/StatTile";
+import { StatTile, type StatDelta } from "@/components/StatTile";
 import { api } from "@/lib/apiClient";
+import { previousPeriod } from "@/lib/dates";
 import { topByRoute } from "@/lib/rankings";
 import { useApiData } from "@/lib/useApiData";
-import type { RouteDayOtp, StopDayOtp } from "@/lib/types";
+import type { RouteDayOtp, RouteRow, StopDayOtp } from "@/lib/types";
+
+function pctDelta(current: number, prev: number): StatDelta {
+  const diff = current - prev;
+  const direction: StatDelta["direction"] = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "flat";
+  return { direction, text: `${diff >= 0 ? "+" : ""}${diff.toFixed(1)} pts vs. previous period` };
+}
 
 const MIN_MATCHED_FOR_RANKING = 10;
 const MAX_STOPS_PER_ROUTE = 5;
@@ -34,15 +45,20 @@ function aggregateByRoute(rows: RouteDayOtp[]): OtpBarDatum[] {
 export default function OtpPage() {
   const searchParams = useSearchParams();
   const agency = searchParams.get("agency");
+  const line = useLine();
   const { start, end } = useDateRange();
 
-  const { data, error } = useApiData<[RouteDayOtp[], StopDayOtp[]]>(
-    `${agency}|${start}|${end}`,
+  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
+    api.routes(agency!),
+  );
+
+  const { data, error, loading } = useApiData<[RouteDayOtp[], StopDayOtp[]]>(
+    `${agency}|${line}|${start}|${end}`,
     Boolean(agency),
     () =>
       Promise.all([
-        api.routeDayOtp(agency!, { start_date: start, end_date: end }),
-        api.stopDayOtp(agency!, { start_date: start, end_date: end }),
+        api.routeDayOtp(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
+        api.stopDayOtp(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
       ]),
   );
   const routeRows = data?.[0] ?? null;
@@ -65,6 +81,27 @@ export default function OtpPage() {
     }),
     { matched: 0, onTime: 0 },
   );
+
+  const prevRange = previousPeriod(start, end);
+  const { data: prevRouteRows } = useApiData<RouteDayOtp[]>(
+    `prev-otp|${agency}|${line}|${prevRange.start}|${prevRange.end}`,
+    Boolean(agency),
+    () =>
+      api.routeDayOtp(agency!, {
+        start_date: prevRange.start,
+        end_date: prevRange.end,
+        route_id: line ? [line] : undefined,
+      }),
+  );
+  const prevOverall = prevRouteRows?.reduce(
+    (acc, r) => ({ matched: acc.matched + r.matched_count, onTime: acc.onTime + r.on_time_count }),
+    { matched: 0, onTime: 0 },
+  );
+  const otpDelta =
+    overall && overall.matched > 0 && prevOverall && prevOverall.matched > 0
+      ? pctDelta((overall.onTime / overall.matched) * 100, (prevOverall.onTime / prevOverall.matched) * 100)
+      : undefined;
+
   const worstStops = stopRows
     ? topByRoute(
         [...stopRows]
@@ -78,11 +115,13 @@ export default function OtpPage() {
     <>
       <div className="filter-bar">
         <AgencyPicker />
+        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} allowAll />}
         <DateRangePicker />
       </div>
+      {agency && <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />}
       <main>
         {!agency && <NoAgencySelected />}
-        {agency && error && <p className="error-state">Failed to load OTP data: {error}</p>}
+        {agency && error && <ErrorState what="OTP data">{error}</ErrorState>}
         {agency && !error && (
           <>
             <div className="card">
@@ -92,13 +131,14 @@ export default function OtpPage() {
                   <StatTile
                     label="Overall on-time %"
                     value={`${((overall.onTime / overall.matched) * 100).toFixed(1)}%`}
+                    delta={otpDelta}
                   />
                   <StatTile label="Matched events" value={overall.matched.toLocaleString()} />
                   <StatTile label="Routes" value={String(routeAgg?.length ?? 0)} />
                 </div>
               )}
-              {!routeAgg && <p className="empty-state">Loading…</p>}
-              {routeAgg && routeAgg.length === 0 && <p className="empty-state">No OTP data for this range.</p>}
+              {loading && <LoadingState />}
+              {routeAgg && routeAgg.length === 0 && <EmptyState>No OTP data for this range.</EmptyState>}
               {chartRoutes && chartRoutes.length > 0 && (
                 <>
                   {routeAgg && routeAgg.length > MAX_CHART_ROUTES && (
@@ -117,8 +157,8 @@ export default function OtpPage() {
                 Lowest on-time % over the selected range (top 25, min {MIN_MATCHED_FOR_RANKING} matched events, max{" "}
                 {MAX_STOPS_PER_ROUTE} per route).
               </p>
-              {!worstStops && <p className="empty-state">Loading…</p>}
-              {worstStops && worstStops.length === 0 && <p className="empty-state">No stop OTP data for this range.</p>}
+              {loading && <LoadingState />}
+              {worstStops && worstStops.length === 0 && <EmptyState>No stop OTP data for this range.</EmptyState>}
               {worstStops && worstStops.length > 0 && (
                 <div className="table-scroll">
                   <table>
@@ -137,7 +177,11 @@ export default function OtpPage() {
                       {worstStops.map((r, i) => (
                         <tr key={`${r.stop_id}-${r.service_date}-${i}`}>
                           <td>{r.stop_id}</td>
-                          <td>{r.route_id}</td>
+                          <td>
+                            <Link href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}>
+                              {r.route_id}
+                            </Link>
+                          </td>
                           <td>{r.service_date}</td>
                           <td>{r.on_time_pct !== null ? `${r.on_time_pct.toFixed(1)}%` : "—"}</td>
                           <td>{r.matched_count}</td>

@@ -5,13 +5,15 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
+import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
+import { FilterContext } from "@/components/FilterContext";
 import { LinePicker, useLine } from "@/components/LinePicker";
 import { NoAgencySelected } from "@/components/NoAgencySelected";
-import { TimeSeriesChart } from "@/components/TimeSeriesChart";
+import { TimeSeriesChart, type ChartAnnotation } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
 import { useApiData } from "@/lib/useApiData";
 import { aggregateSegmentSpeeds, type SegmentSpeedAgg } from "@/lib/segments";
-import type { DirectionRow, RouteRow, SegmentDayRow, StopRow } from "@/lib/types";
+import type { DirectionRow, LineDelaysSummary, RouteRow, SegmentDayRow, StopRow } from "@/lib/types";
 
 // "rapid" (subway/light rail) and "cr" (commuter rail) — see
 // analysis/static_gtfs.py's _categorize_route_type. Rail first, bus later is
@@ -115,11 +117,23 @@ export default function SpeedPage() {
 
   const railRoutes = useMemo(() => (routesData ?? []).filter((r) => RAIL_MODES.has(r.mode)), [routesData]);
 
-  const { data, error } = useApiData<SegmentDayRow[]>(
+  const { data, error, loading } = useApiData<SegmentDayRow[]>(
     `${agency}|${line}|${start}|${end}`,
     enabled,
     () => api.segmentDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
   );
+
+  // Best-effort: delay-day markers on the speed/travel-time charts below. Not
+  // gated on `error` from the segment fetch — a failure here just means no
+  // markers render, not a page-level error.
+  const { data: delayRows } = useApiData<LineDelaysSummary[]>(
+    `delays|${agency}|${start}|${end}`,
+    Boolean(agency),
+    () => api.lineDelaysRange(agency!, { start_date: start, end_date: end }),
+  );
+  const delayAnnotations: ChartAnnotation[] = (delayRows ?? [])
+    .filter((r) => r.total_delay_minutes > 0 && r.service_date)
+    .map((r) => ({ date: r.service_date!, label: `${r.total_delay_minutes}m delay` }));
 
   const stopNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -168,16 +182,17 @@ export default function SpeedPage() {
         {agency && railRoutes.length > 0 && <LinePicker routes={railRoutes} />}
         <DateRangePicker />
       </div>
+      {agency && <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />}
       <main>
         {!agency && <NoAgencySelected />}
-        {agency && !routesData && <p className="empty-state">Loading routes…</p>}
+        {agency && !routesData && <LoadingState what="routes" />}
         {agency && routesData && railRoutes.length === 0 && (
-          <p className="empty-state">No rail routes found for this agency yet.</p>
+          <EmptyState>No rail routes found for this agency yet.</EmptyState>
         )}
         {agency && railRoutes.length > 0 && !line && (
-          <p className="empty-state">Pick a line above to load speed data.</p>
+          <EmptyState>Pick a line above to load speed data.</EmptyState>
         )}
-        {enabled && error && <p className="error-state">Failed to load speed data: {error}</p>}
+        {enabled && error && <ErrorState what="speed data">{error}</ErrorState>}
         {enabled && !error && (
           <>
             <p className="card-hint">
@@ -193,9 +208,9 @@ export default function SpeedPage() {
                 Straight-line distance divided into in-motion time, weighted by sample count per day. Distance is
                 shape-following where GTFS shape geometry is available.
               </p>
-              {!speedSeries && <p className="empty-state">Loading…</p>}
+              {loading && <LoadingState />}
               {speedSeries && speedSeries.points.length === 0 && (
-                <p className="empty-state">No speed data for this range.</p>
+                <EmptyState>No speed data for this range.</EmptyState>
               )}
               {speedSeries && speedSeries.points.length > 0 && (
                 <TimeSeriesChart
@@ -207,6 +222,7 @@ export default function SpeedPage() {
                     color: i === 0 ? "var(--series-1)" : "var(--series-2)",
                   }))}
                   valueFormatter={(v) => `${v.toFixed(0)} mph`}
+                  annotations={delayAnnotations}
                 />
               )}
             </div>
@@ -218,9 +234,9 @@ export default function SpeedPage() {
               <p className="card-hint">
                 {`Sum of in-motion time across every observed inter-stop segment for the day (min ${MIN_SAMPLES_FOR_TRAVEL_TIME_SUM} samples per segment, to exclude rare vehicle-polling gaps that would otherwise look like one long hop) — an approximation of a full one-way run, not a single trip's actual duration.`}
               </p>
-              {!travelSeries && <p className="empty-state">Loading…</p>}
+              {loading && <LoadingState />}
               {travelSeries && travelSeries.points.length === 0 && (
-                <p className="empty-state">No travel time data for this range.</p>
+                <EmptyState>No travel time data for this range.</EmptyState>
               )}
               {travelSeries && travelSeries.points.length > 0 && (
                 <TimeSeriesChart
@@ -232,6 +248,7 @@ export default function SpeedPage() {
                     color: i === 0 ? "var(--series-1)" : "var(--series-2)",
                   }))}
                   valueFormatter={(v) => `${v.toFixed(0)} min`}
+                  annotations={delayAnnotations}
                 />
               )}
             </div>
@@ -241,8 +258,8 @@ export default function SpeedPage() {
               <p className="card-hint">
                 {`Lowest average speed over the selected range (top ${MAX_SLOWEST_SEGMENTS}, min ${MIN_SAMPLES_FOR_SLOWEST} samples). Station names are from the latest static-GTFS snapshot, not the schedule in effect on any particular day in this range.`}
               </p>
-              {!slowest && <p className="empty-state">Loading…</p>}
-              {slowest && slowest.length === 0 && <p className="empty-state">No segment data for this range.</p>}
+              {loading && <LoadingState />}
+              {slowest && slowest.length === 0 && <EmptyState>No segment data for this range.</EmptyState>}
               {slowest && slowest.length > 0 && (
                 <div className="table-scroll">
                   <table>

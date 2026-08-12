@@ -135,6 +135,10 @@ a {
   border-bottom: 1px solid var(--border-hairline);
 }
 
+.filter-context {
+  padding: 8px 20px 0;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -218,6 +222,11 @@ main {
 .stat-tile .label {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.stat-delta {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 table {

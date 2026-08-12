@@ -1,7 +1,23 @@
 "use client";
 
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { MetricSeries } from "./MetricBarChart";
+
+export interface ChartAnnotation {
+  /** Must match a value present in `data[dateKey]` to land on the axis. */
+  date: string;
+  label: string;
+}
 
 export function TimeSeriesChart<T extends object>({
   data,
@@ -9,12 +25,15 @@ export function TimeSeriesChart<T extends object>({
   series,
   height = 260,
   valueFormatter,
+  annotations,
 }: {
   data: T[];
   dateKey: string;
   series: MetricSeries[];
   height?: number;
   valueFormatter?: (value: number) => string;
+  /** Vertical markers (e.g. days with reported delay alerts) drawn across the chart. */
+  annotations?: ChartAnnotation[];
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -33,6 +52,15 @@ export function TimeSeriesChart<T extends object>({
         {series.length > 1 && (
           <Legend formatter={(value) => series.find((s) => s.dataKey === value)?.label ?? value} />
         )}
+        {annotations?.map((a) => (
+          <ReferenceLine
+            key={a.date}
+            x={a.date}
+            stroke="var(--status-warning)"
+            strokeDasharray="3 3"
+            label={{ value: a.label, position: "top", fill: "var(--status-warning)", fontSize: 10 }}
+          />
+        ))}
         {series.map((s) => (
           <Line
             key={s.dataKey}
