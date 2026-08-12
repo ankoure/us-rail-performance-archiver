@@ -67,6 +67,12 @@ DEFAULT_MAX_TRANSIT_S = 3600
 _SHAPE_DISTANCE_MIN_RATIO = 0.95
 _SHAPE_DISTANCE_MAX_RATIO = 4.0
 
+# GTFS direction_id is only ever 0 or 1. A segment can't be grouped or
+# geometry-matched sensibly under any other value, and there's no way to
+# infer which real direction it belongs to, so those segments are dropped
+# rather than kept under a bogus direction.
+_VALID_DIRECTION_IDS = {0, 1}
+
 
 class _ShapeProjector:
     """Memoized (shape_id, stop_id) -> distance-along-shape lookup for one run.
@@ -177,6 +183,7 @@ def compute_segment_speeds(
     *,
     shape_by_trip: dict[str, str] | None = None,
     shape_points: dict[str, list[tuple[float, float]]] | None = None,
+    direction_by_trip: dict[str, int] | None = None,
     max_speed_mph: float = DEFAULT_MAX_SPEED_MPH,
     max_transit_s: int = DEFAULT_MAX_TRANSIT_S,
 ) -> tuple[list[dict], list[dict]]:
@@ -188,10 +195,24 @@ def compute_segment_speeds(
     module docstring) when `shape_by_trip`/`shape_points` are given, falling
     back to the haversine between GTFS stop coordinates otherwise.
 
+    When `direction_by_trip` (see `StaticGtfs.direction_by_trip`) has an entry
+    for a trip, its value replaces the visit's realtime direction_id outright
+    -- not just fills a gap -- for every segment on that trip. trips.txt is
+    the same grouping key route_shapes/route_shape_stops are built from, so
+    trusting it keeps a trip's segments in the direction space the map's
+    shape-matching expects, even when the realtime trip descriptor disagrees
+    (observed on GCRTA: a valid-looking direction_id paired with a stop_id
+    that only belongs to the other direction's pattern). A trip absent from
+    `direction_by_trip` keeps its realtime direction_id as-is.
+
     Drops segments where:
       - either stop has no GTFS coordinate
       - transit_s <= 0
       - implied speed > max_speed_mph
+      - the resolved direction_id is set but isn't 0 or 1 (GTFS only defines
+        those two; some feeds' real-time trip descriptors send other values
+        -- observed e.g. 14 on GCRTA -- almost certainly a different field
+        bleeding into this one upstream in the feed, not a real direction)
 
     Returns (fact_rows, segment_day_rows). Rows are plain dicts keyed exactly by
     SEGMENT_SPEED_SCHEMA / SEGMENT_DAY_SCHEMA.
@@ -204,12 +225,19 @@ def compute_segment_speeds(
         by_trip[tid].sort(key=lambda v: v.arrival_ts)
 
     shape_by_trip = shape_by_trip or {}
+    direction_by_trip = direction_by_trip or {}
     projector = _ShapeProjector(shape_points or {})
 
     fact_rows: list[dict] = []
     for trip_id, trip_visits in by_trip.items():
         shape_id = shape_by_trip.get(trip_id)
+        static_direction_id = direction_by_trip.get(trip_id)
         for a, b in zip(trip_visits, trip_visits[1:]):
+            direction_id = (
+                static_direction_id if static_direction_id is not None else a.direction_id
+            )
+            if direction_id is not None and direction_id not in _VALID_DIRECTION_IDS:
+                continue
             coords_a = stop_coords.get(a.stop_id)
             coords_b = stop_coords.get(b.stop_id)
             if coords_a is None or coords_b is None:
@@ -233,7 +261,7 @@ def compute_segment_speeds(
                 {
                     "feed": feed,
                     "route_id": a.route_id,
-                    "direction_id": a.direction_id,
+                    "direction_id": direction_id,
                     "trip_id": trip_id,
                     "vehicle_id": a.vehicle_id,
                     "from_stop_id": a.stop_id,

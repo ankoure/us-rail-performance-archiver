@@ -13,6 +13,7 @@ class SegmentFeatureProperties(BaseModel):
     from_name: str
     to_name: str
     direction_label: str
+    is_interpolated: bool
 
 
 class SegmentGeometry(BaseModel):

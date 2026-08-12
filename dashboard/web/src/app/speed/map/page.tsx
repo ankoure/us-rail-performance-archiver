@@ -100,6 +100,12 @@ export default function SpeedMapPage() {
               <EmptyState>No shape geometry published for this route yet.</EmptyState>
             )}
             {ready && hasGeometry && <SegmentSpeedMap data={mapData!} />}
+            {ready && hasGeometry && (
+              <p className="card-hint">
+                A small number of segments are excluded from this map because the feed reported
+                data that couldn&apos;t be reliably matched to a track direction.
+              </p>
+            )}
           </div>
         )}
       </main>

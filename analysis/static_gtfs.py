@@ -520,6 +520,22 @@ class StaticGtfs:
             out[trip_id] = (route_id, direction_id)
         return out
 
+    @cached_property
+    def direction_by_trip(self) -> dict[str, int]:
+        """Map trip_id -> direction_id from trips.txt, omitting trips with no
+        direction_id. A thin projection of [[trip_directions]] (drops the
+        route_id half) for callers that key purely on trip_id — e.g.
+        segment_speed.py's compute_segment_speeds, which uses this as the
+        authoritative direction_id for a trip: some feeds' realtime trip
+        descriptors report a direction_id that's out of range or
+        inconsistent with the stop the vehicle is actually dwelling at
+        (observed on GCRTA), while trips.txt's direction_id is exactly the
+        grouping key route_shapes/route_shape_stops are built from, so
+        preferring it keeps segment_day's direction_id in the same space the
+        map's shape-matching queries against.
+        """
+        return {tid: d for tid, (_, d) in self.trip_directions.items() if d is not None}
+
     # ------------------------------------------------------------------
     # Resolution indexes — raw realtime identifier -> canonical GTFS id.
     # Ported from nibble's StaticGTFS (keep-first semantics): they let the

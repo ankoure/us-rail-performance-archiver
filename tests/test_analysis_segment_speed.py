@@ -187,6 +187,53 @@ class TestComputeSegmentSpeeds:
         fact, _ = self._run([v1, v2])
         assert fact == []
 
+    def test_drops_invalid_direction_id(self):
+        # direction_id outside {0, 1} (e.g. a corrupted feed field) can't be
+        # grouped or geometry-matched sensibly, so the segment is dropped.
+        v1 = _visit("S1", NOON, NOON + 30, direction_id=14)
+        v2 = _visit("S2", NOON + 630, direction_id=14)
+        fact, seg = self._run([v1, v2])
+        assert fact == []
+        assert seg == []
+
+    def test_keeps_null_direction_id(self):
+        # A missing direction_id (feed doesn't set it) is legitimate and
+        # distinct from an out-of-range one -- only the latter is dropped.
+        v1 = _visit("S1", NOON, NOON + 30, direction_id=None)
+        v2 = _visit("S2", NOON + 630, direction_id=None)
+        fact, _ = self._run([v1, v2])
+        assert len(fact) == 1
+        assert fact[0]["direction_id"] is None
+
+    def test_direction_by_trip_overrides_realtime_value(self):
+        # trips.txt says direction 0; the realtime trip descriptor
+        # (mis)reports 1 -- static wins outright, not just fills a gap.
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1", direction_id=1)
+        v2 = _visit("S2", NOON + 630, trip_id="T1", direction_id=1)
+        fact, seg = self._run([v1, v2], direction_by_trip={"T1": 0})
+        assert len(fact) == 1
+        assert fact[0]["direction_id"] == 0
+        assert seg[0]["direction_id"] == 0
+
+    def test_direction_by_trip_rescues_invalid_realtime_value(self):
+        # Realtime reports a bogus direction_id (e.g. GCRTA's 14); a trip
+        # resolved in trips.txt supplies a valid one instead of the segment
+        # being dropped.
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1", direction_id=14)
+        v2 = _visit("S2", NOON + 630, trip_id="T1", direction_id=14)
+        fact, _ = self._run([v1, v2], direction_by_trip={"T1": 1})
+        assert len(fact) == 1
+        assert fact[0]["direction_id"] == 1
+
+    def test_direction_by_trip_leaves_unmatched_trip_alone(self):
+        # A trip_id absent from direction_by_trip keeps its realtime value,
+        # still subject to the usual validity filter.
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1", direction_id=0)
+        v2 = _visit("S2", NOON + 630, trip_id="T1", direction_id=0)
+        fact, _ = self._run([v1, v2], direction_by_trip={"OTHER_TRIP": 1})
+        assert len(fact) == 1
+        assert fact[0]["direction_id"] == 0
+
     def test_trips_are_independent(self):
         # Visits from two different trips should not be paired across trip boundaries.
         v_t1 = _visit("S1", NOON, NOON + 30, trip_id="T1")

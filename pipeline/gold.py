@@ -559,6 +559,7 @@ def _build_speed(
         tz,
         shape_by_trip=gtfs_day.trip_shapes,
         shape_points=gtfs_day.shape_points,
+        direction_by_trip=gtfs_day.direction_by_trip,
     )
     if not fact_rows:
         print(f"[{feed} {day}] no segment speed rows", file=sys.stderr)

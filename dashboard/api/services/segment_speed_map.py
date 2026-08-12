@@ -123,59 +123,125 @@ def _shapes_by_direction(points: list[dict]) -> dict[int, list[str]]:
     return by_direction
 
 
-def _slice_segment_geometry(
+def _find_covering_shape(
+    candidate_shape_ids: list[str],
+    points_by_shape: dict[str, list[dict]],
+    stop_offsets_by_shape: dict[str, dict[str, float]],
+    from_stop_id: str,
+    to_stop_id: str,
+) -> tuple[str, list[dict], dict[str, float]] | None:
+    """First of a direction's shapes (priority order) with offsets for both
+    stops -- a stop pair spanning two branches with no shared shape returns
+    None. See [[route_direction_stop_offsets]]'s doc for why a single shape
+    covering both is required rather than mixing offsets across shapes."""
+    for shape_id in candidate_shape_ids:
+        offsets = stop_offsets_by_shape.get(shape_id)
+        points = points_by_shape.get(shape_id)
+        if not points or len(points) < 2 or not offsets:
+            continue
+        if from_stop_id in offsets and to_stop_id in offsets:
+            return shape_id, points, offsets
+    return None
+
+
+def _bracket_geometry(
+    points: list[dict], lo: float, hi: float
+) -> list[tuple[float, float]]:
+    """Slice `points` (one shape's polyline, sorted by dist_m) down to the
+    stretch bracketing [lo, hi] with the nearest polyline point on either
+    side. `points` has at least 2 entries by construction (checked by
+    callers), so this always returns at least 2 coordinates."""
+    lo_idx = 0
+    for i, p in enumerate(points):
+        if p["dist_m"] <= lo:
+            lo_idx = i
+        else:
+            break
+    hi_idx = len(points) - 1
+    for i in range(len(points) - 1, -1, -1):
+        if points[i]["dist_m"] >= hi:
+            hi_idx = i
+        else:
+            break
+    if hi_idx <= lo_idx:
+        hi_idx = min(lo_idx + 1, len(points) - 1)
+    return [(p["lon"], p["lat"]) for p in points[lo_idx : hi_idx + 1]]
+
+
+def _slice_segment_hops(
     candidate_shape_ids: list[str],
     points_by_shape: dict[str, list[dict]],
     stop_offsets_by_shape: dict[str, dict[str, float]],
     from_stop_id: str,
     to_stop_id: str,
     stop_coords: dict[str, tuple[float, float]],
-) -> tuple[list[tuple[float, float]], bool] | None:
-    """Slice the polyline between two stops for one direction, trying each of
-    that direction's shapes in priority order until one has offsets for both
-    stops, then bracketing the [from, to] offset range with the nearest
-    polyline point either side. Falls back to a straight two-point line
-    between the stops' own lat/lon when no shape covers both. Returns None
-    only when neither geometry source has both stops. Port of
-    dashboard/web/src/lib/routeGeometry.ts's sliceSegmentGeometry -- see that
-    function's doc for the branching-shape and poller-gap-fallback
-    rationale."""
-    for shape_id in candidate_shape_ids:
-        offsets = stop_offsets_by_shape.get(shape_id)
-        points = points_by_shape.get(shape_id)
-        if not points or len(points) < 2 or not offsets:
-            continue
-        from_dist = offsets.get(from_stop_id)
-        to_dist = offsets.get(to_stop_id)
-        if from_dist is None or to_dist is None:
-            continue
-
+) -> list[dict] | None:
+    """Slice the polyline between two stops for one direction into one hop
+    per real intervening stop, so a poller-gap segment (e.g. the vehicle
+    stream skipped a stop's ping and segment_speed paired two non-adjacent
+    visits -- see analysis/segment_speed.py) renders as several
+    station-to-station hops instead of one line spanning several real
+    stations. Tries each of the direction's shapes in priority order until
+    one has offsets for both stops (see [[_find_covering_shape]]), then
+    brackets every real stop projected onto that same shape between the two
+    offsets and emits one hop per consecutive pair, each carrying the full
+    segment's aggregate speed (there's no finer-grained timing to split it
+    by -- this is a display-only interpolation, not new measured data).
+    Falls back to a single straight two-point hop between the stops' own
+    lat/lon when no shape covers both (e.g. a stop pair spanning two
+    branches with no shared shape) -- this is the same
+    likely-poller-gap-artifact case the caller already down-weights via
+    MIN_SAMPLES. Returns None only when neither geometry source has both
+    stops. Historical note: this supersedes the single-hop
+    dashboard/web/src/lib/routeGeometry.ts's sliceSegmentGeometry port --
+    see that function's doc for the underlying branching-shape rationale."""
+    covering = _find_covering_shape(
+        candidate_shape_ids, points_by_shape, stop_offsets_by_shape, from_stop_id, to_stop_id
+    )
+    if covering is not None:
+        _shape_id, points, offsets = covering
+        from_dist = offsets[from_stop_id]
+        to_dist = offsets[to_stop_id]
         lo, hi = sorted((from_dist, to_dist))
-
-        lo_idx = 0
-        for i, p in enumerate(points):
-            if p["dist_m"] <= lo:
-                lo_idx = i
-            else:
-                break
-        hi_idx = len(points) - 1
-        for i in range(len(points) - 1, -1, -1):
-            if points[i]["dist_m"] >= hi:
-                hi_idx = i
-            else:
-                break
-        if hi_idx <= lo_idx:
-            hi_idx = min(lo_idx + 1, len(points) - 1)
-
-        if hi_idx > lo_idx:
-            coords = [(p["lon"], p["lat"]) for p in points[lo_idx : hi_idx + 1]]
-            return coords, False
+        forward = from_dist <= to_dist
+        intermediates = sorted(
+            (
+                (stop_id, dist)
+                for stop_id, dist in offsets.items()
+                if lo < dist < hi and stop_id not in (from_stop_id, to_stop_id)
+            ),
+            key=lambda item: item[1],
+            reverse=not forward,
+        )
+        hop_stop_ids = [from_stop_id, *(stop_id for stop_id, _ in intermediates), to_stop_id]
+        is_interpolated = len(hop_stop_ids) > 2
+        hops = []
+        for a_id, b_id in zip(hop_stop_ids, hop_stop_ids[1:]):
+            hop_lo, hop_hi = sorted((offsets[a_id], offsets[b_id]))
+            hops.append(
+                {
+                    "from_stop_id": a_id,
+                    "to_stop_id": b_id,
+                    "coordinates": _bracket_geometry(points, hop_lo, hop_hi),
+                    "is_fallback": False,
+                    "is_interpolated": is_interpolated,
+                }
+            )
+        return hops
 
     a = stop_coords.get(from_stop_id)
     b = stop_coords.get(to_stop_id)
     if a is None or b is None:
         return None
-    return [a, b], True
+    return [
+        {
+            "from_stop_id": from_stop_id,
+            "to_stop_id": to_stop_id,
+            "coordinates": [a, b],
+            "is_fallback": True,
+            "is_interpolated": False,
+        }
+    ]
 
 
 def build_segment_speed_map(
@@ -231,7 +297,7 @@ def build_segment_speed_map(
     segment_features = []
     for s in aggregated:
         direction_id = s["direction_id"]
-        sliced = _slice_segment_geometry(
+        hops = _slice_segment_hops(
             shape_ids_by_direction.get(direction_id, []),
             points_by_shape,
             stop_offsets_by_shape,
@@ -239,39 +305,45 @@ def build_segment_speed_map(
             s["to_stop_id"],
             stop_coords,
         )
-        if sliced is None:
-            continue
-        coordinates, is_fallback = sliced
-        # A low-sample fallback (no shape covers both stops) is almost
-        # always a poller-gap artifact -- one rare "segment" spanning
-        # several real stations -- not a genuinely uncovered branch; see
-        # _slice_segment_geometry's doc.
-        if is_fallback and s["sample_count"] < MIN_SAMPLES:
+        if hops is None:
             continue
         bucket = bucket_by_key.get(
             _segment_key(s["from_stop_id"], s["to_stop_id"], direction_id), -1
         )
-        segment_features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "LineString", "coordinates": coordinates},
-                "properties": {
-                    "from_stop_id": s["from_stop_id"],
-                    "to_stop_id": s["to_stop_id"],
-                    "direction_id": direction_id,
-                    "bucket": bucket,
-                    "avg_speed_mph": s["avg_speed_mph"],
-                    "sample_count": s["sample_count"],
-                    "from_name": stop_name_by_id.get(
-                        s["from_stop_id"], s["from_stop_id"]
-                    ),
-                    "to_name": stop_name_by_id.get(s["to_stop_id"], s["to_stop_id"]),
-                    "direction_label": direction_label_by_id.get(
-                        direction_id, f"Direction {direction_id}"
-                    ),
-                },
-            }
-        )
+        for hop in hops:
+            # A low-sample fallback (no shape covers both stops) is almost
+            # always a poller-gap artifact -- one rare "segment" spanning
+            # several real stations -- not a genuinely uncovered branch; see
+            # _slice_segment_hops's doc.
+            if hop["is_fallback"] and s["sample_count"] < MIN_SAMPLES:
+                continue
+            segment_features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": hop["coordinates"],
+                    },
+                    "properties": {
+                        "from_stop_id": hop["from_stop_id"],
+                        "to_stop_id": hop["to_stop_id"],
+                        "direction_id": direction_id,
+                        "bucket": bucket,
+                        "avg_speed_mph": s["avg_speed_mph"],
+                        "sample_count": s["sample_count"],
+                        "from_name": stop_name_by_id.get(
+                            hop["from_stop_id"], hop["from_stop_id"]
+                        ),
+                        "to_name": stop_name_by_id.get(
+                            hop["to_stop_id"], hop["to_stop_id"]
+                        ),
+                        "direction_label": direction_label_by_id.get(
+                            direction_id, f"Direction {direction_id}"
+                        ),
+                        "is_interpolated": hop["is_interpolated"],
+                    },
+                }
+            )
 
     route_stop_ids = {s["stop_id"] for s in shape_stops}
     stop_features = []

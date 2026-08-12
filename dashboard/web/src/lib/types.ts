@@ -150,6 +150,7 @@ export interface SegmentFeatureProperties {
   from_name: string;
   to_name: string;
   direction_label: string;
+  is_interpolated: boolean;
 }
 
 export interface StopFeatureProperties {
