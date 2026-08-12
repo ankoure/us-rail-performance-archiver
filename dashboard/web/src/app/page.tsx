@@ -17,13 +17,16 @@ export default function Home() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  const filtered = agencies?.filter((a) => a.name.toLowerCase().includes(query.trim().toLowerCase())) ?? null;
+  const filtered =
+    agencies?.filter((a) => a.name.toLowerCase().includes(query.trim().toLowerCase())) ?? null;
 
   return (
     <main>
       <div className="card">
         <h2>Agencies</h2>
-        <p className="card-hint">Pick an agency to view its OTP, headway/dwell, alert, and line-delay metrics.</p>
+        <p className="card-hint">
+          Pick an agency to view its OTP, headway/dwell, alert, and line-delay metrics.
+        </p>
         {error && <p className="error-state">Failed to load agencies: {error}</p>}
         {!agencies && !error && <p className="empty-state">Loading…</p>}
         {agencies && agencies.length > 0 && (
@@ -38,7 +41,9 @@ export default function Home() {
             />
           </div>
         )}
-        {agencies && agencies.length === 0 && <p className="empty-state">No agencies configured.</p>}
+        {agencies && agencies.length === 0 && (
+          <p className="empty-state">No agencies configured.</p>
+        )}
         {filtered && agencies && agencies.length > 0 && filtered.length === 0 && (
           <p className="empty-state">No agencies match &ldquo;{query}&rdquo;.</p>
         )}

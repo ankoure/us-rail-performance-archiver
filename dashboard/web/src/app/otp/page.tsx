@@ -57,8 +57,16 @@ export default function OtpPage() {
     Boolean(agency),
     () =>
       Promise.all([
-        api.routeDayOtp(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
-        api.stopDayOtp(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
+        api.routeDayOtp(agency!, {
+          start_date: start,
+          end_date: end,
+          route_id: line ? [line] : undefined,
+        }),
+        api.stopDayOtp(agency!, {
+          start_date: start,
+          end_date: end,
+          route_id: line ? [line] : undefined,
+        }),
       ]),
   );
   const routeRows = data?.[0] ?? null;
@@ -70,7 +78,10 @@ export default function OtpPage() {
     ? [...routeAgg]
         .sort(
           (a, b) =>
-            b.on_time_count + b.early_count + b.late_count - (a.on_time_count + a.early_count + a.late_count),
+            b.on_time_count +
+            b.early_count +
+            b.late_count -
+            (a.on_time_count + a.early_count + a.late_count),
         )
         .slice(0, MAX_CHART_ROUTES)
     : null;
@@ -99,7 +110,10 @@ export default function OtpPage() {
   );
   const otpDelta =
     overall && overall.matched > 0 && prevOverall && prevOverall.matched > 0
-      ? pctDelta((overall.onTime / overall.matched) * 100, (prevOverall.onTime / prevOverall.matched) * 100)
+      ? pctDelta(
+          (overall.onTime / overall.matched) * 100,
+          (prevOverall.onTime / prevOverall.matched) * 100,
+        )
       : undefined;
 
   const worstStops = stopRows
@@ -115,17 +129,23 @@ export default function OtpPage() {
     <>
       <div className="filter-bar">
         <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} allowAll />}
+        {agency && routesData && routesData.length > 0 && (
+          <LinePicker routes={routesData} allowAll />
+        )}
         <DateRangePicker />
       </div>
-      {agency && <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />}
+      {agency && (
+        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
+      )}
       <main>
         {!agency && <NoAgencySelected />}
         {agency && error && <ErrorState what="OTP data">{error}</ErrorState>}
         {agency && !error && (
           <>
             <div className="card">
-              <h2>On-time performance, {start} – {end}</h2>
+              <h2>
+                On-time performance, {start} – {end}
+              </h2>
               {overall && overall.matched > 0 && (
                 <div className="stat-row">
                   <StatTile
@@ -138,12 +158,15 @@ export default function OtpPage() {
                 </div>
               )}
               {loading && <LoadingState />}
-              {routeAgg && routeAgg.length === 0 && <EmptyState>No OTP data for this range.</EmptyState>}
+              {routeAgg && routeAgg.length === 0 && (
+                <EmptyState>No OTP data for this range.</EmptyState>
+              )}
               {chartRoutes && chartRoutes.length > 0 && (
                 <>
                   {routeAgg && routeAgg.length > MAX_CHART_ROUTES && (
                     <p className="card-hint">
-                      Showing the {MAX_CHART_ROUTES} busiest of {routeAgg.length} routes by matched events.
+                      Showing the {MAX_CHART_ROUTES} busiest of {routeAgg.length} routes by matched
+                      events.
                     </p>
                   )}
                   <OtpStackedBarChart data={chartRoutes} />
@@ -154,11 +177,13 @@ export default function OtpPage() {
             <div className="card">
               <h2>Worst-performing stops</h2>
               <p className="card-hint">
-                Lowest on-time % over the selected range (top 25, min {MIN_MATCHED_FOR_RANKING} matched events, max{" "}
-                {MAX_STOPS_PER_ROUTE} per route).
+                Lowest on-time % over the selected range (top 25, min {MIN_MATCHED_FOR_RANKING}{" "}
+                matched events, max {MAX_STOPS_PER_ROUTE} per route).
               </p>
               {loading && <LoadingState />}
-              {worstStops && worstStops.length === 0 && <EmptyState>No stop OTP data for this range.</EmptyState>}
+              {worstStops && worstStops.length === 0 && (
+                <EmptyState>No stop OTP data for this range.</EmptyState>
+              )}
               {worstStops && worstStops.length > 0 && (
                 <div className="table-scroll">
                   <table>
@@ -178,7 +203,9 @@ export default function OtpPage() {
                         <tr key={`${r.stop_id}-${r.service_date}-${i}`}>
                           <td>{r.stop_id}</td>
                           <td>
-                            <Link href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}>
+                            <Link
+                              href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}
+                            >
                               {r.route_id}
                             </Link>
                           </td>

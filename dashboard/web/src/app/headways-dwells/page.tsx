@@ -70,8 +70,16 @@ export default function HeadwaysDwellsPage() {
     Boolean(agency),
     () =>
       Promise.all([
-        api.routeDay(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
-        api.stopDay(agency!, { start_date: start, end_date: end, route_id: line ? [line] : undefined }),
+        api.routeDay(agency!, {
+          start_date: start,
+          end_date: end,
+          route_id: line ? [line] : undefined,
+        }),
+        api.stopDay(agency!, {
+          start_date: start,
+          end_date: end,
+          route_id: line ? [line] : undefined,
+        }),
       ]),
   );
   const routeRows = data?.[0] ?? null;
@@ -92,37 +100,54 @@ export default function HeadwaysDwellsPage() {
     <>
       <div className="filter-bar">
         <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} allowAll />}
+        {agency && routesData && routesData.length > 0 && (
+          <LinePicker routes={routesData} allowAll />
+        )}
         <DateRangePicker />
       </div>
-      {agency && <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />}
+      {agency && (
+        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
+      )}
       <main>
         {!agency && <NoAgencySelected />}
         {agency && error && <ErrorState what="data">{error}</ErrorState>}
         {agency && !error && (
           <>
             <div className="card">
-              <h2>Headway (p50), average by route, {start} – {end}</h2>
+              <h2>
+                Headway (p50), average by route, {start} – {end}
+              </h2>
               {loading && <LoadingState />}
-              {routeAgg && routeAgg.length === 0 && <EmptyState>No data for this range.</EmptyState>}
+              {routeAgg && routeAgg.length === 0 && (
+                <EmptyState>No data for this range.</EmptyState>
+              )}
               {chartRoutes && chartRoutes.length > 0 && (
                 <>
                   {routeAgg && routeAgg.length > MAX_CHART_ROUTES && (
                     <p className="card-hint">
-                      Showing the {MAX_CHART_ROUTES} busiest of {routeAgg.length} routes by visit count.
+                      Showing the {MAX_CHART_ROUTES} busiest of {routeAgg.length} routes by visit
+                      count.
                     </p>
                   )}
                   <MetricBarChart
                     data={chartRoutes}
                     categoryKey="route_id"
-                    series={[{ dataKey: "headway_p50_s", label: "Headway p50 (s)", color: "var(--series-1)" }]}
+                    series={[
+                      {
+                        dataKey: "headway_p50_s",
+                        label: "Headway p50 (s)",
+                        color: "var(--series-1)",
+                      },
+                    ]}
                   />
                 </>
               )}
             </div>
 
             <div className="card">
-              <h2>Dwell time, average by route, {start} – {end}</h2>
+              <h2>
+                Dwell time, average by route, {start} – {end}
+              </h2>
               {chartRoutes && chartRoutes.length > 0 && (
                 <MetricBarChart
                   data={chartRoutes}
@@ -138,8 +163,8 @@ export default function HeadwaysDwellsPage() {
             <div className="card">
               <h2>Most variable stops</h2>
               <p className="card-hint">
-                Highest headway coefficient of variation over the selected range (top 25, min {MIN_VISITS_FOR_RANKING}{" "}
-                visits, max {MAX_STOPS_PER_ROUTE} per route).
+                Highest headway coefficient of variation over the selected range (top 25, min{" "}
+                {MIN_VISITS_FOR_RANKING} visits, max {MAX_STOPS_PER_ROUTE} per route).
               </p>
               {loading && <LoadingState />}
               {mostVariableStops && mostVariableStops.length === 0 && (
@@ -165,7 +190,9 @@ export default function HeadwaysDwellsPage() {
                         <tr key={`${r.stop_id}-${r.service_date}-${i}`}>
                           <td>{r.stop_id}</td>
                           <td>
-                            <Link href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}>
+                            <Link
+                              href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}
+                            >
                               {r.route_id}
                             </Link>
                           </td>

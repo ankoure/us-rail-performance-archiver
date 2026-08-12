@@ -15,7 +15,10 @@ import { useApiData } from "@/lib/useApiData";
 function minutesDelta(current: number, prev: number): StatDelta {
   const diff = current - prev;
   const direction: StatDelta["direction"] = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
-  return { direction, text: `${diff >= 0 ? "+" : ""}${diff.toLocaleString()} min vs. previous day` };
+  return {
+    direction,
+    text: `${diff >= 0 ? "+" : ""}${diff.toLocaleString()} min vs. previous day`,
+  };
 }
 
 export default function LineDelaysPage() {
@@ -23,15 +26,22 @@ export default function LineDelaysPage() {
   const agency = searchParams.get("agency");
   const day = useDay();
 
-  const { data: summary, error, loading } = useApiData(`${agency}|${day}`, Boolean(agency), () =>
-    api.lineDelays(agency!, day),
-  );
+  const {
+    data: summary,
+    error,
+    loading,
+  } = useApiData(`${agency}|${day}`, Boolean(agency), () => api.lineDelays(agency!, day));
 
   const prevDay = dayBefore(day);
-  const { data: prevSummary } = useApiData(`prev-line-delays|${agency}|${prevDay}`, Boolean(agency), () =>
-    api.lineDelays(agency!, prevDay),
+  const { data: prevSummary } = useApiData(
+    `prev-line-delays|${agency}|${prevDay}`,
+    Boolean(agency),
+    () => api.lineDelays(agency!, prevDay),
   );
-  const delayDelta = summary && prevSummary ? minutesDelta(summary.total_delay_minutes, prevSummary.total_delay_minutes) : undefined;
+  const delayDelta =
+    summary && prevSummary
+      ? minutesDelta(summary.total_delay_minutes, prevSummary.total_delay_minutes)
+      : undefined;
 
   const minutesByType = summary
     ? Object.entries(summary.delay_by_type)

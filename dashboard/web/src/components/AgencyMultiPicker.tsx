@@ -20,7 +20,9 @@ export function AgencyMultiPicker() {
   const [agencies, setAgencies] = useState<AgencySummary[] | null>(null);
 
   useEffect(() => {
-    api.agencies().then((rows) => setAgencies([...rows].sort((a, b) => a.name.localeCompare(b.name))));
+    api
+      .agencies()
+      .then((rows) => setAgencies([...rows].sort((a, b) => a.name.localeCompare(b.name))));
   }, []);
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {

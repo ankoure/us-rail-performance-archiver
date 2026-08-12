@@ -13,7 +13,13 @@ import { TimeSeriesChart, type ChartAnnotation } from "@/components/TimeSeriesCh
 import { api } from "@/lib/apiClient";
 import { useApiData } from "@/lib/useApiData";
 import { aggregateSegmentSpeeds, type SegmentSpeedAgg } from "@/lib/segments";
-import type { DirectionRow, LineDelaysSummary, RouteRow, SegmentDayRow, StopRow } from "@/lib/types";
+import type {
+  DirectionRow,
+  LineDelaysSummary,
+  RouteRow,
+  SegmentDayRow,
+  StopRow,
+} from "@/lib/types";
 
 // "rapid" (subway/light rail) and "cr" (commuter rail) — see
 // analysis/static_gtfs.py's _categorize_route_type. Rail first, bus later is
@@ -108,14 +114,19 @@ export default function SpeedPage() {
   const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
     api.routes(agency!),
   );
-  const { data: stopsData } = useApiData<StopRow[]>(`stops|${agency}`, Boolean(agency), () => api.stops(agency!));
+  const { data: stopsData } = useApiData<StopRow[]>(`stops|${agency}`, Boolean(agency), () =>
+    api.stops(agency!),
+  );
   const { data: directionsData } = useApiData<DirectionRow[]>(
     `directions|${agency}`,
     Boolean(agency),
     () => api.directions(agency!),
   );
 
-  const railRoutes = useMemo(() => (routesData ?? []).filter((r) => RAIL_MODES.has(r.mode)), [routesData]);
+  const railRoutes = useMemo(
+    () => (routesData ?? []).filter((r) => RAIL_MODES.has(r.mode)),
+    [routesData],
+  );
 
   const { data, error, loading } = useApiData<SegmentDayRow[]>(
     `${agency}|${line}|${start}|${end}`,
@@ -182,7 +193,9 @@ export default function SpeedPage() {
         {agency && railRoutes.length > 0 && <LinePicker routes={railRoutes} />}
         <DateRangePicker />
       </div>
-      {agency && <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />}
+      {agency && (
+        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
+      )}
       <main>
         {!agency && <NoAgencySelected />}
         {agency && !routesData && <LoadingState what="routes" />}
@@ -205,8 +218,8 @@ export default function SpeedPage() {
                 Average speed (p50), {line}, {start} – {end}
               </h2>
               <p className="card-hint">
-                Straight-line distance divided into in-motion time, weighted by sample count per day. Distance is
-                shape-following where GTFS shape geometry is available.
+                Straight-line distance divided into in-motion time, weighted by sample count per
+                day. Distance is shape-following where GTFS shape geometry is available.
               </p>
               {loading && <LoadingState />}
               {speedSeries && speedSeries.points.length === 0 && (
@@ -259,7 +272,9 @@ export default function SpeedPage() {
                 {`Lowest average speed over the selected range (top ${MAX_SLOWEST_SEGMENTS}, min ${MIN_SAMPLES_FOR_SLOWEST} samples). Station names are from the latest static-GTFS snapshot, not the schedule in effect on any particular day in this range.`}
               </p>
               {loading && <LoadingState />}
-              {slowest && slowest.length === 0 && <EmptyState>No segment data for this range.</EmptyState>}
+              {slowest && slowest.length === 0 && (
+                <EmptyState>No segment data for this range.</EmptyState>
+              )}
               {slowest && slowest.length > 0 && (
                 <div className="table-scroll">
                   <table>

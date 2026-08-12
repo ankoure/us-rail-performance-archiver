@@ -29,16 +29,17 @@ export default function AdherencePage() {
     api.routes(agency!),
   );
 
-  const { data: rows, error, loading } = useApiData<Adherence[]>(
-    `adherence|${agency}|${line}|${day}`,
-    Boolean(agency),
-    () =>
-      api.adherence(agency!, {
-        start_date: day,
-        end_date: day,
-        route_id: line ? [line] : undefined,
-        limit: MAX_ROWS,
-      }),
+  const {
+    data: rows,
+    error,
+    loading,
+  } = useApiData<Adherence[]>(`adherence|${agency}|${line}|${day}`, Boolean(agency), () =>
+    api.adherence(agency!, {
+      start_date: day,
+      end_date: day,
+      route_id: line ? [line] : undefined,
+      limit: MAX_ROWS,
+    }),
   );
 
   const summary = rows?.reduce(
@@ -56,7 +57,9 @@ export default function AdherencePage() {
     <>
       <div className="filter-bar">
         <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} allowAll />}
+        {agency && routesData && routesData.length > 0 && (
+          <LinePicker routes={routesData} allowAll />
+        )}
         <DayPicker />
       </div>
       {agency && <FilterContext agency={agency} line={line || undefined} when={day} />}
@@ -75,12 +78,15 @@ export default function AdherencePage() {
             </div>
             {rows && rows.length >= MAX_ROWS && (
               <p className="card-hint">
-                Showing the first {MAX_ROWS} events for this day — pick a route above to narrow the results.
+                Showing the first {MAX_ROWS} events for this day — pick a route above to narrow the
+                results.
               </p>
             )}
           </div>
         )}
-        {rows && rows.length === 0 && <EmptyState>No adherence events recorded for {day}.</EmptyState>}
+        {rows && rows.length === 0 && (
+          <EmptyState>No adherence events recorded for {day}.</EmptyState>
+        )}
         {rows && rows.length > 0 && (
           <div className="card">
             <h2>Stop-level events</h2>

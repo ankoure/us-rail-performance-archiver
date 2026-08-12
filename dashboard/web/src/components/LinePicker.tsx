@@ -12,7 +12,13 @@ function lineLabel(route: RouteRow): string {
   return route.route_long_name ?? route.route_short_name ?? route.route_id;
 }
 
-export function LinePicker({ routes, allowAll = false }: { routes: RouteRow[]; allowAll?: boolean }) {
+export function LinePicker({
+  routes,
+  allowAll = false,
+}: {
+  routes: RouteRow[];
+  allowAll?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

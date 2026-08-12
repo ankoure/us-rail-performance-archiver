@@ -11,7 +11,11 @@ import type {
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { SPEED_BUCKET_COLOR_VARS, INSUFFICIENT_DATA_COLOR_VAR } from "@/lib/segments";
-import type { SegmentFeatureProperties, SegmentSpeedMapResponse, StopFeatureProperties } from "@/lib/types";
+import type {
+  SegmentFeatureProperties,
+  SegmentSpeedMapResponse,
+  StopFeatureProperties,
+} from "@/lib/types";
 
 // maplibre-gl resolves its worker script from *its own* bundled module's
 // `import.meta.url` by default (see maplibre-gl/build/readme.md's Workers
@@ -78,7 +82,10 @@ export function SegmentSpeedMap({ data }: SegmentSpeedMapProps) {
   const attachedListenersRef = useRef<Set<string>>(new Set());
 
   const featureCollections = useMemo(() => {
-    const byDirection = new Map<number, GeoJSON.FeatureCollection<GeoJSON.LineString, SegmentFeatureProperties>>();
+    const byDirection = new Map<
+      number,
+      GeoJSON.FeatureCollection<GeoJSON.LineString, SegmentFeatureProperties>
+    >();
     for (const feature of data.segments.features) {
       const directionId = feature.properties.direction_id;
       const fc = byDirection.get(directionId) ?? { type: "FeatureCollection", features: [] };
@@ -175,7 +182,10 @@ export function SegmentSpeedMap({ data }: SegmentSpeedMapProps) {
 
       directionIds.forEach((directionId, i) => {
         const sourceId = `${SEGMENTS_SOURCE_PREFIX}-${directionId}`;
-        const sourceData = featureCollections.get(directionId) ?? { type: "FeatureCollection", features: [] };
+        const sourceData = featureCollections.get(directionId) ?? {
+          type: "FeatureCollection",
+          features: [],
+        };
         const offset = directionIds.length > 1 ? (i === 0 ? -2.5 : 2.5) : 0;
 
         map.addSource(sourceId, { type: "geojson", data: sourceData });
@@ -263,14 +273,20 @@ export function SegmentSpeedMap({ data }: SegmentSpeedMapProps) {
         <div className="map-legend legend" style={{ flexDirection: "column", gap: "6px" }}>
           {data.legend.map((entry) => (
             <div className="legend-item" key={entry.bucket}>
-              <span className="legend-swatch" style={{ background: `var(${SPEED_BUCKET_COLOR_VARS[entry.bucket]})` }} />
+              <span
+                className="legend-swatch"
+                style={{ background: `var(${SPEED_BUCKET_COLOR_VARS[entry.bucket]})` }}
+              />
               <span>
                 {entry.label} ({entry.min_mph.toFixed(0)}–{entry.max_mph.toFixed(0)} mph)
               </span>
             </div>
           ))}
           <div className="legend-item">
-            <span className="legend-swatch" style={{ background: `var(${INSUFFICIENT_DATA_COLOR_VAR})` }} />
+            <span
+              className="legend-swatch"
+              style={{ background: `var(${INSUFFICIENT_DATA_COLOR_VAR})` }}
+            />
             <span>Insufficient data (&lt;{MIN_SAMPLES} samples)</span>
           </div>
         </div>

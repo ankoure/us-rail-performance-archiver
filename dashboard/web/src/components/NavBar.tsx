@@ -62,11 +62,7 @@ export function NavBar() {
         const isActive = pathname === href;
         const target = targetHref(pathname, href, searchParams);
         return (
-          <Link
-            key={href}
-            href={target}
-            className={`navbar-link${isActive ? " active" : ""}`}
-          >
+          <Link key={href} href={target} className={`navbar-link${isActive ? " active" : ""}`}>
             {label}
           </Link>
         );

@@ -15,7 +15,14 @@ import { TimeSeriesChart, type ChartAnnotation } from "@/components/TimeSeriesCh
 import { api } from "@/lib/apiClient";
 import { previousPeriod } from "@/lib/dates";
 import { useApiData } from "@/lib/useApiData";
-import type { AlertRow, LineDelaysSummary, RouteDayOtp, RouteDayRow, RouteRow, SegmentDayRow } from "@/lib/types";
+import type {
+  AlertRow,
+  LineDelaysSummary,
+  RouteDayOtp,
+  RouteDayRow,
+  RouteRow,
+  SegmentDayRow,
+} from "@/lib/types";
 
 // Same rail-vs-bus split as speed/page.tsx — see analysis/static_gtfs.py's
 // _categorize_route_type. Speed data only exists for rail modes.
@@ -112,10 +119,12 @@ export default function RoutePage() {
     return route ? RAIL_MODES.has(route.mode) : false;
   }, [routesData, line]);
 
-  const { data: otpRows, error: otpError, loading: otpLoading } = useApiData<RouteDayOtp[]>(
-    `route-otp|${agency}|${line}|${start}|${end}`,
-    enabled,
-    () => api.routeDayOtp(agency!, { start_date: start, end_date: end, route_id: [line] }),
+  const {
+    data: otpRows,
+    error: otpError,
+    loading: otpLoading,
+  } = useApiData<RouteDayOtp[]>(`route-otp|${agency}|${line}|${start}|${end}`, enabled, () =>
+    api.routeDayOtp(agency!, { start_date: start, end_date: end, route_id: [line] }),
   );
 
   const { data: hdRows, loading: hdLoading } = useApiData<RouteDayRow[]>(
@@ -164,7 +173,12 @@ export default function RoutePage() {
   const { data: prevOtpRows } = useApiData<RouteDayOtp[]>(
     `prev-route-otp|${agency}|${line}|${prevRange.start}|${prevRange.end}`,
     enabled,
-    () => api.routeDayOtp(agency!, { start_date: prevRange.start, end_date: prevRange.end, route_id: [line] }),
+    () =>
+      api.routeDayOtp(agency!, {
+        start_date: prevRange.start,
+        end_date: prevRange.end,
+        route_id: [line],
+      }),
   );
   const prevOverallOtp = prevOtpRows?.reduce(
     (acc, r) => ({ matched: acc.matched + r.matched_count, onTime: acc.onTime + r.on_time_count }),
@@ -181,7 +195,9 @@ export default function RoutePage() {
   const avgHeadway = hdSeries
     ? mean(hdSeries.map((d) => d.headway_p50_s).filter((v): v is number => v !== null))
     : null;
-  const avgDwell = hdSeries ? mean(hdSeries.map((d) => d.dwell_p50_s).filter((v): v is number => v !== null)) : null;
+  const avgDwell = hdSeries
+    ? mean(hdSeries.map((d) => d.dwell_p50_s).filter((v): v is number => v !== null))
+    : null;
   const avgSpeed = speedSeries
     ? mean(speedSeries.map((d) => d.speed_p50_mph).filter((v): v is number => v !== null))
     : null;
@@ -193,7 +209,9 @@ export default function RoutePage() {
         {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} />}
         <DateRangePicker />
       </div>
-      {agency && <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />}
+      {agency && (
+        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
+      )}
       <main>
         {!agency && <NoAgencySelected />}
         {agency && routesData && routesData.length > 0 && !line && (
@@ -209,13 +227,26 @@ export default function RoutePage() {
               <div className="stat-row">
                 <StatTile
                   label="On-time %"
-                  value={overallOtp && overallOtp.matched > 0 ? `${((overallOtp.onTime / overallOtp.matched) * 100).toFixed(1)}%` : "—"}
+                  value={
+                    overallOtp && overallOtp.matched > 0
+                      ? `${((overallOtp.onTime / overallOtp.matched) * 100).toFixed(1)}%`
+                      : "—"
+                  }
                   delta={otpDelta}
                 />
-                <StatTile label="Headway p50" value={avgHeadway !== null ? `${Math.round(avgHeadway)}s` : "—"} />
-                <StatTile label="Dwell p50" value={avgDwell !== null ? `${Math.round(avgDwell)}s` : "—"} />
+                <StatTile
+                  label="Headway p50"
+                  value={avgHeadway !== null ? `${Math.round(avgHeadway)}s` : "—"}
+                />
+                <StatTile
+                  label="Dwell p50"
+                  value={avgDwell !== null ? `${Math.round(avgDwell)}s` : "—"}
+                />
                 {isRail && (
-                  <StatTile label="Avg speed" value={avgSpeed !== null ? `${avgSpeed.toFixed(1)} mph` : "—"} />
+                  <StatTile
+                    label="Avg speed"
+                    value={avgSpeed !== null ? `${avgSpeed.toFixed(1)} mph` : "—"}
+                  />
                 )}
               </div>
             </div>
@@ -223,12 +254,16 @@ export default function RoutePage() {
             <div className="card">
               <h2>On-time % by day</h2>
               {otpLoading && <LoadingState />}
-              {otpSeries && otpSeries.length === 0 && <EmptyState>No OTP data for this range.</EmptyState>}
+              {otpSeries && otpSeries.length === 0 && (
+                <EmptyState>No OTP data for this range.</EmptyState>
+              )}
               {otpSeries && otpSeries.length > 0 && (
                 <TimeSeriesChart
                   data={otpSeries}
                   dateKey="service_date"
-                  series={[{ dataKey: "on_time_pct", label: "On-time %", color: "var(--series-1)" }]}
+                  series={[
+                    { dataKey: "on_time_pct", label: "On-time %", color: "var(--series-1)" },
+                  ]}
                   valueFormatter={(v) => `${v.toFixed(0)}%`}
                   annotations={delayAnnotations}
                 />
@@ -238,13 +273,19 @@ export default function RoutePage() {
             <div className="card">
               <h2>Headway &amp; dwell (p50) by day</h2>
               {hdLoading && <LoadingState />}
-              {hdSeries && hdSeries.length === 0 && <EmptyState>No headway/dwell data for this range.</EmptyState>}
+              {hdSeries && hdSeries.length === 0 && (
+                <EmptyState>No headway/dwell data for this range.</EmptyState>
+              )}
               {hdSeries && hdSeries.length > 0 && (
                 <TimeSeriesChart
                   data={hdSeries}
                   dateKey="service_date"
                   series={[
-                    { dataKey: "headway_p50_s", label: "Headway p50 (s)", color: "var(--series-1)" },
+                    {
+                      dataKey: "headway_p50_s",
+                      label: "Headway p50 (s)",
+                      color: "var(--series-1)",
+                    },
                     { dataKey: "dwell_p50_s", label: "Dwell p50 (s)", color: "var(--series-2)" },
                   ]}
                 />
@@ -255,12 +296,20 @@ export default function RoutePage() {
               <div className="card">
                 <h2>Average speed (p50) by day</h2>
                 {speedLoading && <LoadingState />}
-                {speedSeries && speedSeries.length === 0 && <EmptyState>No speed data for this range.</EmptyState>}
+                {speedSeries && speedSeries.length === 0 && (
+                  <EmptyState>No speed data for this range.</EmptyState>
+                )}
                 {speedSeries && speedSeries.length > 0 && (
                   <TimeSeriesChart
                     data={speedSeries}
                     dateKey="service_date"
-                    series={[{ dataKey: "speed_p50_mph", label: "Speed p50 (mph)", color: "var(--series-3)" }]}
+                    series={[
+                      {
+                        dataKey: "speed_p50_mph",
+                        label: "Speed p50 (mph)",
+                        color: "var(--series-3)",
+                      },
+                    ]}
                     valueFormatter={(v) => `${v.toFixed(0)} mph`}
                     annotations={delayAnnotations}
                   />
@@ -276,7 +325,8 @@ export default function RoutePage() {
             <div className="card">
               <h2>Alerts on {end}</h2>
               <p className="card-hint">
-                Alert history isn&apos;t range-queryable yet, so this shows the end date of the selected range only.
+                Alert history isn&apos;t range-queryable yet, so this shows the end date of the
+                selected range only.
               </p>
               {alertsLoading && <LoadingState />}
               {routeAlerts && routeAlerts.length === 0 && (

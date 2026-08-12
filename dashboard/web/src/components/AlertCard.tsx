@@ -2,13 +2,26 @@ import Link from "next/link";
 import type { AlertRow } from "@/lib/types";
 
 const SEVERITY_STYLE: Record<string, { color: string; background: string }> = {
-  SEVERE: { color: "var(--status-critical)", background: "color-mix(in srgb, var(--status-critical) 15%, transparent)" },
-  WARNING: { color: "var(--status-warning)", background: "color-mix(in srgb, var(--status-warning) 18%, transparent)" },
-  INFO: { color: "var(--status-good)", background: "color-mix(in srgb, var(--status-good) 15%, transparent)" },
+  SEVERE: {
+    color: "var(--status-critical)",
+    background: "color-mix(in srgb, var(--status-critical) 15%, transparent)",
+  },
+  WARNING: {
+    color: "var(--status-warning)",
+    background: "color-mix(in srgb, var(--status-warning) 18%, transparent)",
+  },
+  INFO: {
+    color: "var(--status-good)",
+    background: "color-mix(in srgb, var(--status-good) 15%, transparent)",
+  },
 };
 
 function firstTranslation(field: AlertRow["alert"]["header_text"]): string | null {
-  return field?.translation.find((t) => t.language.startsWith("en"))?.text ?? field?.translation[0]?.text ?? null;
+  return (
+    field?.translation.find((t) => t.language.startsWith("en"))?.text ??
+    field?.translation[0]?.text ??
+    null
+  );
 }
 
 function formatUnix(seconds: number | null): string {
@@ -22,7 +35,9 @@ export function AlertCard({ row, agency, day }: { row: AlertRow; agency?: string
   const description = firstTranslation(alert.description_text);
   const severity = alert.severity_level ?? "UNKNOWN_SEVERITY";
   const severityStyle = SEVERITY_STYLE[severity];
-  const routes = [...new Set(alert.informed_entity.map((e) => e.route_id).filter(Boolean))] as string[];
+  const routes = [
+    ...new Set(alert.informed_entity.map((e) => e.route_id).filter(Boolean)),
+  ] as string[];
 
   return (
     <div className="card">
@@ -49,7 +64,9 @@ export function AlertCard({ row, agency, day }: { row: AlertRow; agency?: string
               <span key={r}>
                 {i > 0 && ", "}
                 {agency && day ? (
-                  <Link href={`/route?agency=${agency}&line=${r}&start=${day}&end=${day}`}>{r}</Link>
+                  <Link href={`/route?agency=${agency}&line=${r}&start=${day}&end=${day}`}>
+                    {r}
+                  </Link>
                 ) : (
                   r
                 )}
@@ -59,7 +76,8 @@ export function AlertCard({ row, agency, day }: { row: AlertRow; agency?: string
         )}
       </div>
       <p className="card-hint">
-        First seen {formatUnix(row.first_seen)} · last seen {formatUnix(row.last_seen)} · {row.poll_count} polls
+        First seen {formatUnix(row.first_seen)} · last seen {formatUnix(row.last_seen)} ·{" "}
+        {row.poll_count} polls
       </p>
     </div>
   );
