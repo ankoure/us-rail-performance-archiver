@@ -39,13 +39,22 @@ export function LinePicker({
       <label htmlFor="line-picker">Line</label>
       <select id="line-picker" value={line} onChange={(e) => onChange(e.target.value)}>
         <option value="">{allowAll ? "All routes" : "Select a line…"}</option>
-        {[...routes]
-          .sort((a, b) => lineLabel(a).localeCompare(lineLabel(b)))
-          .map((r) => (
-            <option key={r.route_id} value={r.route_id}>
-              {lineLabel(r)}
-            </option>
-          ))}
+        {(() => {
+          const seen = new Set<string>();
+          return [...routes]
+            .sort((a, b) => lineLabel(a).localeCompare(lineLabel(b)))
+            .filter((r) => {
+              const label = lineLabel(r);
+              if (seen.has(label)) return false;
+              seen.add(label);
+              return true;
+            })
+            .map((r) => (
+              <option key={r.route_id} value={r.route_id}>
+                {lineLabel(r)}
+              </option>
+            ));
+        })()}
       </select>
     </div>
   );
