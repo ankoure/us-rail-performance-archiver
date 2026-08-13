@@ -9,7 +9,7 @@ export function useLine(): string {
 }
 
 function lineLabel(route: RouteRow): string {
-  return route.route_long_name ?? route.route_short_name ?? route.route_id;
+  return route.route_short_name ?? route.route_id ?? route.route_long_name;
 }
 
 export function LinePicker({
