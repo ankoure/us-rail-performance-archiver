@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AgencyPicker } from "@/components/AgencyPicker";
@@ -23,10 +22,6 @@ import type {
   RouteRow,
   SegmentDayRow,
 } from "@/lib/types";
-
-// Same rail-vs-bus split as speed/page.tsx — see analysis/static_gtfs.py's
-// _categorize_route_type. Speed data only exists for rail modes.
-const RAIL_MODES = new Set(["rapid", "cr"]);
 
 function mean(values: number[]): number | null {
   return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
@@ -114,11 +109,6 @@ export default function RoutePage() {
   const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
     api.routes(agency!),
   );
-  const isRail = useMemo(() => {
-    const route = routesData?.find((r) => r.route_id === line);
-    return route ? RAIL_MODES.has(route.mode) : false;
-  }, [routesData, line]);
-
   const {
     data: otpRows,
     error: otpError,
@@ -135,7 +125,7 @@ export default function RoutePage() {
 
   const { data: speedRows, loading: speedLoading } = useApiData<SegmentDayRow[]>(
     `route-speed|${agency}|${line}|${start}|${end}`,
-    enabled && isRail,
+    enabled,
     () => api.segmentDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
   );
 
@@ -242,12 +232,10 @@ export default function RoutePage() {
                   label="Dwell p50"
                   value={avgDwell !== null ? `${Math.round(avgDwell)}s` : "—"}
                 />
-                {isRail && (
-                  <StatTile
-                    label="Avg speed"
-                    value={avgSpeed !== null ? `${avgSpeed.toFixed(1)} mph` : "—"}
-                  />
-                )}
+                <StatTile
+                  label="Avg speed"
+                  value={avgSpeed !== null ? `${avgSpeed.toFixed(1)} mph` : "—"}
+                />
               </div>
             </div>
 
@@ -292,35 +280,33 @@ export default function RoutePage() {
               )}
             </div>
 
-            {isRail && (
-              <div className="card">
-                <h2>Average speed (p50) by day</h2>
-                {speedLoading && <LoadingState />}
-                {speedSeries && speedSeries.length === 0 && (
-                  <EmptyState>No speed data for this range.</EmptyState>
-                )}
-                {speedSeries && speedSeries.length > 0 && (
-                  <TimeSeriesChart
-                    data={speedSeries}
-                    dateKey="service_date"
-                    series={[
-                      {
-                        dataKey: "speed_p50_mph",
-                        label: "Speed p50 (mph)",
-                        color: "var(--series-3)",
-                      },
-                    ]}
-                    valueFormatter={(v) => `${v.toFixed(0)} mph`}
-                    annotations={delayAnnotations}
-                  />
-                )}
-                <p className="card-hint">
-                  <Link href={`/speed?agency=${agency}&line=${line}&start=${start}&end=${end}`}>
-                    View full speed detail →
-                  </Link>
-                </p>
-              </div>
-            )}
+            <div className="card">
+              <h2>Average speed (p50) by day</h2>
+              {speedLoading && <LoadingState />}
+              {speedSeries && speedSeries.length === 0 && (
+                <EmptyState>No speed data for this range.</EmptyState>
+              )}
+              {speedSeries && speedSeries.length > 0 && (
+                <TimeSeriesChart
+                  data={speedSeries}
+                  dateKey="service_date"
+                  series={[
+                    {
+                      dataKey: "speed_p50_mph",
+                      label: "Speed p50 (mph)",
+                      color: "var(--series-3)",
+                    },
+                  ]}
+                  valueFormatter={(v) => `${v.toFixed(0)} mph`}
+                  annotations={delayAnnotations}
+                />
+              )}
+              <p className="card-hint">
+                <Link href={`/speed?agency=${agency}&line=${line}&start=${start}&end=${end}`}>
+                  View full speed detail →
+                </Link>
+              </p>
+            </div>
 
             <div className="card">
               <h2>Alerts on {end}</h2>

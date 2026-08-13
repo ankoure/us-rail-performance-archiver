@@ -21,11 +21,6 @@ import type {
   StopRow,
 } from "@/lib/types";
 
-// "rapid" (subway/light rail) and "cr" (commuter rail) — see
-// analysis/static_gtfs.py's _categorize_route_type. Rail first, bus later is
-// the deliberate scope for this page; this is the one place that filter
-// would need to widen to add "bus".
-const RAIL_MODES = new Set(["rapid", "cr"]);
 const MIN_SAMPLES_FOR_SLOWEST = 5;
 const MAX_SLOWEST_SEGMENTS = 20;
 const METERS_PER_MILE = 1609.344;
@@ -123,11 +118,6 @@ export default function SpeedPage() {
     () => api.directions(agency!),
   );
 
-  const railRoutes = useMemo(
-    () => (routesData ?? []).filter((r) => RAIL_MODES.has(r.mode)),
-    [routesData],
-  );
-
   const { data, error, loading } = useApiData<SegmentDayRow[]>(
     `${agency}|${line}|${start}|${end}`,
     enabled,
@@ -189,8 +179,8 @@ export default function SpeedPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker railOnly />
-        {agency && railRoutes.length > 0 && <LinePicker routes={railRoutes} />}
+        <AgencyPicker />
+        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} />}
         <DateRangePicker />
       </div>
       {agency && (
@@ -199,10 +189,10 @@ export default function SpeedPage() {
       <main>
         {!agency && <NoAgencySelected />}
         {agency && !routesData && <LoadingState what="routes" />}
-        {agency && routesData && railRoutes.length === 0 && (
-          <EmptyState>No rail routes found for this agency yet.</EmptyState>
+        {agency && routesData && routesData.length === 0 && (
+          <EmptyState>No routes found for this agency yet.</EmptyState>
         )}
-        {agency && railRoutes.length > 0 && !line && (
+        {agency && routesData && routesData.length > 0 && !line && (
           <EmptyState>Pick a line above to load speed data.</EmptyState>
         )}
         {enabled && error && <ErrorState what="speed data">{error}</ErrorState>}

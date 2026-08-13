@@ -14,8 +14,8 @@ def get_agency_metrics_summary(
 ) -> dict:
     """One agency's headline metrics over a date range, for the cross-agency
     compare page. Each source is read independently and best-effort — an
-    agency with no rail routes simply gets avg_speed_mph=None rather than an
-    error, same as the rest of the dashboard's rail-optional handling.
+    agency with no segment_day rows for the range simply gets
+    avg_speed_mph=None rather than an error.
     """
     otp_table = data.read_kind("route_day_otp", agency.feed_names, start_date, end_date)
     matched = (

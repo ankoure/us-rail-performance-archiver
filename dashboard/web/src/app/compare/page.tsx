@@ -58,9 +58,7 @@ export default function ComparePage() {
             {speedRows && speedRows.length > 0 && (
               <div className="card">
                 <h2>Average speed (p50, mph) by agency</h2>
-                <p className="card-hint">
-                  Only agencies with rail speed data for this range are shown.
-                </p>
+                <p className="card-hint">Only agencies with speed data for this range are shown.</p>
                 <MetricBarChart
                   data={speedRows.map((r) => ({
                     name: r.name,

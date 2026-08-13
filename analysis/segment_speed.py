@@ -54,6 +54,15 @@ _MPS_TO_MPH = 2.23694
 # certainly a GPS artifact or a bad timestamp pair.
 DEFAULT_MAX_SPEED_MPH = 200.0
 
+# Buses -- including highway coach service (GTFS route_type 200-209) -- rarely
+# exceed 90 mph even on a freeway; anything higher is far more likely to be
+# GPS jitter or a dwell-time artifact than genuine motion. A much tighter
+# bound than the rail default is warranted because buses run in mixed traffic
+# at highway speeds, not the open-corridor speeds a 200 mph rail ceiling was
+# sized for -- see pipeline/gold.py's `_build_speed`, which applies this to
+# routes bucketed as "bus" by `analysis.static_gtfs._categorize_route_type`.
+BUS_MAX_SPEED_MPH = 90.0
+
 # A genuine inter-stop segment takes at most an hour. Anything longer is almost
 # certainly a trip_id reuse artifact (same id assigned across multiple runs) or
 # a vehicle that sat at a terminus overnight and then moved.

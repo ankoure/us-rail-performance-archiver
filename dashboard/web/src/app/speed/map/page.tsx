@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -25,8 +24,6 @@ const SegmentSpeedMap = dynamic(
   },
 );
 
-const RAIL_MODES = new Set(["rapid", "cr"]);
-
 export default function SpeedMapPage() {
   const searchParams = useSearchParams();
   const agency = searchParams.get("agency");
@@ -37,11 +34,6 @@ export default function SpeedMapPage() {
 
   const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
     api.routes(agency!),
-  );
-
-  const railRoutes = useMemo(
-    () => (routesData ?? []).filter((r) => RAIL_MODES.has(r.mode)),
-    [routesData],
   );
 
   const {
@@ -62,8 +54,8 @@ export default function SpeedMapPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker railOnly />
-        {agency && railRoutes.length > 0 && <LinePicker routes={railRoutes} />}
+        <AgencyPicker />
+        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} />}
         <DateRangePicker />
       </div>
       {agency && (
@@ -72,10 +64,10 @@ export default function SpeedMapPage() {
       <main>
         {!agency && <NoAgencySelected />}
         {agency && !routesData && <LoadingState what="routes" />}
-        {agency && routesData && railRoutes.length === 0 && (
-          <EmptyState>No rail routes found for this agency yet.</EmptyState>
+        {agency && routesData && routesData.length === 0 && (
+          <EmptyState>No routes found for this agency yet.</EmptyState>
         )}
-        {agency && railRoutes.length > 0 && !line && (
+        {agency && routesData && routesData.length > 0 && !line && (
           <EmptyState>Pick a line above to load the map.</EmptyState>
         )}
         {enabled && error && <ErrorState what="map data">{error}</ErrorState>}
@@ -102,8 +94,8 @@ export default function SpeedMapPage() {
             {ready && hasGeometry && <SegmentSpeedMap data={mapData!} />}
             {ready && hasGeometry && (
               <p className="card-hint">
-                A small number of segments are excluded from this map because the feed reported
-                data that couldn&apos;t be reliably matched to a track direction.
+                A small number of segments are excluded from this map because the feed reported data
+                that couldn&apos;t be reliably matched to a track direction.
               </p>
             )}
           </div>
