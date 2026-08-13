@@ -530,8 +530,18 @@ def _build_speed(
     back to straight-line per trip (see analysis/segment_speed.py). Skips
     silently when the feed has no mdb_feed_id, the GTFS lookup fails, or the
     zip carries no stop coordinates.
+
+    Runs compute_segment_speeds once per mode bucket rather than once for the
+    whole feed, so bus routes get BUS_MAX_SPEED_MPH's tighter GPS-artifact
+    ceiling instead of the rail-tuned DEFAULT_MAX_SPEED_MPH (see
+    analysis/segment_speed.py). Mode comes from gtfs_day.route_modes; a route
+    missing from it (e.g. absent from routes.txt) defaults to the rail
+    ceiling rather than the bus one, since an unknown mode is not known to be
+    a bus.
     """
     from analysis.segment_speed import (
+        BUS_MAX_SPEED_MPH,
+        DEFAULT_MAX_SPEED_MPH,
         SEGMENT_DAY_SCHEMA,
         SEGMENT_SPEED_SCHEMA,
         compute_segment_speeds,
@@ -565,16 +575,31 @@ def _build_speed(
         if offsets:
             route_direction_offsets.setdefault(route_id, {})[direction_id] = offsets
 
-    fact_rows, seg_day_rows = compute_segment_speeds(
-        visits,
-        stop_coords,
-        feed,
-        tz,
-        shape_by_trip=gtfs_day.trip_shapes,
-        shape_points=gtfs_day.shape_points,
-        direction_by_trip=gtfs_day.direction_by_trip,
-        route_direction_offsets=route_direction_offsets,
-    )
+    route_modes = gtfs_day.route_modes
+    bus_visits = [v for v in visits if route_modes.get(v.route_id) == "bus"]
+    other_visits = [v for v in visits if route_modes.get(v.route_id) != "bus"]
+
+    fact_rows: list[dict] = []
+    seg_day_rows: list[dict] = []
+    for group_visits, max_speed_mph in (
+        (other_visits, DEFAULT_MAX_SPEED_MPH),
+        (bus_visits, BUS_MAX_SPEED_MPH),
+    ):
+        if not group_visits:
+            continue
+        fr, sdr = compute_segment_speeds(
+            group_visits,
+            stop_coords,
+            feed,
+            tz,
+            shape_by_trip=gtfs_day.trip_shapes,
+            shape_points=gtfs_day.shape_points,
+            direction_by_trip=gtfs_day.direction_by_trip,
+            route_direction_offsets=route_direction_offsets,
+            max_speed_mph=max_speed_mph,
+        )
+        fact_rows.extend(fr)
+        seg_day_rows.extend(sdr)
     if not fact_rows:
         print(f"[{feed} {day}] no segment speed rows", file=sys.stderr)
         return None
