@@ -40,10 +40,11 @@ Examples:
     # one feed, one day (schedule-free marts + OTP, GTFS auto-resolved)
     uv run python pipeline/gold.py --feed wmata-vehicles --day 2026-05-20
 
-    # every feed in the config, every day already on disk
+    # every feed in the config, every day already on disk (auto-picks
+    # trip-updates for _TRIP_UPDATES_ONLY_FEEDS, vehicles for everything else)
     uv run python pipeline/gold.py --all-days
 
-    # light-rail feeds whose vehicle pings omit stop_id
+    # force trip-updates for a feed not in _TRIP_UPDATES_ONLY_FEEDS yet
     uv run python pipeline/gold.py --feed metromn-trips --source trip-updates --day 2026-05-22
 
     # schedule-free marts only, with a stricter on-time window
@@ -83,6 +84,55 @@ load_dotenv()
 _PART_RE = re.compile(r"^(year|month|day)=(\d+)$")
 _SOURCE_SUBDIR = {"vehicles": "vehicles", "trip-updates": "trip_updates"}
 
+# Feeds whose VehiclePositions never carry stop_id/current_stop_sequence, so the
+# default vehicles-source Visit inference can never produce a dwell for them —
+# confirmed by auditing every onboarded feed on 2026-08-13: each of these has a
+# TripUpdates feed with 100%-populated stop_id, paired with either no vehicles
+# feed at all, or one that resolves GTFS fine (writes the `routes` mart) but
+# yields zero events/adherence rows every day. `main()` forces these onto
+# --source trip-updates by default (see `parse_args`'s --source default=None)
+# so the daily automated batch (which never passes --source) picks it up
+# without a per-feed CLI invocation.
+_TRIP_UPDATES_ONLY_FEEDS = {
+    "arlington-transit-trips-1372",
+    "bart-trips",
+    "beach-cities-transit-trips-1564",
+    "big-blue-bus-trips-1438",
+    "capital-area-transportation-authority-trips-1426",
+    "c-tran-trips-1922",
+    "cincinnati-metro-trips-1488",
+    "commerce-municipal-bus-lines-trips-1795",
+    "el-paso-transportation-authority-trips-3203",
+    "emery-go-round-trips-2226",
+    "everett-transit-trips-3073",
+    "maryland-transit-administration-vehicles-trips-1619",
+    "metra-trips",
+    "metro-houston-trips",
+    "metropolitan-transit-authority-mta-vehicles-trips-1624",
+    "metrostl-trips",
+    "metro-transit-city-of-madison-trips-2096",
+    "milwaukee-county-transit-system-mcts-trips-2128",
+    "mountain-line-transit-trips-1981",
+    "mountain-view-transportation-management-association-mvgo-trips-2109",
+    "mts-trips",
+    "nashville-mta-wego-public-transit-trips-1620",
+    "nyc-ferry-trips-1638",
+    "ny-waterway-trips-3198",
+    "ny-waterway-trips-3200",
+    "orange-county-transportation-authority-octa-trips-1641",
+    "pasadena-transit-trips-1655",
+    "prt-trips",
+    "riverside-transit-agency-trips-1663",
+    "sacrt-trips",
+    "santa-cruz-metro-scmtd-trips-1911",
+    "south-metro-area-regional-transit-smart-trips-2697",
+    "springfield-mass-transit-district-smtd-trips-1780",
+    "st-trips",
+    "trirail-trips",
+    "uta-trips",
+    "valley-regional-transit-trips-2453",
+}
+
 _SCHEDULE_FREE_MARTS = ("stop_day", "route_day", "events")
 _OTP_MARTS = ("adherence", "stop_day_otp", "route_day_otp")
 _SPEED_MARTS = ("segment_speed", "segment_day")
@@ -97,6 +147,7 @@ ROUTES_SCHEMA = pa.schema(
         pa.field("route_id", pa.string(), nullable=False),
         pa.field("route_short_name", pa.string(), nullable=True),
         pa.field("route_long_name", pa.string(), nullable=True),
+        pa.field("route_color", pa.string(), nullable=True),
         pa.field("mode", pa.string(), nullable=False),
         pa.field("service_date", pa.string(), nullable=False),
     ]
@@ -134,8 +185,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--source",
         choices=["vehicles", "trip-updates"],
-        default="vehicles",
-        help="Which curated dataset to derive Visits from (default: vehicles).",
+        default=None,
+        help="Which curated dataset to derive Visits from. Omit to auto-pick per "
+        "feed: trip-updates for _TRIP_UPDATES_ONLY_FEEDS, vehicles otherwise. "
+        "Passing this explicitly forces every requested feed onto that source.",
     )
     p.add_argument(
         "--curated-dir",
@@ -496,11 +549,13 @@ def _build_routes(
             continue
         short_name = getattr(row, "route_short_name", None)
         long_name = getattr(row, "route_long_name", None)
+        color = getattr(row, "route_color", None)
         rows.append(
             {
                 "route_id": route_id,
                 "route_short_name": short_name if isinstance(short_name, str) else None,
                 "route_long_name": long_name if isinstance(long_name, str) else None,
+                "route_color": color if isinstance(color, str) and color else None,
                 "mode": route_modes.get(route_id, "other"),
                 "service_date": day.isoformat(),
             }
@@ -907,9 +962,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[{feed}] not in {args.config} — skipping", file=sys.stderr)
             continue
         tz = ZoneInfo(tz_str)
+        source = args.source or (
+            "trip-updates" if feed in _TRIP_UPDATES_ONLY_FEEDS else "vehicles"
+        )
         dates = set(base_dates)
         if args.all_days:
-            dates |= set(discover_dates(feed, args.curated_dir, args.source))
+            dates |= set(discover_dates(feed, args.curated_dir, source))
         if not dates:
             print(f"[{feed}] no dates to process — skipping", file=sys.stderr)
             continue
@@ -919,7 +977,7 @@ def main(argv: list[str] | None = None) -> int:
                 day,
                 tz,
                 args.curated_dir,
-                args.source,
+                source,
                 args.merge_gap_seconds,
                 args.force,
                 gtfs_for=gtfs_for,
