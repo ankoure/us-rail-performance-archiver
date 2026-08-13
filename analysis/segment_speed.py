@@ -107,6 +107,43 @@ class _ShapeProjector:
         return result
 
 
+def _derive_direction_id(
+    route_id: str,
+    from_stop_id: str,
+    to_stop_id: str,
+    route_direction_offsets: dict[str, dict[int, dict[str, dict[str, float]]]],
+) -> int | None:
+    """Derive direction_id purely from which of the route's directions has a
+    shape where from_stop_id's offset precedes to_stop_id's -- geometry, not
+    any reported direction field.
+
+    `route_direction_offsets` is route_id -> direction_id -> shape_id ->
+    {stop_id: dist_m} (see `StaticGtfs.route_direction_shapes`/
+    `route_direction_stop_offsets`, and pipeline/gold.py's `_build_speed`,
+    which assembles it per (feed, day)). A shape only carries a stop_id in
+    its offsets when a trip actually running that shape's pattern visits it
+    (see route_direction_stop_offsets's doc), so offset presence is itself a
+    reliable direction signal -- unlike a stop_id or a raw/static
+    direction_id field, which can be wrong (see compute_segment_speeds's
+    docstring). Directions are tried in a fixed, deterministic order (sorted
+    by direction_id); the first direction with any shape covering both stops
+    forward wins. Returns None when no direction's shapes cover both stops
+    in forward order -- an unmapped route, a genuinely branch-only stop
+    pair, or (rare) a pair only ever traversed backward relative to every
+    matching shape.
+    """
+    by_direction = route_direction_offsets.get(route_id)
+    if not by_direction:
+        return None
+    for direction_id in sorted(by_direction):
+        for offsets in by_direction[direction_id].values():
+            from_dist = offsets.get(from_stop_id)
+            to_dist = offsets.get(to_stop_id)
+            if from_dist is not None and to_dist is not None and from_dist < to_dist:
+                return direction_id
+    return None
+
+
 def _shape_distance_m(
     projector: _ShapeProjector,
     shape_id: str | None,
@@ -184,6 +221,8 @@ def compute_segment_speeds(
     shape_by_trip: dict[str, str] | None = None,
     shape_points: dict[str, list[tuple[float, float]]] | None = None,
     direction_by_trip: dict[str, int] | None = None,
+    route_direction_offsets: dict[str, dict[int, dict[str, dict[str, float]]]]
+    | None = None,
     max_speed_mph: float = DEFAULT_MAX_SPEED_MPH,
     max_transit_s: int = DEFAULT_MAX_TRANSIT_S,
 ) -> tuple[list[dict], list[dict]]:
@@ -195,15 +234,30 @@ def compute_segment_speeds(
     module docstring) when `shape_by_trip`/`shape_points` are given, falling
     back to the haversine between GTFS stop coordinates otherwise.
 
-    When `direction_by_trip` (see `StaticGtfs.direction_by_trip`) has an entry
-    for a trip, its value replaces the visit's realtime direction_id outright
-    -- not just fills a gap -- for every segment on that trip. trips.txt is
-    the same grouping key route_shapes/route_shape_stops are built from, so
-    trusting it keeps a trip's segments in the direction space the map's
-    shape-matching expects, even when the realtime trip descriptor disagrees
-    (observed on GCRTA: a valid-looking direction_id paired with a stop_id
-    that only belongs to the other direction's pattern). A trip absent from
-    `direction_by_trip` keeps its realtime direction_id as-is.
+    direction_id is resolved per segment, in priority order, from three
+    sources -- because a reported direction_id (realtime OR static) can't
+    always be trusted, but the stop pair itself usually can:
+
+      1. Geometry (`route_direction_offsets`, see `_derive_direction_id`):
+         whichever of the route's directions has a shape where from_stop_id
+         precedes to_stop_id wins. This is the strongest signal -- it's
+         derived from the same stop pair being grouped on, not a separately
+         reported field -- so it takes priority whenever it resolves.
+      2. `direction_by_trip` (see `StaticGtfs.direction_by_trip`): the static
+         schedule's direction_id for the trip, used when geometry can't
+         resolve one (e.g. no shapes.txt, or a stop pair with no forward
+         match on any direction's shape).
+      3. The visit's realtime direction_id, used only when neither of the
+         above resolves anything.
+
+    (1) and (2) both override the realtime value outright, not just fill a
+    gap -- observed on GCRTA: a valid-looking realtime direction_id (1)
+    paired with a stop_id that only belongs to the *other* direction's
+    pattern, and a separately-observed out-of-range value (14) on segments
+    whose stop pair geometry resolves cleanly. Keeping segment_day's
+    direction_id in whichever space actually matches the stop pair is what
+    lets the map's shape-matching find real geometry instead of falling back
+    to a straight line.
 
     Drops segments where:
       - either stop has no GTFS coordinate
@@ -226,6 +280,7 @@ def compute_segment_speeds(
 
     shape_by_trip = shape_by_trip or {}
     direction_by_trip = direction_by_trip or {}
+    route_direction_offsets = route_direction_offsets or {}
     projector = _ShapeProjector(shape_points or {})
 
     fact_rows: list[dict] = []
@@ -233,11 +288,15 @@ def compute_segment_speeds(
         shape_id = shape_by_trip.get(trip_id)
         static_direction_id = direction_by_trip.get(trip_id)
         for a, b in zip(trip_visits, trip_visits[1:]):
-            direction_id = (
-                static_direction_id
-                if static_direction_id is not None
-                else a.direction_id
+            direction_id = _derive_direction_id(
+                a.route_id, a.stop_id, b.stop_id, route_direction_offsets
             )
+            if direction_id is None:
+                direction_id = (
+                    static_direction_id
+                    if static_direction_id is not None
+                    else a.direction_id
+                )
             if direction_id is not None and direction_id not in _VALID_DIRECTION_IDS:
                 continue
             coords_a = stop_coords.get(a.stop_id)

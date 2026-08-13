@@ -27,6 +27,11 @@ SAMPLE_CATALOG = (
 SAMPLE_STOPS = (
     "stop_id,stop_code,stop_name,stop_lat,stop_lon\nS1,001,Union Station,38.9,-77.0\n"
 )
+# route_id differs from route_short_name, mirroring the MBTA SL5 (route_id
+# 749, route_short_name SL5) case the route_id_crosswalk table exists for.
+SAMPLE_ROUTES = (
+    "route_id,route_short_name,route_long_name,route_type\n749,SL5,Silver Line 5,3\n"
+)
 SAMPLE_CALENDAR = (
     "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
     "start_date,end_date\nWD,1,1,1,1,1,0,0,20260501,20260531\n"
@@ -98,6 +103,7 @@ class FakeResponse:
 
 def _build_zip_bytes(
     stops: str | None = None,
+    routes: str | None = None,
     calendar: str | None = None,
     calendar_dates: str | None = None,
     shapes: str | None = None,
@@ -109,6 +115,8 @@ def _build_zip_bytes(
     with zipfile.ZipFile(buf, "w") as z:
         if stops is not None:
             z.writestr("stops.txt", stops)
+        if routes is not None:
+            z.writestr("routes.txt", routes)
         if calendar is not None:
             z.writestr("calendar.txt", calendar)
         if calendar_dates is not None:
@@ -153,6 +161,7 @@ class TestRowBuilders:
         zp.write_bytes(
             _build_zip_bytes(
                 stops=SAMPLE_STOPS,
+                routes=SAMPLE_ROUTES,
                 calendar=SAMPLE_CALENDAR,
                 calendar_dates=SAMPLE_CALENDAR_DATES,
                 shapes=SAMPLE_SHAPES,
@@ -172,8 +181,38 @@ class TestRowBuilders:
                 "stop_name": "Union Station",
                 "stop_lat": 38.9,
                 "stop_lon": -77.0,
+                "parent_station": None,
                 "version_slug": "v1",
             }
+        ]
+
+    def test_routes_rows(self, tmp_path):
+        rows = pgtfs._routes_rows(self._gtfs(tmp_path), "v1")
+        assert rows == [
+            {
+                "route_id": "749",
+                "route_short_name": "SL5",
+                "route_long_name": "Silver Line 5",
+                "mode": "bus",
+                "version_slug": "v1",
+            }
+        ]
+
+    def test_route_aliases_rows(self, tmp_path):
+        rows = pgtfs._route_aliases_rows(self._gtfs(tmp_path), "v1")
+        assert rows == [
+            {
+                "alias_token": "SL5",
+                "alias_type": "short_name",
+                "route_id": "749",
+                "version_slug": "v1",
+            },
+            {
+                "alias_token": "Silver Line 5",
+                "alias_type": "long_name",
+                "route_id": "749",
+                "version_slug": "v1",
+            },
         ]
 
     def test_calendar_rows(self, tmp_path):
@@ -245,6 +284,8 @@ class TestRowBuilders:
         zp.write_bytes(_build_zip_bytes())  # no tables at all
         gtfs = StaticGtfs(zp)
         assert pgtfs._stops_rows(gtfs, "v1") == []
+        assert pgtfs._routes_rows(gtfs, "v1") == []
+        assert pgtfs._route_aliases_rows(gtfs, "v1") == []
         assert pgtfs._calendar_rows(gtfs, "v1") == []
         assert pgtfs._calendar_dates_rows(gtfs, "v1") == []
         assert pgtfs._shapes_rows(gtfs, "v1") == []
@@ -257,6 +298,7 @@ class TestProcessFeedDay:
     def test_builds_version_marts_and_manifest(self, tmp_path, monkeypatch):
         zip_bytes = _build_zip_bytes(
             stops=SAMPLE_STOPS,
+            routes=SAMPLE_ROUTES,
             calendar=SAMPLE_CALENDAR,
             shapes=SAMPLE_SHAPES,
             route_patterns=SAMPLE_ROUTE_PATTERNS,
@@ -273,6 +315,8 @@ class TestProcessFeedDay:
         )
         assert result == {
             "gtfs_stops": 1,
+            "gtfs_routes": 1,
+            "gtfs_route_aliases": 2,
             "gtfs_calendar": 1,
             "gtfs_calendar_dates": 0,
             "gtfs_shapes": 2,

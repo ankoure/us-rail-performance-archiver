@@ -270,6 +270,121 @@ class TestComputeSegmentSpeeds:
         assert math.isclose(seg[0]["distance_m"], expected_d, rel_tol=1e-9)
 
 
+class TestDeriveDirectionId:
+    """_derive_direction_id is the geometry-first direction resolver:
+    whichever of a route's directions has a shape where from_stop_id
+    precedes to_stop_id wins, regardless of any reported direction field."""
+
+    def _run(self, route_id, from_stop_id, to_stop_id, offsets):
+        from analysis.segment_speed import _derive_direction_id
+
+        return _derive_direction_id(route_id, from_stop_id, to_stop_id, offsets)
+
+    def test_resolves_forward_direction(self):
+        offsets = {"R1": {0: {"SHAPE0": {"S1": 0.0, "S2": 100.0}}}}
+        assert self._run("R1", "S1", "S2", offsets) == 0
+
+    def test_reverse_order_on_same_shape_does_not_match(self):
+        # S2 precedes S1 on this shape's offsets -- traveling S1->S2 would be
+        # backward relative to it, so it shouldn't resolve to this direction.
+        offsets = {"R1": {0: {"SHAPE0": {"S1": 100.0, "S2": 0.0}}}}
+        assert self._run("R1", "S1", "S2", offsets) is None
+
+    def test_picks_correct_direction_among_several(self):
+        # S1->S2 is forward on direction 1's shape, backward on direction 0's.
+        offsets = {
+            "R1": {
+                0: {"SHAPE0": {"S1": 100.0, "S2": 0.0}},
+                1: {"SHAPE1": {"S1": 0.0, "S2": 100.0}},
+            }
+        }
+        assert self._run("R1", "S1", "S2", offsets) == 1
+
+    def test_deterministic_lowest_direction_wins_on_ambiguity(self):
+        # Both directions' shapes have S1 before S2 (e.g. a loop route
+        # reusing the same stop_id both ways) -- lowest direction_id wins.
+        offsets = {
+            "R1": {
+                0: {"SHAPE0": {"S1": 0.0, "S2": 100.0}},
+                1: {"SHAPE1": {"S1": 0.0, "S2": 100.0}},
+            }
+        }
+        assert self._run("R1", "S1", "S2", offsets) == 0
+
+    def test_unknown_route_returns_none(self):
+        assert self._run("R2", "S1", "S2", {"R1": {0: {"SHAPE0": {}}}}) is None
+
+    def test_stop_missing_from_every_shape_returns_none(self):
+        offsets = {"R1": {0: {"SHAPE0": {"S1": 0.0}}}}  # no S2 anywhere
+        assert self._run("R1", "S1", "S2", offsets) is None
+
+    def test_tries_second_shape_when_first_lacks_coverage(self):
+        # A branching route: the direction's first (most-common) shape
+        # doesn't reach S2, but a second shape for the same direction does.
+        offsets = {
+            "R1": {
+                0: {
+                    "TRUNK_ONLY": {"S1": 0.0},
+                    "BRANCH": {"S1": 0.0, "S2": 100.0},
+                }
+            }
+        }
+        assert self._run("R1", "S1", "S2", offsets) == 0
+
+
+class TestDirectionByGeometry:
+    """Geometry (route_direction_offsets) is the top-priority direction_id
+    source in compute_segment_speeds -- it overrides both direction_by_trip
+    and the realtime value outright."""
+
+    def _run(self, visits, **kw):
+        return compute_segment_speeds(visits, COORDS, "feed", NY, **kw)
+
+    def test_overrides_realtime_and_static_direction(self):
+        # trips.txt (direction_by_trip) says 0, realtime says 1, but S1->S2
+        # is only forward on direction 1's shape -- geometry wins.
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1", route_id="R1", direction_id=1)
+        v2 = _visit("S2", NOON + 630, trip_id="T1", route_id="R1", direction_id=1)
+        offsets = {"R1": {1: {"SHAPE1": {"S1": 0.0, "S2": 100.0}}}}
+        fact, seg = self._run(
+            [v1, v2], direction_by_trip={"T1": 0}, route_direction_offsets=offsets
+        )
+        assert len(fact) == 1
+        assert fact[0]["direction_id"] == 1
+        assert seg[0]["direction_id"] == 1
+
+    def test_falls_back_to_direction_by_trip_when_geometry_unresolved(self):
+        # No shape covers this route+stop pair at all -- falls through to
+        # the static schedule's direction for the trip.
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1", route_id="R1", direction_id=1)
+        v2 = _visit("S2", NOON + 630, trip_id="T1", route_id="R1", direction_id=1)
+        fact, _ = self._run(
+            [v1, v2],
+            direction_by_trip={"T1": 0},
+            route_direction_offsets={"R1": {0: {"SHAPE0": {"S1": 0.0}}}},
+        )
+        assert len(fact) == 1
+        assert fact[0]["direction_id"] == 0
+
+    def test_falls_back_to_realtime_when_nothing_else_resolves(self):
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1", route_id="R1", direction_id=1)
+        v2 = _visit("S2", NOON + 630, trip_id="T1", route_id="R1", direction_id=1)
+        fact, _ = self._run([v1, v2])
+        assert fact[0]["direction_id"] == 1
+
+    def test_geometry_rescues_invalid_realtime_and_static_direction(self):
+        # Realtime and static both report bogus values, but the stop pair
+        # resolves cleanly via geometry.
+        v1 = _visit("S1", NOON, NOON + 30, trip_id="T1", route_id="R1", direction_id=14)
+        v2 = _visit("S2", NOON + 630, trip_id="T1", route_id="R1", direction_id=14)
+        offsets = {"R1": {0: {"SHAPE0": {"S1": 0.0, "S2": 100.0}}}}
+        fact, _ = self._run(
+            [v1, v2], direction_by_trip={"T1": 99}, route_direction_offsets=offsets
+        )
+        assert len(fact) == 1
+        assert fact[0]["direction_id"] == 0
+
+
 class TestShapeFollowingDistance:
     """compute_segment_speeds prefers shape-following distance when given
     shape_by_trip/shape_points, and falls back to haversine per trip when the

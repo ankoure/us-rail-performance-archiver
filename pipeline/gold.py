@@ -552,6 +552,19 @@ def _build_speed(
         )
         return None
 
+    # Scoped to routes actually observed today -- route_direction_stop_offsets
+    # does an O(shape points) projection per (route, direction), so there's no
+    # reason to pay for routes with zero visits. See compute_segment_speeds's
+    # docstring for why this takes priority over any reported direction_id.
+    routes_seen = {v.route_id for v in visits if v.route_id}
+    route_direction_offsets: dict[str, dict[int, dict[str, dict[str, float]]]] = {}
+    for (route_id, direction_id), _shape_ids in gtfs_day.route_direction_shapes.items():
+        if route_id not in routes_seen:
+            continue
+        offsets = gtfs_day.route_direction_stop_offsets(route_id, direction_id)
+        if offsets:
+            route_direction_offsets.setdefault(route_id, {})[direction_id] = offsets
+
     fact_rows, seg_day_rows = compute_segment_speeds(
         visits,
         stop_coords,
@@ -560,6 +573,7 @@ def _build_speed(
         shape_by_trip=gtfs_day.trip_shapes,
         shape_points=gtfs_day.shape_points,
         direction_by_trip=gtfs_day.direction_by_trip,
+        route_direction_offsets=route_direction_offsets,
     )
     if not fact_rows:
         print(f"[{feed} {day}] no segment speed rows", file=sys.stderr)

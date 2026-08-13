@@ -33,6 +33,9 @@ dev = [
     "ruff>=0.15.12",
     "vulture>=2.14",
 ]
+postgis = [
+    "psycopg[binary]>=3.2.10",
+]
 
 [tool.vercel]
 # dashboard/api is deployed as its own Vercel project (Root Directory = repo

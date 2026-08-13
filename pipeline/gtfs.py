@@ -7,6 +7,8 @@ reason (and this feed set already learned that lesson the hard way with S3
 landing-zone storage). Instead:
 
     {curated}/metrics/gtfs_stops/feed={feed}/version={version_slug}/data.parquet
+    {curated}/metrics/gtfs_routes/feed={feed}/version={version_slug}/data.parquet
+    {curated}/metrics/gtfs_route_aliases/feed={feed}/version={version_slug}/data.parquet
     {curated}/metrics/gtfs_calendar/feed={feed}/version={version_slug}/data.parquet
     {curated}/metrics/gtfs_calendar_dates/feed={feed}/version={version_slug}/data.parquet
     {curated}/metrics/gtfs_shapes/feed={feed}/version={version_slug}/data.parquet
@@ -47,6 +49,18 @@ map — route_shapes is the ordered polyline with cumulative arc-length
 `dist_m`, route_shape_stops is each stop's projected `dist_m` along it, so a
 caller can slice the polyline between any two stops without redoing the
 shape-projection math itself.
+
+gtfs_stops carries `parent_station` (grouping direction-dependent platforms
+under one physical station — see docs/design/stop-id-stability-findings.md).
+gtfs_routes is routes.txt typed and tagged with `mode` (see
+StaticGtfs.route_modes); it's version-partitioned rather than the
+day-partitioned `routes` mart gold.py builds, since a PostGIS consumer wants
+the same (feed, version_slug) grain as the other marts here. gtfs_route_aliases
+is one row per non-null route_short_name/route_long_name, tagged
+`alias_type` — a raw display-token -> route_id crosswalk (e.g. MBTA's SL5
+short name -> its real route_id 749), left as full rows rather than
+StaticGtfs.route_short_names' keep-first dict so a downstream loader can
+apply its own collision precedence.
 
 Calendar ships as a typed passthrough of calendar.txt + calendar_dates.txt,
 not a resolved service_id-per-date expansion — that join is cheap, in-memory
@@ -105,6 +119,8 @@ _SOURCE_SUBDIR = {"vehicles": "vehicles", "trip-updates": "trip_updates"}
 
 _VERSION_MARTS = (
     "gtfs_stops",
+    "gtfs_routes",
+    "gtfs_route_aliases",
     "gtfs_calendar",
     "gtfs_calendar_dates",
     "gtfs_shapes",
@@ -146,6 +162,32 @@ GTFS_STOPS_SCHEMA = pa.schema(
         pa.field("stop_name", pa.string(), nullable=True),
         pa.field("stop_lat", pa.float64(), nullable=True),
         pa.field("stop_lon", pa.float64(), nullable=True),
+        pa.field("parent_station", pa.string(), nullable=True),
+        pa.field("version_slug", pa.string(), nullable=False),
+    ]
+)
+
+GTFS_ROUTES_SCHEMA = pa.schema(
+    [
+        pa.field("route_id", pa.string(), nullable=False),
+        pa.field("route_short_name", pa.string(), nullable=True),
+        pa.field("route_long_name", pa.string(), nullable=True),
+        pa.field("mode", pa.string(), nullable=False),
+        pa.field("version_slug", pa.string(), nullable=False),
+    ]
+)
+
+# One row per non-null route_short_name / route_long_name in routes.txt,
+# tagged with which column it came from — feeds the PostGIS route_id
+# crosswalk (raw display token -> canonical route_id). Kept as full rows
+# rather than StaticGtfs.route_short_names' keep-first dict so a downstream
+# loader can apply its own keep-first precedence (e.g. via ON CONFLICT DO
+# NOTHING) instead of losing collisions here.
+GTFS_ROUTE_ALIASES_SCHEMA = pa.schema(
+    [
+        pa.field("alias_token", pa.string(), nullable=False),
+        pa.field("alias_type", pa.string(), nullable=False),  # short_name|long_name
+        pa.field("route_id", pa.string(), nullable=False),
         pa.field("version_slug", pa.string(), nullable=False),
     ]
 )
@@ -251,6 +293,8 @@ ROUTE_SHAPE_STOPS_SCHEMA = pa.schema(
 
 _MART_SCHEMAS = {
     "gtfs_stops": GTFS_STOPS_SCHEMA,
+    "gtfs_routes": GTFS_ROUTES_SCHEMA,
+    "gtfs_route_aliases": GTFS_ROUTE_ALIASES_SCHEMA,
     "gtfs_calendar": GTFS_CALENDAR_SCHEMA,
     "gtfs_calendar_dates": GTFS_CALENDAR_DATES_SCHEMA,
     "gtfs_shapes": GTFS_SHAPES_SCHEMA,
@@ -430,6 +474,7 @@ def _stops_rows(gtfs, version_slug: str) -> list[dict]:
         stop_name = getattr(row, "stop_name", None)
         lat = getattr(row, "stop_lat", None)
         lon = getattr(row, "stop_lon", None)
+        parent_station = getattr(row, "parent_station", None)
         rows.append(
             {
                 "stop_id": stop_id,
@@ -437,9 +482,59 @@ def _stops_rows(gtfs, version_slug: str) -> list[dict]:
                 "stop_name": stop_name if isinstance(stop_name, str) else None,
                 "stop_lat": float(lat) if pd.notna(lat) else None,
                 "stop_lon": float(lon) if pd.notna(lon) else None,
+                "parent_station": (
+                    parent_station if isinstance(parent_station, str) else None
+                ),
                 "version_slug": version_slug,
             }
         )
+    return rows
+
+
+def _routes_rows(gtfs, version_slug: str) -> list[dict]:
+    modes = gtfs.route_modes
+    rows = []
+    for row in gtfs.routes.itertuples(index=False):
+        route_id = getattr(row, "route_id", None)
+        if not isinstance(route_id, str) or not route_id:
+            continue
+        short_name = getattr(row, "route_short_name", None)
+        long_name = getattr(row, "route_long_name", None)
+        rows.append(
+            {
+                "route_id": route_id,
+                "route_short_name": (
+                    short_name if isinstance(short_name, str) else None
+                ),
+                "route_long_name": long_name if isinstance(long_name, str) else None,
+                "mode": modes.get(route_id, "other"),
+                "version_slug": version_slug,
+            }
+        )
+    return rows
+
+
+def _route_aliases_rows(gtfs, version_slug: str) -> list[dict]:
+    rows = []
+    for row in gtfs.routes.itertuples(index=False):
+        route_id = getattr(row, "route_id", None)
+        if not isinstance(route_id, str) or not route_id:
+            continue
+        for col, alias_type in (
+            ("route_short_name", "short_name"),
+            ("route_long_name", "long_name"),
+        ):
+            token = getattr(row, col, None)
+            if not isinstance(token, str) or not token.strip():
+                continue
+            rows.append(
+                {
+                    "alias_token": token.strip(),
+                    "alias_type": alias_type,
+                    "route_id": route_id,
+                    "version_slug": version_slug,
+                }
+            )
     return rows
 
 
@@ -641,6 +736,8 @@ def _route_shape_stops_rows(gtfs, version_slug: str) -> list[dict]:
 
 _ROW_BUILDERS = {
     "gtfs_stops": _stops_rows,
+    "gtfs_routes": _routes_rows,
+    "gtfs_route_aliases": _route_aliases_rows,
     "gtfs_calendar": _calendar_rows,
     "gtfs_calendar_dates": _calendar_dates_rows,
     "gtfs_shapes": _shapes_rows,
@@ -689,6 +786,8 @@ def process_feed_day(
         print(
             f"[{feed} {day}] version {snap.version_slug}: "
             f"{result['gtfs_stops']:>6,} stops  "
+            f"{result['gtfs_routes']:>4,} routes  "
+            f"{result['gtfs_route_aliases']:>4,} route_aliases  "
             f"{result['gtfs_calendar']:>4,} calendar  "
             f"{result['gtfs_calendar_dates']:>5,} calendar_dates  "
             f"{result['gtfs_shapes']:>7,} shape points  "
@@ -779,6 +878,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"---\ntotal: {totals['gtfs_stops']:,} stops, "
+        f"{totals['gtfs_routes']:,} routes, "
+        f"{totals['gtfs_route_aliases']:,} route_aliases, "
         f"{totals['gtfs_calendar']:,} calendar rows, "
         f"{totals['gtfs_calendar_dates']:,} calendar_dates rows, "
         f"{totals['gtfs_shapes']:,} shape points, "
