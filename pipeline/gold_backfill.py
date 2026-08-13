@@ -1,13 +1,14 @@
 """Backfill gold.py's metrics marts for past days, without re-running rollup.py.
 
-gold.py's only real input is the curated `vehicles` silver parquet
-(analysis/vehicle_day.py's VehicleDay.partition_path is a local Path); rollup.py
-already produced it and ship.py already shipped it to the hot bucket, days or
-weeks ago. Decoding it again from raw landing (which only survives 7 days --
-terraform/landing.tf) is unnecessary AND wrongly caps how far back a reprocess
-can reach. Instead: pull the already-shipped vehicles parquet back down into
-the local partition layout gold.py expects, rebuild metrics locally, and ship
-only the metrics marts back.
+gold.py's only real input is a curated silver parquet -- `vehicles` for most
+feeds, `trip_updates` for gold.py's `_TRIP_UPDATES_ONLY_FEEDS` (imported from
+there so the two lists can't drift) -- and rollup.py already produced it, and
+ship.py already shipped it to the hot bucket, days or weeks ago. Decoding it
+again from raw landing (which only survives 7 days -- terraform/landing.tf)
+is unnecessary AND wrongly caps how far back a reprocess can reach. Instead:
+pull the already-shipped silver parquet back down into the local partition
+layout gold.py expects, rebuild metrics locally, and ship only the metrics
+marts back.
 
 Ships via Shipper.ship_one(..., hot_only=True) directly rather than
 pipeline/ship.py's CLI: Shipper.run()'s discovery always gates on the LANDING
@@ -19,7 +20,7 @@ Generalizes deploy/reprocess_day.sh (single feed, single day, run by hand) to
 a feed list x day range; meant to run as the rail-archiver-gold-backfill ECS
 task (terraform/gold_backfill.tf) via `aws ecs run-task` with FEEDS/START_DAY/
 END_DAY overrides, but runs the same locally. A (feed, day) with no shipped
-vehicles parquet is skipped, not fatal -- gaps are expected (feed onboarded
+silver parquet is skipped, not fatal -- gaps are expected (feed onboarded
 partway through the range, etc.); a gold.py failure IS fatal, same as the
 rest of the batch.
 
@@ -42,13 +43,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 
-from archiver.loader import (  # noqa: E402
+from archiver.loader import (
     build_shipper,
     build_telemetry,
     build_uploader,
     load_config,
 )
-from archiver.logger import logger  # noqa: E402
+from archiver.logger import logger
+from pipeline.gold import _SOURCE_SUBDIR, _TRIP_UPDATES_ONLY_FEEDS
 
 load_dotenv()
 
@@ -88,17 +90,23 @@ def _daterange(start: dt.date, end: dt.date):
         d += dt.timedelta(days=1)
 
 
-def _vehicles_key(prefix: str, feed: str, day: dt.date) -> str:
+def _table_for_feed(feed: str) -> str:
+    """The silver table gold.py will read for `feed` -- mirrors its own auto-pick."""
+    source = "trip-updates" if feed in _TRIP_UPDATES_ONLY_FEEDS else "vehicles"
+    return _SOURCE_SUBDIR[source]
+
+
+def _silver_key(prefix: str, table: str, feed: str, day: dt.date) -> str:
     return (
-        f"{prefix}vehicles/feed={feed}/year={day.year}/month={day.month}/"
+        f"{prefix}{table}/feed={feed}/year={day.year}/month={day.month}/"
         f"day={day.day}/data.parquet"
     )
 
 
-def _local_vehicles_path(curated_dir: Path, feed: str, day: dt.date) -> Path:
+def _local_silver_path(curated_dir: Path, table: str, feed: str, day: dt.date) -> Path:
     return (
         curated_dir
-        / "vehicles"
+        / table
         / f"feed={feed}"
         / f"year={day.year}"
         / f"month={day.month}"
@@ -120,17 +128,20 @@ def main(args: argparse.Namespace) -> int:
 
     done = skipped = 0
     for feed in args.feed:
+        table = _table_for_feed(feed)
         for day in _daterange(args.start_day, end_day):
-            key = _vehicles_key(config.s3.hot_prefix, feed, day)
+            key = _silver_key(config.s3.hot_prefix, table, feed, day)
             if not uploader.exists(hot_bucket, key):
-                logger.info("[%s %s] no shipped vehicles parquet — skipping", feed, day)
+                logger.info(
+                    "[%s %s] no shipped %s parquet — skipping", feed, day, table
+                )
                 skipped += 1
                 continue
 
-            local = _local_vehicles_path(curated_dir, feed, day)
+            local = _local_silver_path(curated_dir, table, feed, day)
             local.parent.mkdir(parents=True, exist_ok=True)
             local.write_bytes(uploader.get_bytes(hot_bucket, key))
-            logger.info("[%s %s] pulled shipped vehicles parquet", feed, day)
+            logger.info("[%s %s] pulled shipped %s parquet", feed, day, table)
 
             subprocess.run(
                 [
