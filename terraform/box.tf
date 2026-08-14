@@ -11,7 +11,7 @@
 
 variable "poller_instance_type" {
   type    = string
-  default = "t4g.small" # ARM/Graviton, 2 vCPU / 2 GiB
+  default = "t4g.medium" # ARM/Graviton, 2 vCPU / 4 GiB
 }
 
 variable "poller_root_gb" {

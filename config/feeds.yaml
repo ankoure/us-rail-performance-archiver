@@ -2546,3 +2546,2591 @@ agencies:
         poll_interval_seconds: 30
         mdb_feed_id: mdb-3204
     mdb_feed_id: mdb-3202
+
+  # ---- Onboarded from Mobility Database (scripts/gen_feeds_from_mdb.py -> validate_candidates.py) ----
+  - agency_id: LONDON_TRANSIT_COMMISSION
+    name: London Transit Commission
+    region: Ontario
+    timezone: America/Toronto
+    base_url: http://gtfs.ltconline.ca/
+    auth:
+      type: none
+    feeds:
+    - name: london-transit-commission-vehicles-1561
+      path: /Vehicle/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1561
+      method: GET
+    - name: london-transit-commission-alerts-1562
+      path: /Alert/Alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1562
+      method: GET
+    - name: london-transit-commission-trips-1563
+      path: /TripUpdate/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1563
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2
+    tls_verify: true
+  - agency_id: BARRIE_TRANSIT
+    name: Barrie Transit
+    region: Ontario
+    timezone: America/Toronto
+    base_url: http://www.myridebarrie.ca/
+    auth:
+      type: none
+    feeds:
+    - name: barrie-transit-vehicles-1382
+      path: /gtfs/GTFS_VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1382
+      method: GET
+    - name: barrie-transit-alerts-1383
+      path: /gtfs/GTFS_ServiceAlerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1383
+      method: GET
+    - name: barrie-transit-trips-1384
+      path: /gtfs/GTFS_TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1384
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-3
+    tls_verify: true
+  - agency_id: NICE_BUS
+    name: Nassau Inter-County Express (NICE Bus)
+    region: New York
+    timezone: America/New_York
+    base_url: http://nicebus.com/
+    auth:
+      type: none
+    feeds:
+    - name: nassau-inter-county-express-nice-bus-alerts-1623
+      path: /downloads/gtfs/NYC_NICE.proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1623
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-521
+    tls_verify: true
+  - agency_id: CONNECTICUT_TRANSIT
+    name: Connecticut Transit
+    region: Connecticut
+    timezone: America/New_York
+    base_url: https://cttprdtmgtfs.ctttrpcloud.com/
+    auth:
+      type: none
+    feeds:
+    - name: connecticut-transit-vehicles-2422
+      path: /TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2422
+      method: GET
+    - name: connecticut-transit-trips-2423
+      path: /TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2423
+      method: GET
+    - name: connecticut-transit-alerts-2424
+      path: /TMGTFSRealTimeWebService/Alert/Alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2424
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-553
+    tls_verify: true
+  - agency_id: ADELAIDE_METRO
+    name: Adelaide Metro
+    region: South Australia
+    timezone: Australia/Adelaide
+    base_url: https://gtfs.adelaidemetro.com.au/
+    auth:
+      type: none
+    feeds:
+    - name: adelaide-metro-vehicles-1772
+      path: /v1/realtime/vehicle_positions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1772
+      method: GET
+    - name: adelaide-metro-trips-1773
+      path: /v1/realtime/trip_updates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1773
+      method: GET
+    - name: adelaide-metro-alerts-1774
+      path: /v1/realtime/service_alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1774
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-660
+    tls_verify: true
+  - agency_id: TRANSLINK_SEQ
+    name: TransLink South East Queensland (TransLink SEQ)
+    region: Queensland
+    timezone: Australia/Brisbane
+    base_url: https://gtfsrt.api.translink.com.au/
+    auth:
+      type: none
+    feeds:
+    - name: translink-south-east-queensland-translink-seq-alerts-1699
+      path: /api/realtime/SEQ/Alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1699
+      method: GET
+    - name: translink-south-east-queensland-translink-seq-vehicles-1700
+      path: /api/realtime/SEQ/VehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1700
+      method: GET
+    - name: translink-south-east-queensland-translink-seq-trips-1701
+      path: /api/realtime/SEQ/TripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1701
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-668
+    tls_verify: true
+  - agency_id: TRANSLINK_SUNBUS_CAIRNS
+    name: TransLink Sunbus Cairns
+    region: Queensland
+    timezone: Australia/Brisbane
+    base_url: https://gtfsrt.api.translink.com.au/
+    auth:
+      type: none
+    feeds:
+    - name: translink-sunbus-cairns-trips-1702
+      path: /api/realtime/CNS/TripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1702
+      method: GET
+    - name: translink-sunbus-cairns-alerts-1703
+      path: /api/realtime/CNS/Alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1703
+      method: GET
+    - name: translink-sunbus-cairns-vehicles-1704
+      path: /api/realtime/CNS/VehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1704
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-674
+    tls_verify: true
+  - agency_id: DAWSON_CREEK
+    name: BC Transit (Dawson Creek)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-dawson-creek-alerts-2540
+      path: /gtfs-realtime/alerts.pb?operatorIds=27
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2540
+      method: GET
+    - name: bc-transit-dawson-creek-trips-2541
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=27
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2541
+      method: GET
+    - name: bc-transit-dawson-creek-vehicles-2542
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=27
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2542
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-710
+    tls_verify: true
+  - agency_id: EDMONTON_TRANSIT_SYSTEM
+    name: Edmonton Transit System
+    region: Alberta
+    timezone: America/Edmonton
+    base_url: http://gtfs.edmonton.ca/
+    auth:
+      type: none
+    feeds:
+    - name: edmonton-transit-system-vehicles-1496
+      path: /TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1496
+      method: GET
+    - name: edmonton-transit-system-alerts-1497
+      path: /TMGTFSRealTimeWebService/Alert/Alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1497
+      method: GET
+    - name: edmonton-transit-system-trips-1498
+      path: /TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1498
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-714
+    tls_verify: true
+  - agency_id: YORK_REGION_TRANSIT
+    name: York Region Transit
+    region: Ontario
+    timezone: America/Toronto
+    base_url: http://rtu.york.ca/
+    auth:
+      type: none
+    feeds:
+    - name: york-region-transit-trips-1749
+      path: /gtfsrealtime/TripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1749
+      method: GET
+    - name: york-region-transit-vehicles-1750
+      path: /gtfsrealtime/VehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1750
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-728
+    tls_verify: true
+  - agency_id: MIWAY
+    name: MiWay
+    region: Ontario
+    timezone: America/Toronto
+    base_url: https://www.miapp.ca/
+    auth:
+      type: none
+    feeds:
+    - name: miway-trips-1611
+      path: /GTFS_RT/TripUpdate/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1611
+      method: GET
+    - name: miway-vehicles-1612
+      path: /GTFS_RT/Vehicle/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1612
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-730
+    tls_verify: true
+  - agency_id: KINGSTON_TRANSIT
+    name: Kingston Transit
+    region: Ontario
+    timezone: America/Toronto
+    base_url: https://api.cityofkingston.ca/
+    auth:
+      type: none
+    feeds:
+    - name: kingston-transit-vehicles-1433
+      path: /gtfs-realtime/vehicleupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1433
+      method: GET
+    - name: kingston-transit-alerts-1434
+      path: /gtfs-realtime/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1434
+      method: GET
+    - name: kingston-transit-trips-1435
+      path: /gtfs-realtime/tripupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1435
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-733
+    tls_verify: true
+  - agency_id: HALIFAX_TRANSIT
+    name: Halifax Transit
+    region: Nova Scotia
+    timezone: America/Halifax
+    base_url: http://gtfs.halifax.ca/
+    auth:
+      type: none
+    feeds:
+    - name: halifax-transit-trips-1605
+      path: /realtime/TripUpdate/TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1605
+      method: GET
+    - name: halifax-transit-alerts-1606
+      path: /realtime/Alert/Alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1606
+      method: GET
+    - name: halifax-transit-vehicles-1607
+      path: /realtime/Vehicle/VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1607
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-734
+    tls_verify: true
+  - agency_id: THUNDER_BAY_TRANSIT
+    name: Thunder Bay Transit
+    region: Ontario
+    timezone: America/Toronto
+    base_url: http://api.nextlift.ca/
+    auth:
+      type: none
+    feeds:
+    - name: thunder-bay-transit-vehicles-1690
+      path: /gtfs-realtime/vehicleupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1690
+      method: GET
+    - name: thunder-bay-transit-alerts-1691
+      path: /gtfs-realtime/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1691
+      method: GET
+    - name: thunder-bay-transit-trips-1692
+      path: /gtfs-realtime/tripupdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1692
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-736
+    tls_verify: true
+  - agency_id: PORT_ALBERNI
+    name: Port Alberni
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: port-alberni-vehicles-1405
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=11
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1405
+      method: GET
+    - name: port-alberni-alerts-1406
+      path: /gtfs-realtime/alerts.pb?operatorIds=11
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1406
+      method: GET
+    - name: port-alberni-trips-1407
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=11
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1407
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-761
+    tls_verify: true
+  - agency_id: PID
+    name: Prazska integrovana doprava (PID)
+    region: Praha, hlavnÃ­ meÅ¡to
+    timezone: Europe/Prague
+    base_url: https://api.golemio.cz/
+    auth:
+      type: none
+    feeds:
+    - name: prazska-integrovana-doprava-pid-alerts-2388
+      path: /v2/vehiclepositions/gtfsrt/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2388
+      method: GET
+    - name: prazska-integrovana-doprava-pid-vehicles-2391
+      path: /v2/vehiclepositions/gtfsrt/vehicle_positions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2391
+      method: GET
+    - name: prazska-integrovana-doprava-pid-trips-2392
+      path: /v2/vehiclepositions/gtfsrt/trip_updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2392
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-767
+    tls_verify: true
+  - agency_id: VBB
+    name: Verkehrsverbund Berlin-Brandenburg (VBB)
+    region: Berlin
+    timezone: Europe/Berlin
+    base_url: https://production.gtfsrt.vbb.de/
+    auth:
+      type: none
+    feeds:
+    - name: verkehrsverbund-berlin-brandenburg-vbb-trips-2378
+      path: /data
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2378
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-782
+    tls_verify: true
+  - agency_id: EMT_MADRID
+    name: Empresa Municipal de Transportes de Madrid (EMT Madrid)
+    region: Madrid
+    timezone: Europe/Madrid
+    base_url: https://openapi.emtmadrid.es/
+    auth:
+      type: none
+    feeds:
+    - name: empresa-municipal-de-transportes-de-madrid-emt-madrid-alerts-3102
+      path: /v1/bus/servicealerts/proto
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3102
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-793
+    tls_verify: true
+  - agency_id: HELSINGIN_SEUDUN_LIIKENNE
+    name: Helsingin seudun liikenne
+    region: Uusimaa
+    timezone: Europe/Helsinki
+    base_url: https://realtime.hsl.fi/
+    auth:
+      type: none
+    feeds:
+    - name: helsingin-seudun-liikenne-alerts-3227
+      path: /realtime/service-alerts/v2/hsl
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3227
+      method: GET
+    - name: helsingin-seudun-liikenne-trips-3228
+      path: /realtime/trip-updates/v2/hsl
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3228
+      method: GET
+    - name: helsingin-seudun-liikenne-vehicles-3229
+      path: /realtime/vehicle-positions/v2/hsl
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3229
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-865
+    tls_verify: true
+  - agency_id: AMB
+    name: "Ã\x80rea Metropolitana de Barcelona (AMB)"
+    region: Barcelona
+    timezone: Europe/Madrid
+    base_url: https://www.ambmobilitat.cat/
+    auth:
+      type: none
+    feeds:
+    - name: rea-metropolitana-de-barcelona-amb-trips-2368
+      path: /transit/trips-updates/trips.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2368
+      method: GET
+    - name: rea-metropolitana-de-barcelona-amb-alerts-2369
+      path: /transit/alerts/alerts.bin
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2369
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-892
+    tls_verify: true
+  - agency_id: CANBERRA_METRO_OPERATIONS
+    name: Canberra Metro Operations
+    region: Australian Capital Territory
+    timezone: Australia/Sydney
+    base_url: http://files.transport.act.gov.au/
+    auth:
+      type: none
+    feeds:
+    - name: canberra-metro-operations-vehicles-alerts-trips-1423
+      path: /feeds/lightrail.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1423
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-935
+    tls_verify: true
+  - agency_id: ZDITM
+    name: ZarzÄ d DrÃ³g i Transportu Miejskiego (ZDiTM)
+    region: Zachodniopomorskie
+    timezone: Europe/Warsaw
+    base_url: https://www.zditm.szczecin.pl/
+    auth:
+      type: none
+    feeds:
+    - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-trips-1966
+      path: /storage/gtfs/gtfs-rt-trips.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1966
+      method: GET
+    - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-alerts-1967
+      path: /storage/gtfs/gtfs-rt-alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1967
+      method: GET
+    - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-vehicles-1968
+      path: /storage/gtfs/gtfs-rt-vehicles.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1968
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-981
+    tls_verify: true
+  - agency_id: ZARZ_D_TRANSPORTU_MIEJSKIEGO_POZNA_ZTM_POZNA
+    name: "ZarzÄ\Nd Transportu Miejskiego PoznaÅ\x84 (ZTM PoznaÅ\x84)"
+    region: Wielkopolskie
+    timezone: Europe/Warsaw
+    base_url: https://www.ztm.poznan.pl/
+    auth:
+      type: none
+    feeds:
+    - name: zarz-d-transportu-miejskiego-pozna-ztm-pozna-trips-2334
+      path: /pl/dla-deweloperow/getGtfsRtFile/?file=trip_updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2334
+      method: GET
+    - name: zarz-d-transportu-miejskiego-pozna-ztm-pozna-vehicles-2335
+      path: /pl/dla-deweloperow/getGtfsRtFile/?file=vehicle_positions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2335
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-982
+    tls_verify: true
+  - agency_id: CARRIS
+    name: Carris
+    region: Lisboa
+    timezone: Europe/Lisbon
+    base_url: https://gateway.carris.pt/
+    auth:
+      type: none
+    feeds:
+    - name: carris-vehicles-2058
+      path: /gateway/gtfs/api/v2.8/GTFS/realtime/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2058
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1032
+    tls_verify: true
+  - agency_id: S_SUSISIEKIMO_PASLAUGOS
+    name: SÄ® 'Susisiekimo paslaugos'
+    region: Vilniaus Apskritis
+    timezone: Europe/Vilnius
+    base_url: https://www.stops.lt/
+    auth:
+      type: none
+    feeds:
+    - name: s-susisiekimo-paslaugos-trips-2382
+      path: /vilnius/trip_updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2382
+      method: GET
+    - name: s-susisiekimo-paslaugos-vehicles-2383
+      path: /vilnius/vehicle_positions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2383
+      method: GET
+    - name: s-susisiekimo-paslaugos-alerts-2384
+      path: /vilnius/service_alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2384
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1044
+    tls_verify: true
+  - agency_id: OVAPI
+    name: OVapi
+    region: nan
+    timezone: Europe/Amsterdam
+    base_url: http://gtfs.ovapi.nl/
+    auth:
+      type: none
+    feeds:
+    - name: ovapi-trips-1644
+      path: /nl/tripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1644
+      method: GET
+    - name: ovapi-alerts-1645
+      path: /nl/alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1645
+      method: GET
+    - name: ovapi-vehicles-1646
+      path: /nl/vehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1646
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1077
+    tls_verify: true
+  - agency_id: GO_AHEAD
+    name: Go-Ahead
+    region: nan
+    timezone: Europe/Oslo
+    base_url: https://api.entur.io/
+    auth:
+      type: none
+    feeds:
+    - name: go-ahead-vehicles-1797
+      path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=GOA
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1797
+      method: GET
+    - name: go-ahead-trips-1798
+      path: /realtime/v1/gtfs-rt/trip-updates?datasource=RUT
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1798
+      method: GET
+    - name: go-ahead-alerts-1799
+      path: /realtime/v1/gtfs-rt/alerts?datasource=RUT
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1799
+      method: GET
+    - name: go-ahead-trips-1800
+      path: /realtime/v1/gtfs-rt/trip-updates?datasource=VYB
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1800
+      method: GET
+    - name: go-ahead-vehicles-1801
+      path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=VYB
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1801
+      method: GET
+    - name: go-ahead-vehicles-1803
+      path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=VYX
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1803
+      method: GET
+    - name: go-ahead-alerts-1804
+      path: /realtime/v1/gtfs-rt/alerts?datasource=VYX
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1804
+      method: GET
+    - name: go-ahead-trips-1805
+      path: /realtime/v1/gtfs-rt/trip-updates?datasource=VYX
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1805
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1078
+    tls_verify: true
+  - agency_id: GTFS_DE_DELFI_REALTIME_DATA
+    name: gtfs.de DELFI Realtime data
+    region: nan
+    timezone: Europe/Berlin
+    base_url: https://realtime.gtfs.de/
+    auth:
+      type: none
+    feeds:
+    - name: gtfs-de-delfi-realtime-data-trips-alerts-3101
+      path: /realtime-free.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3101
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1090
+    tls_verify: true
+  - agency_id: DPN_AVL_CFL_CFLBUS_RGTR_TICE_TRAM
+    name: DPN, AVL, CFL, CFLBus, RGTR, TICE, TRAM
+    region: nan
+    timezone: Europe/Luxembourg
+    base_url: http://openov.lu/
+    auth:
+      type: none
+    feeds:
+    - name: dpn-avl-cfl-cflbus-rgtr-tice-tram-trips-1640
+      path: /gtfs-rt/tripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1640
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1091
+    tls_verify: true
+  - agency_id: IL_VIA_M_TROPOLE_EUROP_ENNE_DE_LILLE
+    name: IlÃ©via (MÃ©tropole EuropÃ©enne de Lille)
+    region: Hauts-de-France
+    timezone: Europe/Paris
+    base_url: https://proxy.transport.data.gouv.fr/
+    auth:
+      type: none
+    feeds:
+    - name: il-via-m-tropole-europ-enne-de-lille-trips-1792
+      path: /resource/ilevia-lille-gtfs-rt
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1792
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1201
+    tls_verify: true
+  - agency_id: ZARZ_D_TRANSPORTU_PUBLICZNEGO_W_KRAKOWIE_ZTP_KRAK_W
+    name: ZarzÄ d Transportu Publicznego w Krakowie (ZTP KrakÃ³w)
+    region: "MaÅ\x82opolskie"
+    timezone: Europe/Warsaw
+    base_url: https://gtfs.ztp.krakow.pl/
+    auth:
+      type: none
+    feeds:
+    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-alerts-2338
+      path: /ServiceAlerts_T.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2338
+      method: GET
+    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-trips-2339
+      path: /TripUpdates_T.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2339
+      method: GET
+    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-vehicles-2340
+      path: /VehiclePositions_T.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2340
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1270
+    tls_verify: true
+  - agency_id: ROMA_SERVIZI_PER_LA_MOBILIT
+    name: Roma Servizi per la MobilitÃ
+    region: Lazio
+    timezone: Europe/Rome
+    base_url: https://romamobilita.it/
+    auth:
+      type: none
+    feeds:
+    - name: roma-servizi-per-la-mobilit-vehicles-1776
+      path: /sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1776
+      method: GET
+    - name: roma-servizi-per-la-mobilit-alerts-1777
+      path: /sites/default/files/rome_rtgtfs_service_alerts_feed.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1777
+      method: GET
+    - name: roma-servizi-per-la-mobilit-trips-1778
+      path: /sites/default/files/rome_rtgtfs_trip_updates_feed.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1778
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1294
+    tls_verify: true
+  - agency_id: R_SEAU_URBAIN_CAP_COTENTIN
+    name: RÃ©seau urbain Cap Cotentin
+    region: Normandie
+    timezone: Europe/Paris
+    base_url: https://pysae.com/
+    auth:
+      type: none
+    feeds:
+    - name: r-seau-urbain-cap-cotentin-vehicles-alerts-trips-1841
+      path: /api/v2/groups/transdev-cotentin/gtfs-rt
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1841
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1840
+    tls_verify: true
+  - agency_id: BC_TRANSIT_CENTRAL_FRASER_VALLEY_CHILLIWACK_AGASSIZ_HARRISON_HOPE
+    name: BC Transit (Central Fraser Valley| Chilliwack| Agassiz-Harrison | Hope)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-alerts-2507
+      path: /gtfs-realtime/alerts.pb?operatorIds=13
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2507
+      method: GET
+    - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-trips-2516
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=13
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2516
+      method: GET
+    - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-vehicles-2517
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=13
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2517
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-1991
+    tls_verify: true
+  - agency_id: CARRIS_METROPOLITANA
+    name: Carris Metropolitana
+    region: Lisboa
+    timezone: Europe/Lisbon
+    base_url: https://api.carrismetropolitana.pt/
+    auth:
+      type: none
+    feeds:
+    - name: carris-metropolitana-vehicles-2028
+      path: /vehicles.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2028
+      method: GET
+    - name: carris-metropolitana-alerts-2029
+      path: /alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2029
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2027
+    tls_verify: true
+  - agency_id: PKP_INTERCITY
+    name: "Polskie Koleje PaÅ\x84stwowe Intercity (PKP Intercity)"
+    region: nan
+    timezone: Europe/Warsaw
+    base_url: https://gtfs.kasznia.net/
+    auth:
+      type: none
+    feeds:
+    - name: polskie-koleje-pa-stwowe-intercity-pkp-intercity-trips-2924
+      path: /rt/pkpic.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2924
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2088
+    tls_verify: true
+  - agency_id: TPBI
+    name: "AsociaÈ\x9Bia de Dezvoltare IntercomunitarÄ\x83 pentru Transport Public BucureÈ\x99\
+      ti â\x80\x93 Ilfov (TPBI)"
+    region: "BucureÈ\x99ti"
+    timezone: Europe/Bucharest
+    base_url: https://gtfs.tpbi.ro/
+    auth:
+      type: none
+    feeds:
+    - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-trips-2103
+      path: /api/gtfs-rt/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2103
+      method: GET
+    - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-vehicles-2104
+      path: /api/gtfs-rt/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2104
+      method: GET
+    - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-alerts-2105
+      path: /api/gtfs-rt/serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2105
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2098
+    tls_verify: true
+  - agency_id: TRANSBUS_BUZ_U
+    name: "Transbus BuzÄ\x83u"
+    region: "BuzÄ\x83u"
+    timezone: Europe/Bucharest
+    base_url: https://gtfsagent.transportpublic.ro/
+    auth:
+      type: none
+    feeds:
+    - name: transbus-buz-u-trips-2112
+      path: /transbus/tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2112
+      method: GET
+    - name: transbus-buz-u-vehicles-2113
+      path: /transbus/vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2113
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2106
+    tls_verify: true
+  - agency_id: COMPANIA_DE_TRANSPORT_PUBLIC_IA_I
+    name: "Compania de Transport Public IaÈ\x99i"
+    region: "IaÈ\x99i"
+    timezone: Europe/Bucharest
+    base_url: https://iasi-rt-feed.gtfs.ro/
+    auth:
+      type: none
+    feeds:
+    - name: compania-de-transport-public-ia-i-trips-2117
+      path: /tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2117
+      method: GET
+    - name: compania-de-transport-public-ia-i-vehicles-2118
+      path: /vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2118
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2116
+    tls_verify: true
+  - agency_id: TROLLEYBUS_TRANSPORT_PLEVEN
+    name: Trolleybus Transport Pleven
+    region: Pleven
+    timezone: Europe/Sofia
+    base_url: https://pleven-rt-feed.gtfs.ro/
+    auth:
+      type: none
+    feeds:
+    - name: trolleybus-transport-pleven-trips-2120
+      path: /tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2120
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2119
+    tls_verify: true
+  - agency_id: COMPANIA_DE_TRANSPORT_PUBLIC_CLUJ_NAPOCA
+    name: Compania de Transport Public Cluj-Napoca
+    region: Cluj
+    timezone: Europe/Bucharest
+    base_url: https://cluj-rt-feed.gtfs.ro/
+    auth:
+      type: none
+    feeds:
+    - name: compania-de-transport-public-cluj-napoca-trips-2612
+      path: /tripUpdates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2612
+      method: GET
+    - name: compania-de-transport-public-cluj-napoca-alerts-2613
+      path: /serviceAlerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2613
+      method: GET
+    - name: compania-de-transport-public-cluj-napoca-vehicles-2614
+      path: /vehiclePositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2614
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2121
+    tls_verify: true
+  - agency_id: EMT
+    name: Empresa MalagueÃ±a de Transportes (EMT)
+    region: AndalucÃ­a
+    timezone: Europe/Madrid
+    base_url: https://gtfs.emtmalaga.es/
+    auth:
+      type: none
+    feeds:
+    - name: empresa-malague-a-de-transportes-emt-vehicles-2213
+      path: /GTFSRTapi/api/vehicleposition
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2213
+      method: GET
+    - name: empresa-malague-a-de-transportes-emt-trips-2214
+      path: /GTFSRTapi/api/tripupdate
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2214
+      method: GET
+    - name: empresa-malague-a-de-transportes-emt-alerts-2215
+      path: /GTFSRTapi/api/alert
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2215
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2212
+    tls_verify: true
+  - agency_id: TTC
+    name: Toronto Transit Commission (TTC)
+    region: Ontario
+    timezone: America/Toronto
+    base_url: https://bustime.ttc.ca/
+    auth:
+      type: none
+    feeds:
+    - name: toronto-transit-commission-ttc-vehicles-2140
+      path: /gtfsrt/vehicles
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2140
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2253
+    tls_verify: true
+  - agency_id: EMTF
+    name: Empresa Municipal de Transportes de Fuenlabrada (EMTF)
+    region: Madrid
+    timezone: Europe/Madrid
+    base_url: https://api.control.optibus.co/
+    auth:
+      type: none
+    feeds:
+    - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-trips-2401
+      path: /opendata/v1/gtfs-rt/trip-updates?uid=c-5cfcd2d1
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2401
+      method: GET
+    - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-vehicles-2402
+      path: /opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2402
+      method: GET
+    - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-alerts-2403
+      path: /opendata/v1/gtfs-rt/alerts?uid=c-5cfcd2d1
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2403
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2400
+    tls_verify: true
+  - agency_id: RLV_MOBILIT_S
+    name: RLV MobilitÃ©s
+    region: Riom Limagne et Volcans
+    timezone: Europe/Paris
+    base_url: https://proxy.transport.data.gouv.fr/
+    auth:
+      type: none
+    feeds:
+    - name: rlv-mobilit-s-vehicles-2405
+      path: /resource/riom-rlv-mobilites-gtfs-rt-vehicle-position
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2405
+      method: GET
+    - name: rlv-mobilit-s-trips-2406
+      path: /resource/riom-rlv-mobilites-gtfs-rt-trip-update
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2406
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2404
+    tls_verify: true
+  - agency_id: CAR_JAUNE
+    name: Car Jaune
+    region: nan
+    timezone: Europe/Paris
+    base_url: https://pysae.com/
+    auth:
+      type: none
+    feeds:
+    - name: car-jaune-trips-vehicles-alerts-2459
+      path: /api/v2/groups/car-jaune/gtfs-rt
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2459
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2458
+    tls_verify: true
+  - agency_id: BC_TRANSIT_HAZELTON_KITIMAT_TERRACE
+    name: BC Transit (Hazelton | Kitimat | Terrace)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-hazelton-kitimat-terrace-vehicles-2477
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=26
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2477
+      method: GET
+    - name: bc-transit-hazelton-kitimat-terrace-trips-2478
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=26
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2478
+      method: GET
+    - name: bc-transit-hazelton-kitimat-terrace-alerts-2479
+      path: /gtfs-realtime/alerts.pb?operatorIds=26
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2479
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2462
+    tls_verify: true
+  - agency_id: QUESNEL
+    name: BC Transit (Quesnel)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-quesnel-alerts-2480
+      path: /gtfs-realtime/alerts.pb?operatorIds=32
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2480
+      method: GET
+    - name: bc-transit-quesnel-trips-2481
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=32
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2481
+      method: GET
+    - name: bc-transit-quesnel-vehicles-2482
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=32
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2482
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2463
+    tls_verify: true
+  - agency_id: REVELSTOKE
+    name: BC Transit (Revelstoke)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-revelstoke-alerts-2483
+      path: /gtfs-realtime/alerts.pb?operatorIds=36
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2483
+      method: GET
+    - name: bc-transit-revelstoke-trips-2484
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=36
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2484
+      method: GET
+    - name: bc-transit-revelstoke-vehicles-2485
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=36
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2485
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2464
+    tls_verify: true
+  - agency_id: BC_TRANSIT_SALT_SPRING_ISLAND
+    name: BC Transit (Salt Spring Island)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-salt-spring-island-alerts-2486
+      path: /gtfs-realtime/alerts.pb?operatorIds=39
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2486
+      method: GET
+    - name: bc-transit-salt-spring-island-trips-2487
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=39
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2487
+      method: GET
+    - name: bc-transit-salt-spring-island-vehicles-2488
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=39
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2488
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2466
+    tls_verify: true
+  - agency_id: MOUNT_WADDINGTON
+    name: BC Transit (Mount Waddington)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-mount-waddington-alerts-2489
+      path: /gtfs-realtime/alerts.pb?operatorIds=17
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2489
+      method: GET
+    - name: bc-transit-mount-waddington-trips-2490
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=17
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2490
+      method: GET
+    - name: bc-transit-mount-waddington-vehicles-2491
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=17
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2491
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2467
+    tls_verify: true
+  - agency_id: BC_TRANSIT_ASHCROFT_CACHE_CREEK_CLINTON
+    name: BC Transit (Ashcroft-Cache-Creek-Clinton)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-ashcroft-cache-creek-clinton-alerts-2492
+      path: /gtfs-realtime/alerts.pb?operatorIds=38
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2492
+      method: GET
+    - name: bc-transit-ashcroft-cache-creek-clinton-trips-2493
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=38
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2493
+      method: GET
+    - name: bc-transit-ashcroft-cache-creek-clinton-vehicles-2494
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=38
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2494
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2468
+    tls_verify: true
+  - agency_id: 100_MILE_HOUSE
+    name: BC Transit (100 Mile House)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-100-mile-house-alerts-2495
+      path: /gtfs-realtime/alerts.pb?operatorIds=34
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2495
+      method: GET
+    - name: bc-transit-100-mile-house-trips-2496
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=34
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2496
+      method: GET
+    - name: bc-transit-100-mile-house-vehicles-2497
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=34
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2497
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2469
+    tls_verify: true
+  - agency_id: PEMBERTON_VALLEY
+    name: BC Transit (Pemberton Valley)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-pemberton-valley-alerts-2498
+      path: /gtfs-realtime/alerts.pb?operatorIds=50
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2498
+      method: GET
+    - name: bc-transit-pemberton-valley-trips-2499
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=50
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2499
+      method: GET
+    - name: bc-transit-pemberton-valley-vehicles-2500
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=50
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2500
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2470
+    tls_verify: true
+  - agency_id: MERRITT
+    name: BC Transit (Merritt)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-merritt-alerts-2501
+      path: /gtfs-realtime/alerts.pb?operatorIds=37
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2501
+      method: GET
+    - name: bc-transit-merritt-trips-2502
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=37
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2502
+      method: GET
+    - name: bc-transit-merritt-vehicles-2503
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=37
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2503
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2471
+    tls_verify: true
+  - agency_id: SMITHERS
+    name: BC Transit (Smithers)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-smithers-vehicles-2465
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=31
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2465
+      method: GET
+    - name: bc-transit-smithers-alerts-2504
+      path: /gtfs-realtime/alerts.pb?operatorIds=31
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2504
+      method: GET
+    - name: bc-transit-smithers-trips-2505
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=31
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2505
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2472
+    tls_verify: true
+  - agency_id: NANAIMO
+    name: BC Transit (Nanaimo)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-nanaimo-alerts-2474
+      path: /gtfs-realtime/alerts.pb?operatorIds=41
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2474
+      method: GET
+    - name: bc-transit-nanaimo-trips-2475
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=41
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2475
+      method: GET
+    - name: bc-transit-nanaimo-vehicles-2476
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=41
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2476
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2473
+    tls_verify: true
+  - agency_id: BC_TRANSIT_SHUSWAP_VERNON
+    name: BC Transit (Shuswap | Vernon)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-shuswap-vernon-alerts-2533
+      path: /gtfs-realtime/alerts.pb?operatorIds=14
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2533
+      method: GET
+    - name: bc-transit-shuswap-vernon-trips-2534
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=14
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2534
+      method: GET
+    - name: bc-transit-shuswap-vernon-vehicles-2535
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=14
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2535
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2508
+    tls_verify: true
+  - agency_id: BC_TRANSIT_BULKLEY_NECHAKO_PRINCE_GEORGE
+    name: BC Transit (Bulkley-Nechako | Prince George)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-bulkley-nechako-prince-george-alerts-2511
+      path: /gtfs-realtime/alerts.pb?operatorIds=22
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2511
+      method: GET
+    - name: bc-transit-bulkley-nechako-prince-george-trips-2512
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=22
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2512
+      method: GET
+    - name: bc-transit-bulkley-nechako-prince-george-vehicles-2513
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=22
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2513
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2510
+    tls_verify: true
+  - agency_id: BC_TRANSIT_CAMPBELL_RIVER_TRANSIT
+    name: BC Transit (Campbell River Transit)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-campbell-river-transit-alerts-1376
+      path: /gtfs-realtime/alerts.pb?operatorIds=12
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1376
+      method: GET
+    - name: bc-transit-campbell-river-transit-trips-1377
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=12
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1377
+      method: GET
+    - name: bc-transit-campbell-river-transit-vehicles-1378
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=12
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1378
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2514
+    tls_verify: true
+  - agency_id: CLEARWATER
+    name: BC Transit (Clearwater)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-clearwater-trips-2506
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=35
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2506
+      method: GET
+    - name: bc-transit-clearwater-alerts-2509
+      path: /gtfs-realtime/alerts.pb?operatorIds=35
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2509
+      method: GET
+    - name: bc-transit-clearwater-vehicles-2518
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=35
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2518
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2515
+    tls_verify: true
+  - agency_id: BC_TRANSIT_COLUMBIA_VALLEY_CRANBROOK_ELK_VALLEY_KIMBERLEY
+    name: BC Transit (Columbia Valley | Cranbrook | Elk Valley | Kimberley)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-alerts-2521
+      path: /gtfs-realtime/alerts.pb?operatorIds=21
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2521
+      method: GET
+    - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-trips-2522
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=21
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2522
+      method: GET
+    - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-vehicles-2523
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=21
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2523
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2520
+    tls_verify: true
+  - agency_id: BC_TRANSIT_COMOX_VALLEY_TRANSIT_SYSTEM
+    name: BC Transit (Comox Valley Transit System)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-comox-valley-transit-system-alerts-2525
+      path: /gtfs-realtime/alerts.pb?operatorIds=45
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2525
+      method: GET
+    - name: bc-transit-comox-valley-transit-system-trips-2526
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=45
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2526
+      method: GET
+    - name: bc-transit-comox-valley-transit-system-vehicles-2527
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=45
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2527
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2524
+    tls_verify: true
+  - agency_id: BC_TRANSIT_COWICHAN_VALLEY_REGIONAL_TRANSIT_SYSTEM
+    name: BC Transit (Cowichan Valley Regional Transit System)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-cowichan-valley-regional-transit-system-vehicles-1379
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=10
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1379
+      method: GET
+    - name: bc-transit-cowichan-valley-regional-transit-system-alerts-1380
+      path: /gtfs-realtime/alerts.pb?operatorIds=10
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1380
+      method: GET
+    - name: bc-transit-cowichan-valley-regional-transit-system-trips-1381
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=10
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-1381
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2528
+    tls_verify: true
+  - agency_id: POWELL_RIVER
+    name: BC Transit (Powell River)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-powell-river-alerts-2530
+      path: /gtfs-realtime/alerts.pb?operatorIds=29
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2530
+      method: GET
+    - name: bc-transit-powell-river-trips-2531
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=29
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2531
+      method: GET
+    - name: bc-transit-powell-river-vehicles-2559
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=29
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2559
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2529
+    tls_verify: true
+  - agency_id: BC_TRANSIT_SOUTH_OKANAGAN_SIMILKAMEEN
+    name: BC Transit (South Okanagan-Similkameen)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-south-okanagan-similkameen-alerts-2560
+      path: /gtfs-realtime/alerts.pb?operatorIds=15
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2560
+      method: GET
+    - name: bc-transit-south-okanagan-similkameen-trips-2561
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=15
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2561
+      method: GET
+    - name: bc-transit-south-okanagan-similkameen-vehicles-2562
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=15
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2562
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2532
+    tls_verify: true
+  - agency_id: CRESTON_VALLEY
+    name: BC Transit (Creston Valley)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-creston-valley-alerts-2537
+      path: /gtfs-realtime/alerts.pb?operatorIds=16
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2537
+      method: GET
+    - name: bc-transit-creston-valley-trips-2538
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=16
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2538
+      method: GET
+    - name: bc-transit-creston-valley-vehicles-2539
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=16
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2539
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2536
+    tls_verify: true
+  - agency_id: BC_TRANSIT_PORT_EDWARD_PRINCE_RUPERT
+    name: BC Transit (Port Edward | Prince Rupert)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-port-edward-prince-rupert-alerts-2544
+      path: /gtfs-realtime/alerts.pb?operatorIds=23
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2544
+      method: GET
+    - name: bc-transit-port-edward-prince-rupert-trips-2545
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=23
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2545
+      method: GET
+    - name: bc-transit-port-edward-prince-rupert-vehicles-2546
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=23
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2546
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2543
+    tls_verify: true
+  - agency_id: BC_TRANSIT_FORT_ST_JOHN
+    name: BC Transit (Fort St. John)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-fort-st-john-alerts-2548
+      path: /gtfs-realtime/alerts.pb?operatorIds=28
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2548
+      method: GET
+    - name: bc-transit-fort-st-john-trips-2549
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=28
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2549
+      method: GET
+    - name: bc-transit-fort-st-john-vehicles-2550
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=28
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2550
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2547
+    tls_verify: true
+  - agency_id: BC_TRANSIT_KAMLOOPS_TRANSIT_SYSTEM
+    name: BC Transit (Kamloops Transit System)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-kamloops-transit-system-alerts-2552
+      path: /gtfs-realtime/alerts.pb?operatorIds=46
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2552
+      method: GET
+    - name: bc-transit-kamloops-transit-system-trips-2553
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=46
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2553
+      method: GET
+    - name: bc-transit-kamloops-transit-system-vehicles-2554
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=46
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2554
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2551
+    tls_verify: true
+  - agency_id: BC_TRANSIT_KELOWNA_REGIONAL_TRANSIT_SYSTEM
+    name: BC Transit (Kelowna Regional Transit System)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-kelowna-regional-transit-system-alerts-2556
+      path: /gtfs-realtime/alerts.pb?operatorIds=47
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2556
+      method: GET
+    - name: bc-transit-kelowna-regional-transit-system-trips-2557
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=47
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2557
+      method: GET
+    - name: bc-transit-kelowna-regional-transit-system-vehicles-2558
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=47
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2558
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2555
+    tls_verify: true
+  - agency_id: SQUAMISH
+    name: BC Transit (Squamish)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-squamish-alerts-2564
+      path: /gtfs-realtime/alerts.pb?operatorIds=43
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2564
+      method: GET
+    - name: bc-transit-squamish-trips-2565
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=43
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2565
+      method: GET
+    - name: bc-transit-squamish-vehicles-2566
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=43
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2566
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2563
+    tls_verify: true
+  - agency_id: BC_TRANSIT_SUNSHINE_COAST_TRANSIT_SYSTEM
+    name: BC Transit (Sunshine Coast Transit System)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-sunshine-coast-transit-system-alerts-2568
+      path: /gtfs-realtime/alerts.pb?operatorIds=18
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2568
+      method: GET
+    - name: bc-transit-sunshine-coast-transit-system-trips-2569
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=18
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2569
+      method: GET
+    - name: bc-transit-sunshine-coast-transit-system-vehicles-2570
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=18
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2570
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2567
+    tls_verify: true
+  - agency_id: BC_TRANSIT_VICTORIA_REGIONAL_TRANSIT_SYSTEM
+    name: BC Transit (Victoria Regional Transit System)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-victoria-regional-transit-system-alerts-2572
+      path: /gtfs-realtime/alerts.pb?operatorIds=48
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2572
+      method: GET
+    - name: bc-transit-victoria-regional-transit-system-trips-2573
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=48
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2573
+      method: GET
+    - name: bc-transit-victoria-regional-transit-system-vehicles-2574
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=48
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2574
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2571
+    tls_verify: true
+  - agency_id: WEST_COAST
+    name: BC Transit (West Coast)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-west-coast-alerts-2576
+      path: /gtfs-realtime/alerts.pb?operatorIds=51
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2576
+      method: GET
+    - name: bc-transit-west-coast-trips-2577
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=51
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2577
+      method: GET
+    - name: bc-transit-west-coast-vehicles-2578
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=51
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2578
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2575
+    tls_verify: true
+  - agency_id: BC_TRANSIT_WEST_KOOTENAY_TRANSIT_SYSTEM
+    name: BC Transit (West Kootenay Transit System)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-west-kootenay-transit-system-alerts-2580
+      path: /gtfs-realtime/alerts.pb?operatorIds=20
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2580
+      method: GET
+    - name: bc-transit-west-kootenay-transit-system-trips-2581
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=20
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2581
+      method: GET
+    - name: bc-transit-west-kootenay-transit-system-vehicles-2582
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=20
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2582
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2579
+    tls_verify: true
+  - agency_id: WHISTLER
+    name: BC Transit (Whistler)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-whistler-alerts-2584
+      path: /gtfs-realtime/alerts.pb?operatorIds=44
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2584
+      method: GET
+    - name: bc-transit-whistler-trips-2585
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=44
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2585
+      method: GET
+    - name: bc-transit-whistler-vehicles-2586
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=44
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2586
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2583
+    tls_verify: true
+  - agency_id: WILLIAMS_LAKE
+    name: BC Transit (Williams Lake)
+    region: British Columbia
+    timezone: America/Vancouver
+    base_url: https://bct.tmix.se/
+    auth:
+      type: none
+    feeds:
+    - name: bc-transit-williams-lake-alerts-2588
+      path: /gtfs-realtime/alerts.pb?operatorIds=33
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2588
+      method: GET
+    - name: bc-transit-williams-lake-trips-2589
+      path: /gtfs-realtime/tripupdates.pb?operatorIds=33
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2589
+      method: GET
+    - name: bc-transit-williams-lake-vehicles-2590
+      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=33
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2590
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2587
+    tls_verify: true
+  - agency_id: ZARZ_D_TRANSPORTU_PUBLICZNEGO_W_KRAKOWIE_ZTP_KRAK_W_2598
+    name: ZarzÄ d Transportu Publicznego w Krakowie (ZTP KrakÃ³w) (mdb-2598)
+    region: "MaÅ\x82opolskie"
+    timezone: Europe/Warsaw
+    base_url: https://gtfs.ztp.krakow.pl/
+    auth:
+      type: none
+    feeds:
+    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-alerts-2599
+      path: /ServiceAlerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2599
+      method: GET
+    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-trips-2600
+      path: /TripUpdates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2600
+      method: GET
+    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-vehicles-2601
+      path: /VehiclePositions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2601
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2598
+    tls_verify: true
+  - agency_id: TBM
+    name: Transports Bordeaux MÃ©tropole (TBM)
+    region: Nouvelle-Aquitaine
+    timezone: Europe/Paris
+    base_url: https://bdx.mecatran.com/
+    auth:
+      type: none
+    feeds:
+    - name: transports-bordeaux-m-tropole-tbm-alerts-2623
+      path: /utw/ws/gtfsfeed/alerts/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2623
+      method: GET
+    - name: transports-bordeaux-m-tropole-tbm-trips-2624
+      path: /utw/ws/gtfsfeed/realtime/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2624
+      method: GET
+    - name: transports-bordeaux-m-tropole-tbm-vehicles-2625
+      path: /utw/ws/gtfsfeed/vehicles/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2625
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2622
+    tls_verify: true
+  - agency_id: TCAT_2627
+    name: "Transports en Commun de lâ\x80\x99AgglomÃ©ration Troyenne (TCAT)"
+    region: Grand Est
+    timezone: Europe/Paris
+    base_url: http://94.143.218.42:13485/
+    auth:
+      type: none
+    feeds:
+    - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-alerts-2629
+      path: /ProfilGtfsRt2_0RSProducer-TCAT/Alert.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2629
+      method: GET
+    - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-trips-2630
+      path: /ProfilGtfsRt2_0RSProducer-TCAT/TripUpdate.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2630
+      method: GET
+    - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-vehicles-2631
+      path: /ProfilGtfsRt2_0RSProducer-TCAT/VehiclePosition.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2631
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2627
+    tls_verify: true
+  - agency_id: CERCANIAS
+    name: Renfe commuter trains (Cercanias)
+    region: nan
+    timezone: Europe/Madrid
+    base_url: https://gtfsrt.renfe.com/
+    auth:
+      type: none
+    feeds:
+    - name: renfe-commuter-trains-cercanias-alerts-2833
+      path: /alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2833
+      method: GET
+    - name: renfe-commuter-trains-cercanias-trips-2834
+      path: /trip_updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2834
+      method: GET
+    - name: renfe-commuter-trains-cercanias-vehicles-2835
+      path: /vehicle_positions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2835
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2653
+    tls_verify: true
+  - agency_id: DONOSTIABUS
+    name: dBus (Donostiabus)
+    region: Gipuzkoa
+    timezone: Europe/Madrid
+    base_url: https://opendata.euskadi.eus/
+    auth:
+      type: none
+    feeds:
+    - name: dbus-donostiabus-alerts-3064
+      path: /transport/moveuskadi/dbus/gtfsrt_dbus_alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3064
+      method: GET
+    - name: dbus-donostiabus-trips-3065
+      path: /transport/moveuskadi/dbus/gtfsrt_dbus_trip_updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3065
+      method: GET
+    - name: dbus-donostiabus-vehicles-3066
+      path: /transport/moveuskadi/dbus/gtfsrt_dbus_vehicle_positions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3066
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2682
+    tls_verify: true
+  - agency_id: GRUPPO_TORINESE_TRASPORTI
+    name: Gruppo Torinese Trasporti
+    region: Piedmont
+    timezone: Europe/Rome
+    base_url: https://percorsieorari.gtt.to.it/
+    auth:
+      type: none
+    feeds:
+    - name: gruppo-torinese-trasporti-vehicles-2696
+      path: /das_gtfsrt/vehicle_position.aspx
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2696
+      method: GET
+    - name: gruppo-torinese-trasporti-alerts-2705
+      path: /das_gtfsrt/alerts.aspx
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2705
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2687
+    tls_verify: true
+  - agency_id: URBAN_MOBILITY_CENTER_SOFIA_TRAFFIC
+    name: Urban Mobility Center - Sofia Traffic
+    region: Sofia City
+    timezone: Europe/Sofia
+    base_url: https://gtfs.sofiatraffic.bg/
+    auth:
+      type: none
+    feeds:
+    - name: urban-mobility-center-sofia-traffic-vehicles-2847
+      path: /api/v1/vehicle-positions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2847
+      method: GET
+    - name: urban-mobility-center-sofia-traffic-alerts-2849
+      path: /api/v1/alerts
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2849
+      method: GET
+    - name: urban-mobility-center-sofia-traffic-trips-2850
+      path: /api/v1/trip-updates
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2850
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2848
+    tls_verify: true
+  - agency_id: CARRIS_2929
+    name: Carris (mdb-2929)
+    region: Lisbon
+    timezone: Europe/Lisbon
+    base_url: https://gateway.carris.pt/
+    auth:
+      type: none
+    feeds:
+    - name: carris-vehicles-2930
+      path: /gateway/gtfs/api/v2.11/GTFS/realtime/vehiclepositions
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-2930
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-2929
+    tls_verify: true
+  - agency_id: METRO_BILBAO
+    name: Metro Bilbao
+    region: nan
+    timezone: Europe/Madrid
+    base_url: https://ctb-gtfs-rt.s3.eu-south-2.amazonaws.com/
+    auth:
+      type: none
+    feeds:
+    - name: metro-bilbao-alerts-3056
+      path: /metro-bilbao-service-alerts.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3056
+      method: GET
+    - name: metro-bilbao-trips-3057
+      path: /metro-bilbao-trip-updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3057
+      method: GET
+    - name: metro-bilbao-vehicles-3058
+      path: /metro-bilbao-vehicle-positions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3058
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-3052
+    tls_verify: true
+  - agency_id: COTRAL_BUSONE
+    name: Cotral - BusOne
+    region: Lazio
+    timezone: Europe/Rome
+    base_url: https://proxy.busone.app/
+    auth:
+      type: none
+    feeds:
+    - name: cotral-busone-vehicles-3387
+      path: /cotral/gtfs-rt/vehicle-positions.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3387
+      method: GET
+    - name: cotral-busone-trips-3388
+      path: /cotral/gtfs-rt/trip-updates.pb
+      expected_format: protobuf
+      decoder: standard
+      poll_interval_seconds: 30
+      mdb_feed_id: mdb-3388
+      method: GET
+    default_headers: {}
+    mdb_feed_id: mdb-3386
+    tls_verify: true
