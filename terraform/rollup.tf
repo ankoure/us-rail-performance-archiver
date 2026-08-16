@@ -130,6 +130,10 @@ resource "aws_ecs_task_definition" "rollup" {
     cpu_architecture        = "X86_64" # image is amd64 (multi-arch is a step-4 concern)
   }
 
+  ephemeral_storage {
+    size_in_gib = var.rollup_ephemeral_storage_gib
+  }
+
   container_definitions = jsonencode([
     {
       name      = "rollup"

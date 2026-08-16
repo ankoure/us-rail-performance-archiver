@@ -116,6 +116,22 @@ variable "rollup_memory" {
   description = "Fargate task memory (MiB) for the rollup stage."
 }
 
+variable "rollup_ephemeral_storage_gib" {
+  type = number
+  # Fargate default is 20 GiB when unset. A same-day manual backfill run for
+  # 2026-08-15 (task c6164db1, run overnight 2026-08-16 to recover the 3 days
+  # of missing hot data from the OOM incident above) hit that ceiling instead:
+  # "[go-ahead-vehicles-1797 2026-08-15] SKIP — [Errno 28] No space left on
+  # device: 'data/curated/snapshots'" ~81 min in. curated_dir (landing bins +
+  # curated parquet + GTFS snapshots) is local disk shared by every step in
+  # this one combined task (see the Step Functions revert note above), so more
+  # feeds means more of all three piling up before ship.py clears any of it.
+  # Doubling to 40, same stopgap logic as rollup_memory: buys headroom, not a
+  # measured requirement.
+  default     = 40
+  description = "Fargate task ephemeral storage (GiB) for the rollup stage. Must be 21-200; 20 is the unconfigured default."
+}
+
 variable "env_secret_name" {
   type        = string
   default     = "rail-archiver/env"
