@@ -93,12 +93,15 @@ locals {
     # GTFS resolution below, which doesn't read these marts yet.
     python pipeline/gtfs.py --config /tmp/fargate.yaml --day "$DAY"
     python pipeline/gold.py --config /tmp/fargate.yaml --day "$DAY"
-    # Rewrites trip_updates to one row per stop visit (what every consumer
-    # already reduces it to — see pipeline/compact_trip_updates.py) before
-    # ship uploads it, so hot storage gets the compacted file, not the raw
-    # per-poll one. Non-critical: a failure here must not block shipping the
-    # (uncompacted but still correct) data.
-    python pipeline/compact_trip_updates.py --day "$DAY" || true
+    # compact_trip_updates.py (rewrites trip_updates to one row per stop visit
+    # before shipping) pulled out of the automated sequence 2026-08-16 while
+    # tracking down the OOM kills that have hit every nightly run for the last
+    # 3 days (days Aug 13-15) -- it wasn't the trigger (all 3 runs died earlier
+    # in the sequence, in gold.py/gtfs.py/snapshot.py, before this step ever
+    # starts), but cutting it removes one more thing competing for the task's
+    # memory ceiling while the real cause is found. The script itself is
+    # unchanged and still runnable manually (see its own docstring); re-add
+    # the invocation once the OOM is resolved.
     python pipeline/ship.py --config /tmp/fargate.yaml --day "$DAY"
     # cert_check.py and s3_storage_metrics.py used to run here as auxiliary
     # `|| true` steps. Split out 2026-08-06 into their own scheduled ECS tasks
