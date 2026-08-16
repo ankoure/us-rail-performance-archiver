@@ -97,6 +97,7 @@ import argparse
 import datetime as dt
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -826,6 +827,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     base_dates = [args.day] if args.day else []
 
+    # Each GtfsResolver memoizes every StaticGtfs it loads (stops/routes/shapes
+    # as pandas DataFrames -- can be tens of MB for a large agency) and never
+    # frees it, so keeping one resolver alive per agency for the whole run
+    # scales memory with total agency count, not with any single feed's size.
+    # remaining_feeds_for_agency tracks how many more times each agency_id
+    # will be seen in `feeds`; once it hits 0 that agency's resolver (and
+    # every StaticGtfs it's holding) is released instead of kept to the end.
+    remaining_feeds_for_agency = Counter(
+        info[0]
+        for f in feeds
+        if (info := feed_agency_map.get(f)) is not None and info[1]
+    )
+
     resolver_cache: dict[str, GtfsResolver] = {}
     failed_catalog: set[str] = set()
     written_versions: set[tuple[str, str]] = set()
@@ -840,41 +854,52 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         agency_id, mdb_id = info
-        if agency_id in failed_catalog:
-            continue
 
-        dates = set(base_dates)
-        if args.all_days:
-            dates |= set(discover_dates(feed, args.curated_dir, args.source))
-        if not dates:
-            print(f"[{feed}] no dates to process — skipping", file=sys.stderr)
-            continue
+        try:
+            if agency_id in failed_catalog:
+                continue
 
-        if agency_id not in resolver_cache:
-            resolver_cache[agency_id] = GtfsResolver(
-                mdb_id,
-                agency_id.lower(),
-                cache_dir=args.gtfs_cache_dir,
-                api_url=args.gtfs_api_url,
-            )
-        resolver = resolver_cache[agency_id]
+            dates = set(base_dates)
+            if args.all_days:
+                dates |= set(discover_dates(feed, args.curated_dir, args.source))
+            if not dates:
+                print(f"[{feed}] no dates to process — skipping", file=sys.stderr)
+                continue
 
-        for day in sorted(dates):
-            try:
-                result = process_feed_day(
-                    feed, day, resolver, args.curated_dir, args.force, written_versions
+            if agency_id not in resolver_cache:
+                resolver_cache[agency_id] = GtfsResolver(
+                    mdb_id,
+                    agency_id.lower(),
+                    cache_dir=args.gtfs_cache_dir,
+                    api_url=args.gtfs_api_url,
                 )
-            except requests.exceptions.RequestException as e:
-                print(
-                    f"[{feed}] GTFS catalog/zip unavailable ({e}) — "
-                    f"skipping agency {agency_id}",
-                    file=sys.stderr,
-                )
-                failed_catalog.add(agency_id)
-                break
-            if result is not None:
-                for k in totals:
-                    totals[k] += result[k]
+            resolver = resolver_cache[agency_id]
+
+            for day in sorted(dates):
+                try:
+                    result = process_feed_day(
+                        feed,
+                        day,
+                        resolver,
+                        args.curated_dir,
+                        args.force,
+                        written_versions,
+                    )
+                except requests.exceptions.RequestException as e:
+                    print(
+                        f"[{feed}] GTFS catalog/zip unavailable ({e}) — "
+                        f"skipping agency {agency_id}",
+                        file=sys.stderr,
+                    )
+                    failed_catalog.add(agency_id)
+                    break
+                if result is not None:
+                    for k in totals:
+                        totals[k] += result[k]
+        finally:
+            remaining_feeds_for_agency[agency_id] -= 1
+            if remaining_feeds_for_agency[agency_id] <= 0:
+                resolver_cache.pop(agency_id, None)
 
     print(
         f"---\ntotal: {totals['gtfs_stops']:,} stops, "
