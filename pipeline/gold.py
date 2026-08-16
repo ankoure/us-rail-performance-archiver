@@ -93,6 +93,10 @@ _SOURCE_SUBDIR = {"vehicles": "vehicles", "trip-updates": "trip_updates"}
 # --source trip-updates by default (see `parse_args`'s --source default=None)
 # so the daily automated batch (which never passes --source) picks it up
 # without a per-feed CLI invocation.
+#
+# 2026-08-16: added the 7 trips-only agencies from the Aug 14 global feed
+# merge (config/feeds.candidates.validated.yaml) — none have a vehicles feed
+# at all, so without this they'd silently produce zero gold marts forever.
 _TRIP_UPDATES_ONLY_FEEDS = {
     "arlington-transit-trips-1372",
     "bart-trips",
@@ -102,9 +106,12 @@ _TRIP_UPDATES_ONLY_FEEDS = {
     "c-tran-trips-1922",
     "cincinnati-metro-trips-1488",
     "commerce-municipal-bus-lines-trips-1795",
+    "dpn-avl-cfl-cflbus-rgtr-tice-tram-trips-1640",
     "el-paso-transportation-authority-trips-3203",
     "emery-go-round-trips-2226",
     "everett-transit-trips-3073",
+    "gtfs-de-delfi-realtime-data-trips-alerts-3101",
+    "il-via-m-tropole-europ-enne-de-lille-trips-1792",
     "maryland-transit-administration-vehicles-trips-1619",
     "metra-trips",
     "metro-houston-trips",
@@ -121,7 +128,9 @@ _TRIP_UPDATES_ONLY_FEEDS = {
     "ny-waterway-trips-3200",
     "orange-county-transportation-authority-octa-trips-1641",
     "pasadena-transit-trips-1655",
+    "polskie-koleje-pa-stwowe-intercity-pkp-intercity-trips-2924",
     "prt-trips",
+    "rea-metropolitana-de-barcelona-amb-trips-2368",
     "riverside-transit-agency-trips-1663",
     "sacrt-trips",
     "santa-cruz-metro-scmtd-trips-1911",
@@ -129,8 +138,10 @@ _TRIP_UPDATES_ONLY_FEEDS = {
     "springfield-mass-transit-district-smtd-trips-1780",
     "st-trips",
     "trirail-trips",
+    "trolleybus-transport-pleven-trips-2120",
     "uta-trips",
     "valley-regional-transit-trips-2453",
+    "verkehrsverbund-berlin-brandenburg-vbb-trips-2378",
 }
 
 _SCHEDULE_FREE_MARTS = ("stop_day", "route_day", "events")
