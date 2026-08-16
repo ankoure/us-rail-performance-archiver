@@ -101,7 +101,18 @@ variable "rollup_memory" {
   # ~3.5 min in and triggered a BrokenProcessPool OOM kill across 4 concurrent
   # ROLLUP_WORKERS, the first run after Deduper started holding a Python-level
   # _seen set of dedup-key tuples per worker on top of the Arrow batch memory.
-  default     = "10240"
+  #
+  # 2026-08-16: bumped 10 -> 20 GiB as a stopgap. 3 consecutive nightly runs
+  # (days Aug 13-15) hit exitCode 137 / "OutOfMemoryError: container killed
+  # due to memory usage" -- a task-level OOM, not a single-worker crash -- and
+  # none of them reached the ship step, so nothing shipped to hot for 3 days.
+  # The first of the 3 died on the *old* 255-feed config, before the Aug 14
+  # global-feed merge, so this predates and is likely broader than the feed
+  # count increase. Root cause still open -- NOT the dedup set above, which
+  # was removed in 0dfa987 the same day as the incident that comment
+  # describes (2026-08-03), so it hasn't existed for the 13 days this bug's
+  # been live. This bump just buys headroom while the real cause is found.
+  default     = "20480"
   description = "Fargate task memory (MiB) for the rollup stage."
 }
 
