@@ -81,37 +81,50 @@ locals {
     # instead of silently dropped.
     START=$(date +%s)
     trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --seconds $(( $(date +%s) - START )) || true' EXIT
-    python pipeline/rollup.py --config /tmp/fargate.yaml --day "$DAY"
     # Dedup last-write-wins alert snapshots from raw landing polls (curated/alerts
     # itself is a raw per-poll log — see analysis/alert_snapshot.py). Only needs
-    # landing, not rollup's curated silver output, so it can run right after
-    # rollup either way; grouped here for one clear place in the sequence.
+    # landing, not rollup's curated silver output, so it runs full-fleet ahead of
+    # the per-agency loop below; no unbounded per-run state (unlike gtfs.py/gold.py
+    # below), so it hasn't needed the same isolation.
     python pipeline/snapshot.py --config /tmp/fargate.yaml --day "$DAY"
-    # Persists this day's static-GTFS schedule as version-partitioned marts
-    # (gtfs_stops/gtfs_calendar/gtfs_shapes/etc. — see
-    # docs/design/static-gtfs-normalization.md). Independent of gold.py's own
-    # GTFS resolution below, which doesn't read these marts yet.
-    python pipeline/gtfs.py --config /tmp/fargate.yaml --day "$DAY"
-    python pipeline/gold.py --config /tmp/fargate.yaml --day "$DAY"
-    # compact_trip_updates.py (rewrites trip_updates to one row per stop visit
-    # before shipping) pulled out of the automated sequence 2026-08-16 while
-    # tracking down the OOM kills that have hit every nightly run for the last
-    # 3 days (days Aug 13-15) -- it wasn't the trigger (all 3 runs died earlier
-    # in the sequence, in gold.py/gtfs.py/snapshot.py, before this step ever
-    # starts), but cutting it removes one more thing competing for the task's
-    # memory ceiling while the real cause is found. The script itself is
-    # unchanged and still runnable manually (see its own docstring); re-add
-    # the invocation once the OOM is resolved.
-    python pipeline/ship.py --config /tmp/fargate.yaml --day "$DAY"
+
+    # 2026-08-17: rollup/gtfs/gold/ship replaced with pipeline/agency_batch.py,
+    # which runs each agency's slice of that same chain as its own disposable
+    # `python pipeline/X.py` subprocess instead of one long-lived process per
+    # step handling all ~186 agencies. Root cause of 3 consecutive nightly OOM
+    # kills (days Aug 13-15, exitCode 137): pandas/pyarrow allocations inside a
+    # long-lived process don't reliably get returned to the OS even after correct
+    # Python-level GC -- proven by adding correct per-agency cache eviction to
+    # gtfs.py's resolver_cache and observing zero change in when the OOM hit. An
+    # OS process boundary is the only thing that reliably reclaims it. gold.py's
+    # own _make_gtfs_resolver() had the same unbounded-cache shape (a second,
+    # previously-unknown instance of the same bug) -- fixed for free by this
+    # restructure with zero code changes to gold.py, since invoking it once per
+    # agency instead of once per fleet naturally bounds it. --include-gtfs folds
+    # gtfs.py into the same per-agency isolation for the same reason.
+    #
+    # `set +e` / capture $? / `set -e` lets this capture agency_batch.py's exit
+    # code without set -e killing the script mid-line (which would skip the
+    # Datadog-drain sleep below) -- one agency's failure doesn't stop others
+    # (see agency_batch.py's own docstring), but the container's own exit code
+    # still needs to go nonzero on a bad day so ECS/CloudWatch alarms still fire.
+    set +e
+    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs
+    AGENCY_STATUS=$?
+    set -e
+    if [ "$AGENCY_STATUS" -ne 0 ]; then
+      echo "agency_batch: one or more agencies failed for $DAY -- see per-agency log lines above" >&2
+    fi
     # cert_check.py and s3_storage_metrics.py used to run here as auxiliary
     # `|| true` steps. Split out 2026-08-06 into their own scheduled ECS tasks
     # (cert_check.tf, aux_schedule.tf) — neither touches curated_dir or takes
-    # --day, so unlike rollup/gtfs/gold/ship they don't need this task's shared
+    # --day, so unlike snapshot/agency_batch they don't need this task's shared
     # local disk and don't need to ride along in this ~2.5h window.
     # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
     # interval, so pause before the essential container exits (which SIGTERMs the
     # agent) to let the run's final ship.* metrics reach Datadog.
     sleep 15
+    exit "$AGENCY_STATUS"
   EOT
 }
 
