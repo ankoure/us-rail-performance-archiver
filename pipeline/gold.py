@@ -78,6 +78,7 @@ from analysis.metrics import (  # noqa: E402
 from analysis.trip_updates_day import TripUpdatesDay  # noqa: E402
 from analysis.vehicle_day import VehicleDay  # noqa: E402
 from archiver.loader import load_config  # noqa: E402
+from pipeline.agency_map import load_feed_agency_map  # noqa: E402
 
 load_dotenv()
 
@@ -275,20 +276,6 @@ def load_feed_tz_map(config_path: Path) -> dict[str, str]:
     config = load_config(str(config_path))
     return {
         feed.name: agency.timezone
-        for agency in config.agencies
-        for feed in agency.feeds
-    }
-
-
-def load_feed_agency_map(config_path: Path) -> dict[str, tuple[str, str | None]]:
-    """feed_name -> (agency_id, mdb_feed_id_or_None) for GTFS-snapshot resolution.
-
-    Mirrors scripts/export_events.py: a feed's parent agency supplies both the
-    cache-path slug (agency_id) and the archived-feeds catalog id (mdb_feed_id).
-    """
-    config = load_config(str(config_path))
-    return {
-        feed.name: (agency.agency_id, agency.mdb_feed_id)
         for agency in config.agencies
         for feed in agency.feeds
     }

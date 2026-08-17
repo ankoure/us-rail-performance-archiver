@@ -111,7 +111,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from analysis.geo import cumulative_arc_length_m  # noqa: E402
 from analysis.gtfs_fetcher import GtfsResolver, pick_snapshot  # noqa: E402
-from archiver.loader import load_config  # noqa: E402
+from pipeline.agency_map import load_feed_agency_map  # noqa: E402
 
 load_dotenv()
 
@@ -372,21 +372,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if not args.day and not args.all_days:
         p.error("provide --day YYYY-MM-DD or --all-days")
     return args
-
-
-def load_feed_agency_map(config_path: Path) -> dict[str, tuple[str, str | None]]:
-    """feed_name -> (agency_id, mdb_feed_id_or_None) for GTFS-snapshot resolution.
-
-    Mirrors pipeline/gold.py's load_feed_agency_map: a feed's parent agency
-    supplies both the cache-path slug (agency_id) and the archived-feeds
-    catalog id (mdb_feed_id).
-    """
-    config = load_config(str(config_path))
-    return {
-        feed.name: (agency.agency_id, agency.mdb_feed_id)
-        for agency in config.agencies
-        for feed in agency.feeds
-    }
 
 
 def discover_dates_for_dir(feed: str, root: Path) -> list[dt.date]:
