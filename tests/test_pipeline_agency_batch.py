@@ -78,6 +78,8 @@ def test_run_agency_command_sequence(monkeypatch):
         day=DAY,
         force=False,
         include_gtfs=True,
+        curated_dir=Path("unused"),
+        cleanup=False,
     )
 
     assert result.ok
@@ -121,6 +123,8 @@ def test_run_agency_without_gtfs_skips_it(monkeypatch):
         day=DAY,
         force=False,
         include_gtfs=False,
+        curated_dir=Path("unused"),
+        cleanup=False,
     )
 
     assert all("pipeline/gtfs.py" not in c for c in calls)
@@ -143,6 +147,8 @@ def test_run_agency_stops_after_first_failure(monkeypatch):
         day=DAY,
         force=False,
         include_gtfs=False,
+        curated_dir=Path("unused"),
+        cleanup=False,
     )
 
     assert not result.ok
@@ -168,7 +174,14 @@ def test_run_all_one_agency_failing_does_not_block_others(monkeypatch):
         "NOMDB": ["nomdb-vehicles"],
     }
     results = agency_batch.run_all(
-        groups, config="cfg.yaml", day=DAY, force=False, include_gtfs=False, workers=2
+        groups,
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        include_gtfs=False,
+        workers=2,
+        curated_dir=Path("unused"),
+        cleanup=False,
     )
 
     by_agency = {r.agency_id: r for r in results}
@@ -184,7 +197,15 @@ def test_main_exit_code_reflects_failures(monkeypatch, config_path):
     monkeypatch.setattr(agency_batch.subprocess, "run", fake_run)
 
     exit_code = agency_batch.main(
-        ["--config", str(config_path), "--day", DAY.isoformat(), "--workers", "1"]
+        [
+            "--config",
+            str(config_path),
+            "--day",
+            DAY.isoformat(),
+            "--workers",
+            "1",
+            "--no-cleanup",
+        ]
     )
     assert exit_code == 1
 
@@ -197,7 +218,15 @@ def test_main_all_succeed_exit_code_zero(monkeypatch, config_path):
     )
 
     exit_code = agency_batch.main(
-        ["--config", str(config_path), "--day", DAY.isoformat(), "--workers", "1"]
+        [
+            "--config",
+            str(config_path),
+            "--day",
+            DAY.isoformat(),
+            "--workers",
+            "1",
+            "--no-cleanup",
+        ]
     )
     assert exit_code == 0
 
@@ -221,8 +250,117 @@ def test_main_agency_filter_narrows_run(monkeypatch, config_path):
             "NOMDB",
             "--workers",
             "1",
+            "--no-cleanup",
         ]
     )
 
     assert all("wmata" not in c for cmd in calls for c in cmd)
     assert any("nomdb-vehicles" in c for cmd in calls for c in cmd)
+
+
+def test_clean_agency_curated_deletes_only_named_feeds(tmp_path):
+    curated = tmp_path / "curated"
+    for rel in [
+        "vehicles/feed=wmata-vehicles/year=2026/month=8/day=17/data.parquet",
+        "trip_updates/feed=wmata-trips/year=2026/month=8/day=17/data.parquet",
+        "metrics/stop_day/feed=wmata-vehicles/year=2026/month=8/day=17/data.parquet",
+        "metrics/gtfs_stops/feed=wmata-vehicles/version=v1/data.parquet",
+        "snapshots/alerts/feed=wmata-alerts/year=2026/month=8/day=17/data.json.gz",
+        # a different agency's data, must survive untouched
+        "vehicles/feed=metrostl-vehicles/year=2026/month=8/day=17/data.parquet",
+    ]:
+        path = curated / rel
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"x")
+
+    agency_batch.clean_agency_curated(
+        curated, ["wmata-vehicles", "wmata-trips", "wmata-alerts"]
+    )
+
+    remaining = sorted(
+        p.relative_to(curated).as_posix() for p in curated.rglob("*") if p.is_file()
+    )
+    assert remaining == [
+        "vehicles/feed=metrostl-vehicles/year=2026/month=8/day=17/data.parquet"
+    ]
+
+
+def test_clean_agency_curated_missing_feed_is_a_noop(tmp_path):
+    curated = tmp_path / "curated"
+    curated.mkdir()
+    # should not raise even though nothing exists for this feed yet
+    agency_batch.clean_agency_curated(curated, ["never-existed"])
+
+
+def test_run_agency_cleans_up_on_success_and_on_failure(monkeypatch, tmp_path):
+    curated = tmp_path / "curated"
+    for feed in ["wmata-trips", "wmata-vehicles"]:
+        path = curated / f"vehicles/feed={feed}/year=2026/month=8/day=17/data.parquet"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        agency_batch.subprocess,
+        "run",
+        lambda cmd, *a, **kw: subprocess.CompletedProcess(cmd, 0),
+    )
+    agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        include_gtfs=False,
+        curated_dir=curated,
+        cleanup=True,
+    )
+    assert not any(curated.rglob("feed=wmata-*"))
+
+    # recreate, then verify cleanup also runs when a step fails partway through
+    for feed in ["wmata-trips", "wmata-vehicles"]:
+        path = curated / f"vehicles/feed={feed}/year=2026/month=8/day=17/data.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        agency_batch.subprocess,
+        "run",
+        lambda cmd, *a, **kw: subprocess.CompletedProcess(cmd, 1),
+    )
+    agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        include_gtfs=False,
+        curated_dir=curated,
+        cleanup=True,
+    )
+    assert not any(curated.rglob("feed=wmata-*"))
+
+
+def test_run_agency_no_cleanup_leaves_files(monkeypatch, tmp_path):
+    curated = tmp_path / "curated"
+    path = (
+        curated / "vehicles/feed=wmata-vehicles/year=2026/month=8/day=17/data.parquet"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        agency_batch.subprocess,
+        "run",
+        lambda cmd, *a, **kw: subprocess.CompletedProcess(cmd, 0),
+    )
+    agency_batch.run_agency(
+        "WMATA",
+        ["wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        include_gtfs=False,
+        curated_dir=curated,
+        cleanup=False,
+    )
+    assert path.exists()

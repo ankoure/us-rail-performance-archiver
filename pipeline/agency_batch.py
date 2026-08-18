@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from collections import defaultdict
@@ -82,8 +83,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Also run pipeline/gtfs.py per agency, folded into this loop instead "
         "of a separate full-fleet step.",
     )
+    p.add_argument(
+        "--curated-dir",
+        type=Path,
+        default=Path("data/curated"),
+        help="Curated root (default: data/curated) -- cleaned up per-agency after "
+        "ship.py uploads, so local disk doesn't accumulate the whole day's worth "
+        "of every agency's output before the task exits (see clean_agency_curated).",
+    )
+    p.add_argument(
+        "--no-cleanup",
+        action="store_true",
+        help="Skip deleting local curated files after each agency ships -- for "
+        "debugging a specific agency's output on disk.",
+    )
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args(argv)
+
+
+def clean_agency_curated(curated_dir: Path, feeds: list[str]) -> None:
+    """Delete every feed's local curated output (silver + gold + version-partitioned
+    GTFS marts + snapshots) after it's been shipped to S3.
+
+    Local disk is a single ~40 GiB volume shared by every agency this task
+    processes, and nothing else in the pipeline ever reclaims it -- ship.py
+    uploads to S3 but leaves the local copy in place. Left unchecked, a full
+    day's cumulative curated output across ~186 agencies exceeds the disk before
+    the run finishes (observed 2026-08-18: a run failed 25 agencies with "No
+    space left on device", clustered in the back half of the agency list --
+    i.e. disk filled up progressively, not from any one agency). S3 is already
+    the durable copy once ship.py succeeds, so the local copy has no further use
+    within this run.
+    """
+    for feed in feeds:
+        for d in curated_dir.glob(f"**/feed={feed}"):
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def _agency_feed_groups(config_path: str) -> dict[str, list[str]]:
@@ -144,6 +178,8 @@ def run_agency(
     day: date,
     force: bool,
     include_gtfs: bool,
+    curated_dir: Path,
+    cleanup: bool,
 ) -> AgencyResult:
     """rollup(each feed) -> [gtfs(all feeds)] -> gold(all feeds) -> ship(each feed).
 
@@ -151,6 +187,11 @@ def run_agency(
     (e.g. a failed rollup means gold/ship never run against stale or partial
     curated data for it) but always returns rather than raising -- the caller
     moves on to the next agency regardless.
+
+    Local curated output is cleaned up (unless `cleanup=False`) whether this
+    agency succeeded or failed -- disk is shared across every agency still to
+    come in this task, and a failed agency's partial output has no further use
+    once landing (the real source of truth, in S3) can re-roll it on retry.
     """
     day_str = day.isoformat()
     steps: list[list[str]] = [_rollup_cmd(f, day_str, config, force) for f in feeds]
@@ -159,6 +200,7 @@ def run_agency(
     steps.append(_gold_cmd(feeds, day_str, config, force))
     steps += [_ship_cmd(f, day_str, config, force) for f in feeds]
 
+    result_out = AgencyResult(agency_id, True)
     for cmd in steps:
         result = subprocess.run(cmd)
         if result.returncode != 0:
@@ -168,8 +210,12 @@ def run_agency(
                 result.returncode,
                 " ".join(cmd),
             )
-            return AgencyResult(agency_id, False, cmd, result.returncode)
-    return AgencyResult(agency_id, True)
+            result_out = AgencyResult(agency_id, False, cmd, result.returncode)
+            break
+
+    if cleanup:
+        clean_agency_curated(curated_dir, feeds)
+    return result_out
 
 
 def run_all(
@@ -180,6 +226,8 @@ def run_all(
     force: bool,
     include_gtfs: bool,
     workers: int,
+    curated_dir: Path,
+    cleanup: bool,
 ) -> list[AgencyResult]:
     results: list[AgencyResult] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -192,6 +240,8 @@ def run_all(
                 day=day,
                 force=force,
                 include_gtfs=include_gtfs,
+                curated_dir=curated_dir,
+                cleanup=cleanup,
             ): agency_id
             for agency_id, feeds in groups.items()
         }
@@ -226,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         include_gtfs=args.include_gtfs,
         workers=args.workers,
+        curated_dir=args.curated_dir,
+        cleanup=not args.no_cleanup,
     )
 
     failed = [r for r in results if not r.ok]
