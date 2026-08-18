@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { NavBar } from "@/components/NavBar";
 
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <NavBar />
           {children}
         </Suspense>
+        <Analytics />
       </body>
     </html>
   );
