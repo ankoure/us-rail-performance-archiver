@@ -67,7 +67,7 @@ def fetch_catalog(url: str) -> pd.DataFrame:
     except requests.RequestException as e:
         print(f"[gen] error fetching catalog from {url}: {e}", file=sys.stderr)
         sys.exit(1)
-    return pd.read_csv(io.StringIO(r.text))
+    return pd.read_csv(io.BytesIO(r.content), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
