@@ -54,7 +54,8 @@ def fetch_catalog(feed_id: str, api_url: str = DEFAULT_API_URL) -> pd.DataFrame:
     resp = requests.get(url, params={"feed_id": feed_id}, timeout=30)
     resp.raise_for_status()
     df = pd.read_csv(
-        io.StringIO(resp.text),
+        io.BytesIO(resp.content),
+        encoding="utf-8",
         dtype={"archive_url": str, "archive_note": str},
         parse_dates=["feed_start_date", "feed_end_date"],
         date_format="%Y%m%d",

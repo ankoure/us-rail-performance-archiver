@@ -3002,7 +3002,7 @@ agencies:
     tls_verify: true
   - agency_id: PID
     name: Prazska integrovana doprava (PID)
-    region: Praha, hlavnÃ­ meÅ¡to
+    region: Praha, hlavní mešto
     timezone: Europe/Prague
     base_url: https://api.golemio.cz/
     auth:
@@ -3101,7 +3101,7 @@ agencies:
     mdb_feed_id: mdb-865
     tls_verify: true
   - agency_id: AMB
-    name: "Ã\x80rea Metropolitana de Barcelona (AMB)"
+    name: "Àrea Metropolitana de Barcelona (AMB)"
     region: Barcelona
     timezone: Europe/Madrid
     base_url: https://www.ambmobilitat.cat/
@@ -3144,7 +3144,7 @@ agencies:
     mdb_feed_id: mdb-935
     tls_verify: true
   - agency_id: ZDITM
-    name: ZarzÄ d DrÃ³g i Transportu Miejskiego (ZDiTM)
+    name: Zarząd Dróg i Transportu Miejskiego (ZDiTM)
     region: Zachodniopomorskie
     timezone: Europe/Warsaw
     base_url: https://www.zditm.szczecin.pl/
@@ -3176,7 +3176,7 @@ agencies:
     mdb_feed_id: mdb-981
     tls_verify: true
   - agency_id: ZARZ_D_TRANSPORTU_MIEJSKIEGO_POZNA_ZTM_POZNA
-    name: "ZarzÄ\Nd Transportu Miejskiego PoznaÅ\x84 (ZTM PoznaÅ\x84)"
+    name: "Zarząd Transportu Miejskiego Poznań (ZTM Poznań)"
     region: Wielkopolskie
     timezone: Europe/Warsaw
     base_url: https://www.ztm.poznan.pl/
@@ -3219,7 +3219,7 @@ agencies:
     mdb_feed_id: mdb-1032
     tls_verify: true
   - agency_id: S_SUSISIEKIMO_PASLAUGOS
-    name: SÄ® 'Susisiekimo paslaugos'
+    name: SĮ 'Susisiekimo paslaugos'
     region: Vilniaus Apskritis
     timezone: Europe/Vilnius
     base_url: https://www.stops.lt/
@@ -3386,7 +3386,7 @@ agencies:
     mdb_feed_id: mdb-1091
     tls_verify: true
   - agency_id: IL_VIA_M_TROPOLE_EUROP_ENNE_DE_LILLE
-    name: IlÃ©via (MÃ©tropole EuropÃ©enne de Lille)
+    name: Ilévia (Métropole Européenne de Lille)
     region: Hauts-de-France
     timezone: Europe/Paris
     base_url: https://proxy.transport.data.gouv.fr/
@@ -3404,8 +3404,8 @@ agencies:
     mdb_feed_id: mdb-1201
     tls_verify: true
   - agency_id: ZARZ_D_TRANSPORTU_PUBLICZNEGO_W_KRAKOWIE_ZTP_KRAK_W
-    name: ZarzÄ d Transportu Publicznego w Krakowie (ZTP KrakÃ³w)
-    region: "MaÅ\x82opolskie"
+    name: Zarząd Transportu Publicznego w Krakowie (ZTP Kraków)
+    region: "Małopolskie"
     timezone: Europe/Warsaw
     base_url: https://gtfs.ztp.krakow.pl/
     auth:
@@ -3436,7 +3436,7 @@ agencies:
     mdb_feed_id: mdb-1270
     tls_verify: true
   - agency_id: ROMA_SERVIZI_PER_LA_MOBILIT
-    name: Roma Servizi per la MobilitÃ
+    name: Roma Servizi per la Mobilità
     region: Lazio
     timezone: Europe/Rome
     base_url: https://romamobilita.it/
@@ -3468,7 +3468,7 @@ agencies:
     mdb_feed_id: mdb-1294
     tls_verify: true
   - agency_id: R_SEAU_URBAIN_CAP_COTENTIN
-    name: RÃ©seau urbain Cap Cotentin
+    name: Réseau urbain Cap Cotentin
     region: Normandie
     timezone: Europe/Paris
     base_url: https://pysae.com/
@@ -3543,7 +3543,7 @@ agencies:
     mdb_feed_id: mdb-2027
     tls_verify: true
   - agency_id: PKP_INTERCITY
-    name: "Polskie Koleje PaÅ\x84stwowe Intercity (PKP Intercity)"
+    name: "Polskie Koleje Państwowe Intercity (PKP Intercity)"
     region: nan
     timezone: Europe/Warsaw
     base_url: https://gtfs.kasznia.net/
@@ -3561,9 +3561,8 @@ agencies:
     mdb_feed_id: mdb-2088
     tls_verify: true
   - agency_id: TPBI
-    name: "AsociaÈ\x9Bia de Dezvoltare IntercomunitarÄ\x83 pentru Transport Public BucureÈ\x99\
-      ti â\x80\x93 Ilfov (TPBI)"
-    region: "BucureÈ\x99ti"
+    name: "Asociația de Dezvoltare Intercomunitară pentru Transport Public București – Ilfov (TPBI)"
+    region: "București"
     timezone: Europe/Bucharest
     base_url: https://gtfs.tpbi.ro/
     auth:
@@ -3594,8 +3593,8 @@ agencies:
     mdb_feed_id: mdb-2098
     tls_verify: true
   - agency_id: TRANSBUS_BUZ_U
-    name: "Transbus BuzÄ\x83u"
-    region: "BuzÄ\x83u"
+    name: "Transbus Buzău"
+    region: "Buzău"
     timezone: Europe/Bucharest
     base_url: https://gtfsagent.transportpublic.ro/
     auth:
@@ -3619,8 +3618,8 @@ agencies:
     mdb_feed_id: mdb-2106
     tls_verify: true
   - agency_id: COMPANIA_DE_TRANSPORT_PUBLIC_IA_I
-    name: "Compania de Transport Public IaÈ\x99i"
-    region: "IaÈ\x99i"
+    name: "Compania de Transport Public Iași"
+    region: "Iași"
     timezone: Europe/Bucharest
     base_url: https://iasi-rt-feed.gtfs.ro/
     auth:
@@ -3694,8 +3693,8 @@ agencies:
     mdb_feed_id: mdb-2121
     tls_verify: true
   - agency_id: EMT
-    name: Empresa MalagueÃ±a de Transportes (EMT)
-    region: AndalucÃ­a
+    name: Empresa Malagueña de Transportes (EMT)
+    region: Andalucía
     timezone: Europe/Madrid
     base_url: https://gtfs.emtmalaga.es/
     auth:
@@ -3776,7 +3775,7 @@ agencies:
     mdb_feed_id: mdb-2400
     tls_verify: true
   - agency_id: RLV_MOBILIT_S
-    name: RLV MobilitÃ©s
+    name: RLV Mobilités
     region: Riom Limagne et Volcans
     timezone: Europe/Paris
     base_url: https://proxy.transport.data.gouv.fr/
@@ -4843,8 +4842,8 @@ agencies:
     mdb_feed_id: mdb-2587
     tls_verify: true
   - agency_id: ZARZ_D_TRANSPORTU_PUBLICZNEGO_W_KRAKOWIE_ZTP_KRAK_W_2598
-    name: ZarzÄ d Transportu Publicznego w Krakowie (ZTP KrakÃ³w) (mdb-2598)
-    region: "MaÅ\x82opolskie"
+    name: Zarząd Transportu Publicznego w Krakowie (ZTP Kraków) (mdb-2598)
+    region: "Małopolskie"
     timezone: Europe/Warsaw
     base_url: https://gtfs.ztp.krakow.pl/
     auth:
@@ -4875,7 +4874,7 @@ agencies:
     mdb_feed_id: mdb-2598
     tls_verify: true
   - agency_id: TBM
-    name: Transports Bordeaux MÃ©tropole (TBM)
+    name: Transports Bordeaux Métropole (TBM)
     region: Nouvelle-Aquitaine
     timezone: Europe/Paris
     base_url: https://bdx.mecatran.com/
@@ -4907,7 +4906,7 @@ agencies:
     mdb_feed_id: mdb-2622
     tls_verify: true
   - agency_id: TCAT_2627
-    name: "Transports en Commun de lâ\x80\x99AgglomÃ©ration Troyenne (TCAT)"
+    name: "Transports en Commun de l’Agglomération Troyenne (TCAT)"
     region: Grand Est
     timezone: Europe/Paris
     base_url: http://94.143.218.42:13485/
