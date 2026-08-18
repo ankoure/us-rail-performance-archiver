@@ -78,6 +78,7 @@ def test_run_agency_command_sequence(monkeypatch):
         day=DAY,
         force=False,
         include_gtfs=True,
+        include_snapshot=False,
         curated_dir=Path("unused"),
         cleanup=False,
     )
@@ -123,11 +124,40 @@ def test_run_agency_without_gtfs_skips_it(monkeypatch):
         day=DAY,
         force=False,
         include_gtfs=False,
+        include_snapshot=False,
         curated_dir=Path("unused"),
         cleanup=False,
     )
 
     assert all("pipeline/gtfs.py" not in c for c in calls)
+
+
+def test_run_agency_with_snapshot_included(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(agency_batch.subprocess, "run", fake_run)
+
+    agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        include_gtfs=False,
+        include_snapshot=True,
+        curated_dir=Path("unused"),
+        cleanup=False,
+    )
+
+    # snapshot runs first, once, with both feed names, --feed last (nargs="+" is greedy)
+    scripts = [c[1] for c in calls]
+    assert scripts[0] == "pipeline/snapshot.py"
+    assert calls[0][-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
+    assert scripts.count("pipeline/snapshot.py") == 1
 
 
 def test_run_agency_stops_after_first_failure(monkeypatch):
@@ -147,6 +177,7 @@ def test_run_agency_stops_after_first_failure(monkeypatch):
         day=DAY,
         force=False,
         include_gtfs=False,
+        include_snapshot=False,
         curated_dir=Path("unused"),
         cleanup=False,
     )
@@ -179,6 +210,7 @@ def test_run_all_one_agency_failing_does_not_block_others(monkeypatch):
         day=DAY,
         force=False,
         include_gtfs=False,
+        include_snapshot=False,
         workers=2,
         curated_dir=Path("unused"),
         cleanup=False,
@@ -311,6 +343,7 @@ def test_run_agency_cleans_up_on_success_and_on_failure(monkeypatch, tmp_path):
         day=DAY,
         force=False,
         include_gtfs=False,
+        include_snapshot=False,
         curated_dir=curated,
         cleanup=True,
     )
@@ -334,6 +367,7 @@ def test_run_agency_cleans_up_on_success_and_on_failure(monkeypatch, tmp_path):
         day=DAY,
         force=False,
         include_gtfs=False,
+        include_snapshot=False,
         curated_dir=curated,
         cleanup=True,
     )
@@ -360,6 +394,7 @@ def test_run_agency_no_cleanup_leaves_files(monkeypatch, tmp_path):
         day=DAY,
         force=False,
         include_gtfs=False,
+        include_snapshot=False,
         curated_dir=curated,
         cleanup=False,
     )

@@ -81,12 +81,6 @@ locals {
     # instead of silently dropped.
     START=$(date +%s)
     trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --seconds $(( $(date +%s) - START )) || true' EXIT
-    # Dedup last-write-wins alert snapshots from raw landing polls (curated/alerts
-    # itself is a raw per-poll log — see analysis/alert_snapshot.py). Only needs
-    # landing, not rollup's curated silver output, so it runs full-fleet ahead of
-    # the per-agency loop below; no unbounded per-run state (unlike gtfs.py/gold.py
-    # below), so it hasn't needed the same isolation.
-    python pipeline/snapshot.py --config /tmp/fargate.yaml --day "$DAY"
 
     # 2026-08-17: rollup/gtfs/gold/ship replaced with pipeline/agency_batch.py,
     # which runs each agency's slice of that same chain as its own disposable
@@ -103,13 +97,22 @@ locals {
     # agency instead of once per fleet naturally bounds it. --include-gtfs folds
     # gtfs.py into the same per-agency isolation for the same reason.
     #
+    # 2026-08-18: --include-snapshot added after snapshot.py -- left standalone
+    # above on the theory that it had no unbounded per-run state, unlike
+    # gtfs.py/gold.py -- OOM-killed the very first scheduled run of this
+    # restructured script (task 0b2143bc, day Aug 17), before agency_batch.py
+    # ever got to start. Lesson: the identified caches were never the only
+    # risk. ANY step handling the whole fleet sequentially in one long-lived
+    # process is exposed to the same allocator-level issue, cache bug or not --
+    # so nothing full-fleet is left in this script anymore.
+    #
     # `set +e` / capture $? / `set -e` lets this capture agency_batch.py's exit
     # code without set -e killing the script mid-line (which would skip the
     # Datadog-drain sleep below) -- one agency's failure doesn't stop others
     # (see agency_batch.py's own docstring), but the container's own exit code
     # still needs to go nonzero on a bad day so ECS/CloudWatch alarms still fire.
     set +e
-    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs
+    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs --include-snapshot
     AGENCY_STATUS=$?
     set -e
     if [ "$AGENCY_STATUS" -ne 0 ]; then
@@ -118,7 +121,7 @@ locals {
     # cert_check.py and s3_storage_metrics.py used to run here as auxiliary
     # `|| true` steps. Split out 2026-08-06 into their own scheduled ECS tasks
     # (cert_check.tf, aux_schedule.tf) — neither touches curated_dir or takes
-    # --day, so unlike snapshot/agency_batch they don't need this task's shared
+    # --day, so unlike agency_batch they don't need this task's shared
     # local disk and don't need to ride along in this ~2.5h window.
     # Drain: DogStatsD is fire-and-forget UDP and the sidecar flushes on an
     # interval, so pause before the essential container exits (which SIGTERMs the

@@ -84,6 +84,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "of a separate full-fleet step.",
     )
     p.add_argument(
+        "--include-snapshot",
+        action="store_true",
+        help="Also run pipeline/snapshot.py per agency, folded into this loop "
+        "instead of a separate full-fleet step. snapshot.py has no identified "
+        "unbounded cache, but 2026-08-18 proved that doesn't matter -- any step "
+        "handling the whole fleet in one long-lived process is at risk of the "
+        "same allocator-level OOM, cache bug or not.",
+    )
+    p.add_argument(
         "--curated-dir",
         type=Path,
         default=Path("data/curated"),
@@ -126,6 +135,13 @@ def _agency_feed_groups(config_path: str) -> dict[str, list[str]]:
     for feed_name, (agency_id, _mdb) in load_feed_agency_map(config_path).items():
         groups[agency_id].append(feed_name)
     return {aid: sorted(feeds) for aid, feeds in sorted(groups.items())}
+
+
+def _snapshot_cmd(feeds: list[str], day: str, config: str, force: bool) -> list[str]:
+    # --feed uses nargs="+" and is greedy -- keep it last in the argv.
+    cmd = [sys.executable, "pipeline/snapshot.py", "-c", config, "--day", day]
+    cmd += (["-f"] if force else []) + ["--feed", *feeds]
+    return cmd
 
 
 def _rollup_cmd(feed: str, day: str, config: str, force: bool) -> list[str]:
@@ -178,10 +194,12 @@ def run_agency(
     day: date,
     force: bool,
     include_gtfs: bool,
+    include_snapshot: bool,
     curated_dir: Path,
     cleanup: bool,
 ) -> AgencyResult:
-    """rollup(each feed) -> [gtfs(all feeds)] -> gold(all feeds) -> ship(each feed).
+    """[snapshot(all feeds)] -> rollup(each feed) -> [gtfs(all feeds)] ->
+    gold(all feeds) -> ship(each feed).
 
     Stops at the first failing step and skips the rest of THIS agency's steps
     (e.g. a failed rollup means gold/ship never run against stale or partial
@@ -194,7 +212,10 @@ def run_agency(
     once landing (the real source of truth, in S3) can re-roll it on retry.
     """
     day_str = day.isoformat()
-    steps: list[list[str]] = [_rollup_cmd(f, day_str, config, force) for f in feeds]
+    steps: list[list[str]] = []
+    if include_snapshot:
+        steps.append(_snapshot_cmd(feeds, day_str, config, force))
+    steps += [_rollup_cmd(f, day_str, config, force) for f in feeds]
     if include_gtfs:
         steps.append(_gtfs_cmd(feeds, day_str, config, force))
     steps.append(_gold_cmd(feeds, day_str, config, force))
@@ -225,6 +246,7 @@ def run_all(
     day: date,
     force: bool,
     include_gtfs: bool,
+    include_snapshot: bool,
     workers: int,
     curated_dir: Path,
     cleanup: bool,
@@ -240,6 +262,7 @@ def run_all(
                 day=day,
                 force=force,
                 include_gtfs=include_gtfs,
+                include_snapshot=include_snapshot,
                 curated_dir=curated_dir,
                 cleanup=cleanup,
             ): agency_id
@@ -262,11 +285,13 @@ def main(argv: list[str] | None = None) -> int:
         groups = {a: f for a, f in groups.items() if a in args.agency}
 
     logger.info(
-        "agency_batch: %d agencies, day=%s, workers=%d, include_gtfs=%s",
+        "agency_batch: %d agencies, day=%s, workers=%d, include_gtfs=%s, "
+        "include_snapshot=%s",
         len(groups),
         args.day,
         args.workers,
         args.include_gtfs,
+        args.include_snapshot,
     )
 
     results = run_all(
@@ -275,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         day=args.day,
         force=args.force,
         include_gtfs=args.include_gtfs,
+        include_snapshot=args.include_snapshot,
         workers=args.workers,
         curated_dir=args.curated_dir,
         cleanup=not args.no_cleanup,
