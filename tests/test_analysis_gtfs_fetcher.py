@@ -32,6 +32,10 @@ class FakeResponse:
     text: str = ""
     content: bytes = b""
 
+    def __post_init__(self) -> None:
+        if self.text and not self.content:
+            self.content = self.text.encode("utf-8")
+
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP {self.status_code}")
