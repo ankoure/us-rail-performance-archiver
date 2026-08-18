@@ -28,6 +28,7 @@ export function AgencyPicker() {
     } else {
       params.delete("agency");
     }
+    params.delete("line");
     router.push(`${pathname}?${params.toString()}`);
   }
 
