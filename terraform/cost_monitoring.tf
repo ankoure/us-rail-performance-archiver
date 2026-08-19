@@ -96,8 +96,17 @@ resource "aws_ce_anomaly_monitor" "project" {
   name         = "rail-archiver-cost-anomaly"
   monitor_type = "CUSTOM"
   monitor_specification = jsonencode({
+    # AWS always returns the full Expression object (every sibling filter
+    # type explicitly null) — matching that shape here, including the
+    # "user:" prefix AWS normalizes a cost-allocation tag key to, avoids a
+    # permanent destroy+recreate diff on every plan.
+    And            = null
+    Or             = null
+    Not            = null
+    Dimensions     = null
+    CostCategories = null
     Tags = {
-      Key          = "project"
+      Key          = "user:project"
       Values       = ["rail-archiver"]
       MatchOptions = ["EQUALS"]
     }
@@ -105,8 +114,11 @@ resource "aws_ce_anomaly_monitor" "project" {
 }
 
 resource "aws_ce_anomaly_subscription" "project" {
-  name             = "rail-archiver-cost-anomaly-subscription"
-  frequency        = "DAILY"
+  name = "rail-archiver-cost-anomaly-subscription"
+  # AWS only allows DAILY/WEEKLY digest frequencies for EMAIL subscribers;
+  # an SNS subscriber (used here so it routes through the same topic as
+  # Budgets) requires IMMEDIATE — it fires per-anomaly instead of batching.
+  frequency        = "IMMEDIATE"
   monitor_arn_list = [aws_ce_anomaly_monitor.project.arn]
 
   subscriber {
