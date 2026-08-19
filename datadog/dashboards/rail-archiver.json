@@ -754,6 +754,41 @@
                 }
               ]
             }
+          },
+          {
+            "definition": {
+              "type": "note",
+              "content": "Per-agency cost from a live hot/cold LIST scan (pipeline/s3_agency_scan.py, shared with scripts/s3_cost_report.py), NOT from the CloudWatch bucket-level metric above — CloudWatch can't break a bucket's size down by agency. Total across landing (estimated)/hot/cold/requests per agency; not split by bucket_role to keep the added custom-metric count down (~186 agencies).",
+              "background_color": "gray",
+              "font_size": "14",
+              "text_align": "left",
+              "show_tick": false
+            }
+          },
+          {
+            "definition": {
+              "type": "toplist",
+              "title": "S3 cost by agency (est. $/mo)",
+              "requests": [
+                {
+                  "response_format": "scalar",
+                  "queries": [
+                    {
+                      "name": "cost",
+                      "data_source": "metrics",
+                      "query": "avg:s3.storage.cost_estimated_usd{$env, service:rail-archiver} by {agency}",
+                      "aggregator": "avg"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "cost",
+                      "limit": { "count": 25, "order": "desc" }
+                    }
+                  ]
+                }
+              ]
+            }
           }
         ]
       }

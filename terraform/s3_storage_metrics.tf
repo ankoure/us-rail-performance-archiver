@@ -5,6 +5,10 @@
 # (see cert_check.tf) it can run on its own schedule instead of riding along
 # inside the rollup. CloudWatch only publishes BucketSizeBytes once/day, so
 # running this more than once/day would just re-read the same datapoint.
+#
+# Also runs a live hot/cold LIST scan (pipeline/s3_agency_scan.py, shared with
+# scripts/s3_cost_report.py) to emit per-agency s3.storage.cost_estimated_usd
+# gauges — CloudWatch's bucket-level metric can't be broken down by agency.
 
 resource "aws_cloudwatch_log_group" "s3_storage_metrics" {
   name              = "/ecs/rail-archiver-s3-storage-metrics"
@@ -34,6 +38,14 @@ resource "aws_iam_role_policy" "s3_storage_metrics_task" {
         # reads each one. CloudWatch metric reads aren't resource-scoped, hence "*".
         Action   = ["cloudwatch:ListMetrics", "cloudwatch:GetMetricStatistics"]
         Resource = ["*"]
+      },
+      {
+        # Read-only: the per-agency scan only lists object keys/sizes
+        # (list_objects_v2), never reads object contents, so no GetObject.
+        Sid      = "ListHotColdForAgencyScan"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = ["arn:aws:s3:::${var.hot_bucket}", "arn:aws:s3:::${var.cold_bucket}"]
       },
     ]
   })

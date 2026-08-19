@@ -203,3 +203,22 @@ variable "historic_511_schedule_expression" {
   default     = "cron(0 6 5 * ? *)"
   description = "EventBridge Scheduler expression (UTC) for the monthly 511.org historic-archive pull — 5th of the month, giving 511 a few days' buffer to publish the prior month's archive."
 }
+
+# --- Cost monitoring -------------------------------------------------------- #
+
+variable "cost_alert_email" {
+  type        = string
+  description = "Email address subscribed to AWS Budgets / Cost Anomaly Detection alerts (cost_monitoring.tf). AWS sends a confirmation email after apply that must be clicked before delivery starts."
+}
+
+variable "monthly_cost_budget_usd" {
+  type        = string
+  default     = "50"
+  description = "Placeholder monthly budget (USD) for this project's tagged spend. The account is shared with other projects, so there's no real baseline yet — revisit after the first month of cost-allocation-tag data."
+}
+
+variable "cost_anomaly_threshold_usd" {
+  type        = string
+  default     = "10"
+  description = "Minimum dollar impact for a Cost Anomaly Detection alert to fire, so small noise doesn't page."
+}

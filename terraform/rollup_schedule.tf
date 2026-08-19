@@ -67,6 +67,9 @@ resource "aws_scheduler_schedule" "rollup" {
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.rollup.arn
       task_count          = 1
+      # Distinguishes scheduled runs from manual/backfill run-task invocations
+      # in Cost Explorer — see scripts/run_task.sh for the manual side.
+      tags = { trigger = "scheduled" }
       # On-demand, NOT FARGATE_SPOT: the rollup reads the day from S3 object by
       # object (~2.5h) and EventBridge fires once daily with no retry, so a Spot
       # reclaim mid-run would silently drop that day. On-demand for ~2.5h/day is

@@ -65,6 +65,9 @@ resource "aws_scheduler_schedule" "cert_check" {
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.cert_check.arn
       task_count          = 1
+      # Distinguishes scheduled runs from manual/backfill run-task invocations
+      # in Cost Explorer — see scripts/run_task.sh for the manual side.
+      tags = { trigger = "scheduled" }
 
       # EventBridge Scheduler's ecs_parameters.launch_type only accepts
       # EC2/FARGATE/EXTERNAL -- Spot has to go through capacity_provider_strategy
@@ -104,6 +107,7 @@ resource "aws_scheduler_schedule" "s3_storage_metrics" {
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.s3_storage_metrics.arn
       task_count          = 1
+      tags                = { trigger = "scheduled" }
 
       capacity_provider_strategy {
         capacity_provider = "FARGATE_SPOT"
@@ -137,6 +141,7 @@ resource "aws_scheduler_schedule" "historic_511" {
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.historic_511.arn
       task_count          = 1
+      tags                = { trigger = "scheduled" }
 
       # Short and re-runnable by hand later (511 archives are addressable by
       # month, not just "latest"), same reasoning as cert_check/s3_storage_metrics.
