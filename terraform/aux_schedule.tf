@@ -43,6 +43,16 @@ resource "aws_iam_role_policy" "aux_scheduler" {
           aws_iam_role.historic_511_task.arn,
         ]
       },
+      {
+        # RunTask with ecs_parameters.tags set requires ecs:TagResource too —
+        # see the identical Sid in rollup_schedule.tf for how this broke the
+        # rollup schedule outright (missing here too, just not yet observed
+        # since these 3 schedules are currently disabled).
+        Sid      = "TagTaskOnRun"
+        Effect   = "Allow"
+        Action   = ["ecs:TagResource"]
+        Resource = ["arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.main.name}/*"]
+      },
     ]
   })
 }

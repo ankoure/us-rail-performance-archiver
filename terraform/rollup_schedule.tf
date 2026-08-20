@@ -45,6 +45,18 @@ resource "aws_iam_role_policy" "rollup_scheduler" {
         Action   = ["iam:PassRole"]
         Resource = [aws_iam_role.rollup_task.arn, aws_iam_role.rollup_execution.arn]
       },
+      {
+        # RunTask with ecs_parameters.tags set (added for scheduled-vs-manual
+        # cost tracking) requires ecs:TagResource too — AWS treats tagging the
+        # task being created as a separate permission check from RunTask
+        # itself. Missing this broke every scheduled rollup run outright
+        # (AccessDenied on ecs:TagResource, confirmed via CloudTrail for the
+        # 2026-08-20 03:30 UTC run — the rollup never started that night).
+        Sid      = "TagTaskOnRun"
+        Effect   = "Allow"
+        Action   = ["ecs:TagResource"]
+        Resource = ["arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.main.name}/*"]
+      },
     ]
   })
 }

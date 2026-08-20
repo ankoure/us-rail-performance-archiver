@@ -150,5 +150,20 @@
       "include_tags": true,
       "new_group_delay": 300
     }
+  },
+  {
+    "name": "[rail-archiver] Host disk usage high",
+    "type": "metric alert",
+    "query": "max(last_10m):max:system.disk.in_use{host:rail-archiver, device:/dev/nvme0n1p1} * 100 > 85",
+    "message": "The poller box's root filesystem is {{value}}% full.\n\n`system.disk.in_use` is the Datadog Agent's default `disk` check — no custom instrumentation needed, it was already running (confirmed 2026-08-20: matches `df -h /` exactly, since the agent container's own overlay root lives on the same volume as the host — there's no separate data disk on this box). This alert just didn't exist before 2026-08-20 — the local landing zone (raw window `.bin` files plus the local-only daily `data.jsonl`, see `landing_layout.py`) grew unbounded for weeks with nothing watching disk size or pruning it, and the box went down when it filled.\n\nMost common causes:\n- `rail-archiver-prune.timer` stopped firing or is erroring (check `journalctl -u rail-archiver-prune.service`) — it only deletes a day-partition once its cold tarball is confirmed in S3, so a stuck/failing ship path silently blocks pruning too\n- A single feed producing abnormally large raw payloads (e.g. `gtfs-de-delfi-realtime-data-trips-alerts`, a nationwide feed with ~150-200MB per 5-min window) outgrowing the 3-day buffer\n- Docker image/log buildup unrelated to the landing zone\n\nInvestigate:\n```\ndf -h /\ndu -sh /opt/rail-archiver/archive/*/ | sort -rh | head -20\njournalctl -u rail-archiver-prune.service --no-pager | tail -60\ndocker system df\n```\n\n@andkoure@gmail.com @slack-rail-alerts",
+    "tags": ["service:rail-archiver", "env:prod", "layer:infra"],
+    "options": {
+      "notify_no_data": true,
+      "no_data_timeframe": 30,
+      "renotify_interval": 120,
+      "thresholds": { "critical": 85, "warning": 70 },
+      "include_tags": true,
+      "require_full_window": false
+    }
   }
 ]

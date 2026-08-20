@@ -15,8 +15,13 @@ variable "poller_instance_type" {
 }
 
 variable "poller_root_gb" {
-  type    = number
-  default = 30
+  type = number
+  # Manually resized 30 -> 50 on 2026-08-20 (EC2 console/CLI, out of band) to
+  # recover from the local-landing-fills-disk outage; this default was never
+  # updated to match, so `terraform plan` wanted to shrink it back to 30 --
+  # which EBS can't even do via ModifyVolume. Keep this in sync with the live
+  # volume size going forward.
+  default = 50
 }
 
 variable "poller_subnet_id" {
@@ -72,6 +77,47 @@ locals {
     echo "/swapfile none swap sw 0 0" >> /etc/fstab
     echo "vm.swappiness=10" > /etc/sysctl.d/99-swappiness.conf
     sysctl --system
+
+    # Local landing prune, daily. Without this the on-box landing zone (raw
+    # window .bin files + the local-only daily data.jsonl -- see
+    # landing_layout.py, which deliberately excludes data.jsonl from the S3
+    # upload scan) grows unbounded and eventually fills the disk: this is what
+    # caused the 2026-08-20 outage, after which this timer was hand-added via
+    # SSM session and NOT captured in terraform -- so a box replacement would
+    # silently lose it and reproduce the same outage. --keep-days 3 only
+    # deletes a day-partition once its cold tarball is confirmed in S3, so
+    # it's crash-safe; it no-ops harmlessly (container not up yet) until the
+    # operator's first `docker compose up`.
+    # printf line-by-line (not a nested heredoc): this script's own <<-EOT
+    # wrapper strips leading indentation by an amount tied to ITS closing
+    # marker, so a nested heredoc's closing line would land at an unpredictable
+    # column and could fail to match -- printf has no such indentation hazard.
+    printf '%s\n' \
+      '[Unit]' \
+      'Description=Prune local rail-archiver landing zone (deletes only S3-cold-confirmed day-partitions)' \
+      'After=docker.service' \
+      'Requires=docker.service' \
+      '' \
+      '[Service]' \
+      'Type=oneshot' \
+      'ExecStart=/usr/bin/docker exec rail-archiver-app-shard-0-1 python pipeline/prune.py --keep-days 3 -v' \
+      > /etc/systemd/system/rail-archiver-prune.service
+
+    printf '%s\n' \
+      '[Unit]' \
+      'Description=Daily rail-archiver local landing zone prune' \
+      '' \
+      '[Timer]' \
+      'OnCalendar=daily' \
+      'RandomizedDelaySec=15m' \
+      'Persistent=true' \
+      '' \
+      '[Install]' \
+      'WantedBy=timers.target' \
+      > /etc/systemd/system/rail-archiver-prune.timer
+
+    systemctl daemon-reload
+    systemctl enable --now rail-archiver-prune.timer
 
     # Bootstrap done. Pollers are NOT started here: that waits until .env is
     # added (SSM session, with sudo) and the operator runs `docker compose up`,
