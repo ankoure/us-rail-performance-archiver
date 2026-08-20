@@ -112,8 +112,58 @@ variable "rollup_memory" {
   # was removed in 0dfa987 the same day as the incident that comment
   # describes (2026-08-03), so it hasn't existed for the 13 days this bug's
   # been live. This bump just buys headroom while the real cause is found.
-  default     = "20480"
-  description = "Fargate task memory (MiB) for the rollup stage."
+  #
+  # 2026-08-20: dropped 20 -> 16 GiB after splitting local.heavy_agencies
+  # (currently just GO_AHEAD, exit -9/SIGKILL on the 2026-08-19 run) out to
+  # their own rollup_heavy task with its own memory ceiling -- see rollup.tf.
+  # This is a first conservative step, not a measured value: the remaining
+  # ~185 agencies still run concurrently (rollup_cpu workers) and share this
+  # ceiling, so watch a few post-split runs before cutting further.
+  default     = "16384"
+  description = "Fargate task memory (MiB) for the rollup stage (excludes local.heavy_agencies, see rollup_heavy_memory)."
+}
+
+variable "rollup_heavy_cpu" {
+  type        = string
+  default     = "1024" # 1 vCPU -- runs local.heavy_agencies with --workers 1, no concurrency to parallelize
+  description = "Fargate task CPU units for the rollup_heavy stage (the agencies split out of the main rollup task for OOM isolation)."
+}
+
+variable "rollup_heavy_memory" {
+  type = string
+  # Starting point, not a measured peak: GO_AHEAD (the only agency here so
+  # far) got SIGKILLed sharing the main task's 20 GiB with 3 concurrent
+  # sibling agencies -- it's untested what GO_AHEAD alone actually needs.
+  # 8 GiB roughly matches the pre-dedup single-worker peak this file's
+  # rollup_memory history references (4.59 GiB) with ~2x headroom for one
+  # large agency running alone (--workers 1, see local.rollup_heavy_script).
+  # Bump if this task OOMs too -- same iterative tuning as rollup_memory's
+  # history above.
+  default     = "8192"
+  description = "Fargate task memory (MiB) for the rollup_heavy stage."
+}
+
+variable "rollup_heavy_schedule_enabled" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    Whether the daily EventBridge schedule for the rollup_heavy task is
+    ENABLED. Same cautious rollout as the other schedule vars: apply
+    disabled, verify local.heavy_agencies succeed with a manual run-task,
+    then flip to true.
+
+    IMPORTANT: the main rollup task's --exclude-agency is unconditional (not
+    gated by this var) -- once applied, local.heavy_agencies stop being
+    processed by the main task regardless of whether this schedule is on.
+    Don't leave this disabled for long after that apply, or those agencies
+    silently get skipped by BOTH tasks with no rollup/gold/ship output at all.
+  EOT
+}
+
+variable "rollup_heavy_schedule_expression" {
+  type        = string
+  default     = "cron(30 3 * * ? *)" # same slot as the main rollup -- independent tasks, no shared disk, safe to run concurrently
+  description = "EventBridge Scheduler expression (UTC) for the daily rollup_heavy task."
 }
 
 variable "rollup_ephemeral_storage_gib" {

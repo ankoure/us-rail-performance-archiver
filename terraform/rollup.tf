@@ -68,6 +68,20 @@ resource "aws_cloudwatch_log_group" "rollup" {
 # saw an empty curated/ and silently no-op'd every feed. Revisit the split
 # once one of those is in place.
 locals {
+  # Agencies pulled out of the main rollup task into rollup_heavy, below, so
+  # they get their own memory ceiling instead of competing with 3 concurrent
+  # siblings for the main task's rollup_memory. This is a split by AGENCY,
+  # not by pipeline STAGE -- each task still runs the full per-agency
+  # rollup->gtfs->gold->ship chain against its own ephemeral disk, so the
+  # shared-local-disk problem that killed the earlier Step Functions
+  # stage-split (see the NOTE above) doesn't apply here.
+  #
+  # Currently just GO_AHEAD: SIGKILLed (exit -9) in the 2026-08-19 run while
+  # sharing the main task's memory with concurrent siblings. Add an agency_id
+  # here (and re-apply) the next time one OOMs instead of just bumping
+  # rollup_memory again.
+  heavy_agencies = ["GO_AHEAD"]
+
   rollup_script = <<-EOT
     set -e
     DAY="$${ROLLUP_DAY:-$(date -u -d yesterday +%F)}"
@@ -112,7 +126,7 @@ locals {
     # (see agency_batch.py's own docstring), but the container's own exit code
     # still needs to go nonzero on a bad day so ECS/CloudWatch alarms still fire.
     set +e
-    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs --include-snapshot
+    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs --include-snapshot --exclude-agency ${join(" ", local.heavy_agencies)}
     AGENCY_STATUS=$?
     set -e
     if [ "$AGENCY_STATUS" -ne 0 ]; then
@@ -207,5 +221,110 @@ resource "aws_ecs_task_definition" "rollup" {
       }
     }
 
+  ])
+}
+
+# --- rollup_heavy: local.heavy_agencies, isolated for their own memory ---- #
+# Same per-agency rollup->gtfs->gold->ship chain as the main task (via the
+# same agency_batch.py, just --agency-scoped instead of --exclude-agency'd),
+# reusing the main task's execution/task roles since it needs identical S3 +
+# secrets access. --workers 1: with only a handful of agencies here, there's
+# no reason to let them compete for memory concurrently the same way that got
+# GO_AHEAD SIGKILLed in the main task in the first place.
+
+resource "aws_cloudwatch_log_group" "rollup_heavy" {
+  name              = "/ecs/rail-archiver-rollup-heavy"
+  retention_in_days = var.log_retention_days
+}
+
+locals {
+  rollup_heavy_script = <<-EOT
+    set -e
+    DAY="$${ROLLUP_DAY:-$(date -u -d yesterday +%F)}"
+    echo "rollup_heavy day: $DAY, agencies: ${join(" ", local.heavy_agencies)}"
+    python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
+    START=$(date +%s)
+    trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --metric pipeline.rollup_heavy.duration --seconds $(( $(date +%s) - START )) || true' EXIT
+
+    set +e
+    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs --include-snapshot --workers 1 --agency ${join(" ", local.heavy_agencies)}
+    AGENCY_STATUS=$?
+    set -e
+    if [ "$AGENCY_STATUS" -ne 0 ]; then
+      echo "agency_batch (heavy): one or more agencies failed for $DAY -- see per-agency log lines above" >&2
+    fi
+    sleep 15
+    exit "$AGENCY_STATUS"
+  EOT
+}
+
+resource "aws_ecs_task_definition" "rollup_heavy" {
+  family                   = "rail-archiver-rollup-heavy"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = var.rollup_heavy_cpu
+  memory                   = var.rollup_heavy_memory
+  execution_role_arn       = aws_iam_role.rollup_execution.arn
+  task_role_arn            = aws_iam_role.rollup_task.arn
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+
+  # No explicit block -- Fargate's unconfigured 20 GiB default is already
+  # generous for the handful of agencies here vs. the main task's 40 GiB
+  # shared across ~185 (rollup_ephemeral_storage_gib).
+
+  container_definitions = jsonencode([
+    {
+      name      = "rollup-heavy"
+      image     = var.rollup_image
+      essential = true
+      command   = ["sh", "-c", local.rollup_heavy_script]
+      environment = [
+        { name = "HOT_BUCKET", value = var.hot_bucket },
+        { name = "AWS_REQUEST_CHECKSUM_CALCULATION", value = "when_required" },
+      ]
+      secrets = [
+        for k in var.agency_secret_keys :
+        { name = k, valueFrom = "${aws_secretsmanager_secret.env.arn}:${k}::" }
+      ]
+      dependsOn = [
+        { containerName = "datadog-agent", condition = "START" }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.rollup_heavy.name
+          "awslogs-region"        = var.region
+          "awslogs-stream-prefix" = "rollup-heavy"
+        }
+      }
+    },
+    {
+      name      = "datadog-agent"
+      image     = "gcr.io/datadoghq/agent:7"
+      essential = false
+      memory    = 512
+      environment = [
+        { name = "DD_SITE", value = "datadoghq.com" },
+        { name = "DD_DOGSTATSD_NON_LOCAL_TRAFFIC", value = "true" },
+        { name = "DD_APM_ENABLED", value = "false" },
+        { name = "ECS_FARGATE", value = "true" },
+      ]
+      secrets = [
+        { name = "DD_API_KEY", valueFrom = "${aws_secretsmanager_secret.env.arn}:DD_API_KEY::" }
+      ]
+      stopTimeout = 120
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.rollup_heavy.name
+          "awslogs-region"        = var.region
+          "awslogs-stream-prefix" = "dd-agent"
+        }
+      }
+    }
   ])
 }

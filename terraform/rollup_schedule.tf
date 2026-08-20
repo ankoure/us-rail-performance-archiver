@@ -31,9 +31,15 @@ resource "aws_iam_role_policy" "rollup_scheduler" {
         Sid    = "RunTask"
         Effect = "Allow"
         Action = ["ecs:RunTask"]
-        # Any revision of the family, so re-registering the task def (new apply)
-        # doesn't require re-granting.
-        Resource = ["arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task-definition/${aws_ecs_task_definition.rollup.family}:*"]
+        # Any revision of either family, so re-registering a task def (new
+        # apply) doesn't require re-granting. rollup_heavy added 2026-08-20
+        # (local.heavy_agencies split, see rollup.tf) -- it reuses this same
+        # scheduler role since it's conceptually part of the rollup family,
+        # not an aux task (contrast aux_schedule.tf's cert_check/etc.).
+        Resource = [
+          "arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task-definition/${aws_ecs_task_definition.rollup.family}:*",
+          "arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task-definition/${aws_ecs_task_definition.rollup_heavy.family}:*",
+        ]
         Condition = {
           ArnLike = { "ecs:cluster" = aws_ecs_cluster.main.arn }
         }
@@ -90,6 +96,40 @@ resource "aws_scheduler_schedule" "rollup" {
 
       # Same networking the run-task SG comment assumes: default public subnets,
       # the egress-only rollup SG, and a public IP so the task reaches S3 + GHCR.
+      network_configuration {
+        subnets          = data.aws_subnets.default.ids
+        security_groups  = [aws_security_group.rollup.id]
+        assign_public_ip = true
+      }
+    }
+  }
+}
+
+resource "aws_scheduler_schedule" "rollup_heavy" {
+  name  = "rail-archiver-rollup-heavy-daily"
+  state = var.rollup_heavy_schedule_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression          = var.rollup_heavy_schedule_expression
+  schedule_expression_timezone = "UTC"
+
+  target {
+    arn      = aws_ecs_cluster.main.arn
+    role_arn = aws_iam_role.rollup_scheduler.arn
+
+    ecs_parameters {
+      task_definition_arn = aws_ecs_task_definition.rollup_heavy.arn
+      task_count          = 1
+      tags                = { trigger = "scheduled" }
+      # On-demand FARGATE, same reasoning as the main rollup: this still
+      # processes a day's worth of agency data end-to-end and must complete,
+      # unlike the aux tasks (cert_check/s3_storage_metrics/historic_511) that
+      # tolerate a Spot reclaim because tomorrow's run just repeats them.
+      launch_type = "FARGATE"
+
       network_configuration {
         subnets          = data.aws_subnets.default.ids
         security_groups  = [aws_security_group.rollup.id]

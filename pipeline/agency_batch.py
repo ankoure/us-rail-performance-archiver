@@ -13,6 +13,7 @@ Examples:
 
     uv run python pipeline/agency_batch.py --day 2026-08-17
     uv run python pipeline/agency_batch.py --day 2026-08-17 --agency BART METRO_STL -v
+    uv run python pipeline/agency_batch.py --day 2026-08-17 --exclude-agency GO_AHEAD
 """
 
 from __future__ import annotations
@@ -69,6 +70,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="+",
         default=None,
         help="Restrict to these agency_id(s) -- smoke testing / manual re-run",
+    )
+    p.add_argument(
+        "--exclude-agency",
+        nargs="+",
+        default=None,
+        help="Exclude these agency_id(s) -- for the main task to skip agencies "
+        "split into their own, more-memory task (see terraform/rollup.tf's "
+        "rollup_heavy task and local.heavy_agencies).",
     )
     p.add_argument(
         "--workers",
@@ -283,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         if missing:
             logger.warning("unknown --agency values, ignoring: %s", sorted(missing))
         groups = {a: f for a, f in groups.items() if a in args.agency}
+    if args.exclude_agency:
+        groups = {a: f for a, f in groups.items() if a not in args.exclude_agency}
 
     logger.info(
         "agency_batch: %d agencies, day=%s, workers=%d, include_gtfs=%s, "
