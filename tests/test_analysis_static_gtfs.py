@@ -196,6 +196,25 @@ class TestActiveServiceIds:
         gtfs = StaticGtfs(build_gtfs_zip(tmp_path, calendar=calendar))
         assert gtfs.active_service_ids(dt.date(2026, 5, 20)) == {"WEEKDAY"}
 
+    def test_calendar_missing_end_date_column_degrades_to_empty(self, tmp_path):
+        # Observed on CERCANIAS: calendar.txt present but without an end_date
+        # column. pandas' read_csv(parse_dates=[...]) raises ValueError for a
+        # named column that isn't there (not KeyError, which only covers the
+        # whole file being absent from the zip) -- this used to propagate and
+        # kill the whole gold.py run for the feed/day.
+        calendar = (
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date\n"
+            "WEEKDAY,1,1,1,1,1,0,0,20260501\n"
+        )
+        calendar_dates = "service_id,date,exception_type\nHOLIDAY,20260520,1\n"
+        gtfs = StaticGtfs(
+            build_gtfs_zip(tmp_path, calendar=calendar, calendar_dates=calendar_dates)
+        )
+        assert gtfs.calendar.empty
+        # calendar.txt degrading to empty shouldn't take calendar_dates.txt
+        # down with it -- service should still come from the exception file.
+        assert gtfs.active_service_ids(dt.date(2026, 5, 20)) == {"HOLIDAY"}
+
 
 class TestScheduledStops:
     @pytest.fixture
@@ -246,6 +265,34 @@ class TestScheduledStops:
     def test_returns_empty_on_inactive_date(self, simple_gtfs):
         # Saturday is outside the WD service
         assert simple_gtfs.scheduled_stops(dt.date(2026, 5, 23)).empty
+
+    def test_missing_direction_id_column_does_not_crash(self, tmp_path):
+        # direction_id is GTFS-optional. Observed omitted entirely on DELFI,
+        # Kingston Transit, and Thunder Bay Transit's trips.txt -- used to
+        # raise KeyError selecting trips_today[[..., "direction_id"]] and
+        # kill the whole gold.py run for the feed/day.
+        calendar = (
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+            "WD,1,1,1,1,1,0,0,20260501,20260531\n"
+        )
+        trips = "route_id,service_id,trip_id\nR,WD,T1\nR,WD,T2\n"
+        stop_times = (
+            "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+            "T1,06:00:00,06:00:30,A,1\n"
+            "T2,06:10:00,06:10:30,A,1\n"
+        )
+        gtfs = StaticGtfs(
+            build_gtfs_zip(
+                tmp_path, calendar=calendar, trips=trips, stop_times=stop_times
+            )
+        )
+        sched = gtfs.scheduled_stops(dt.date(2026, 5, 20))
+        assert not sched.empty
+        assert (sched["direction_id"] == 0).all()
+        # Both trips collapse into direction_id=0, so headway is still
+        # computed across them (not silently dropped by a NaN group key).
+        stop_a = sched.sort_values("arrival_seconds")
+        assert stop_a["scheduled_headway"].tolist() == [pd.NA, 10 * 60]
 
 
 class TestStops:

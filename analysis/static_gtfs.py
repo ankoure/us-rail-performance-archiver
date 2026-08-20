@@ -658,7 +658,13 @@ class StaticGtfs:
                 parse_dates=["start_date", "end_date"],
                 date_format="%Y%m%d",
             )
-        except KeyError:
+        except (KeyError, ValueError):
+            # KeyError: calendar.txt absent from the zip. ValueError: present
+            # but missing a column parse_dates needs -- pandas raises "Missing
+            # column provided to 'parse_dates'" rather than just leaving it
+            # unparsed (observed on CERCANIAS: calendar.txt with no end_date
+            # column). Either way, degrade to empty like the other optional
+            # tables -- active_service_ids() still works off calendar_dates.txt.
             return pd.DataFrame(
                 columns=["service_id", *_WEEKDAY_COLS, "start_date", "end_date"]
             )
@@ -673,7 +679,7 @@ class StaticGtfs:
                 parse_dates=["date"],
                 date_format="%Y%m%d",
             )
-        except KeyError:
+        except (KeyError, ValueError):
             return pd.DataFrame(columns=["service_id", "date", "exception_type"])
         return df
 
@@ -719,11 +725,21 @@ class StaticGtfs:
         if not services:
             return pd.DataFrame(columns=empty_cols)
         trips_today = self.trips[self.trips["service_id"].isin(services)]
+        has_dir = "direction_id" in trips_today.columns
+        trip_cols = ["trip_id", "route_id"] + (["direction_id"] if has_dir else [])
         joined = self.stop_times.merge(
-            trips_today[["trip_id", "route_id", "direction_id"]],
+            trips_today[trip_cols],
             on="trip_id",
             how="inner",
         )
+        if not has_dir:
+            # direction_id is optional in GTFS -- some agencies (observed:
+            # DELFI, Kingston Transit, Thunder Bay Transit) omit it from
+            # trips.txt entirely. Treat every trip at a stop as one direction
+            # rather than crashing here: _RTE_DIR_STOP below groups by it for
+            # scheduled_headway, and a NaN group key risks pandas' groupby
+            # silently dropping those rows depending on version/dropna.
+            joined["direction_id"] = 0
         if joined.empty:
             return pd.DataFrame(columns=empty_cols)
 
