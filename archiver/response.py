@@ -1,9 +1,7 @@
 from datetime import datetime, timezone
 from abc import ABC
 import hashlib
-from archiver.summary import summarize_feed
 from google.transit.gtfs_realtime_pb2 import FeedMessage
-from dataclasses import asdict
 
 
 class ArchivableEvent(ABC):
@@ -87,10 +85,6 @@ class ProtobufResponse(FeedResponse):
 
     def parsed_message(self) -> FeedMessage:
         return self._parsed
-
-    def _extra_metadata(self) -> dict:
-        summary = summarize_feed(self._parsed)
-        return super()._extra_metadata() | asdict(summary)
 
 
 class JsonResponse(FeedResponse):
