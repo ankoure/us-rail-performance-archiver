@@ -3349,24 +3349,6 @@ agencies:
     default_headers: {}
     mdb_feed_id: mdb-1078
     tls_verify: true
-  - agency_id: GTFS_DE_DELFI_REALTIME_DATA
-    name: gtfs.de DELFI Realtime data
-    region: nan
-    timezone: Europe/Berlin
-    base_url: https://realtime.gtfs.de/
-    auth:
-      type: none
-    feeds:
-    - name: gtfs-de-delfi-realtime-data-trips-alerts-3101
-      path: /realtime-free.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3101
-      method: GET
-    default_headers: {}
-    mdb_feed_id: mdb-1090
-    tls_verify: true
   - agency_id: DPN_AVL_CFL_CFLBUS_RGTR_TICE_TRAM
     name: DPN, AVL, CFL, CFLBus, RGTR, TICE, TRAM
     region: nan
