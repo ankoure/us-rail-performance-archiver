@@ -44,7 +44,7 @@ services:
       - ./config:/app/config:ro
       - ./archive:/app/archive
       - ./data/poll_state/shard-0:/app/data/poll_state
-    command: python main.py --shard-index 0 --shard-count 2 --workers 40
+    command: python main.py --shard-index 0 --shard-count 2 --workers 30
     environment:
       # botocore >=1.36 wraps the upload body in a non-seekable AwsChunkedWrapper
       # to add a default request checksum; a retried PutObject then fails with
