@@ -130,7 +130,8 @@ CREATE TABLE IF NOT EXISTS route_shape_edits (
     PRIMARY KEY (feed, route_id, direction_id, shape_id)
 );
 
-CREATE OR REPLACE FUNCTION route_shape_edits_touch() RETURNS trigger AS $$
+-- Shared by every hand-maintained *_edits/*_overrides table below.
+CREATE OR REPLACE FUNCTION touch_edited_at() RETURNS trigger AS $$
 BEGIN
     NEW.edited_at := now();
     RETURN NEW;
@@ -140,7 +141,42 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS route_shape_edits_touch_trg ON route_shape_edits;
 CREATE TRIGGER route_shape_edits_touch_trg
     BEFORE UPDATE ON route_shape_edits
-    FOR EACH ROW EXECUTE FUNCTION route_shape_edits_touch();
+    FOR EACH ROW EXECUTE FUNCTION touch_edited_at();
+
+-- Hand-supplied mapping for a raw RT route token that doesn't match any
+-- known static route_id and that analysis/normalize.py's per-agency
+-- resolvers (for the JSON feeds that have one) couldn't resolve either --
+-- see pipeline/route_token_scan.py, which finds these tokens by diffing
+-- observed RT data against the static route_id set but never writes here
+-- itself. Same shape as route_shape_edits: automated data stays untouched,
+-- a human fills the gap only where automation falls short.
+CREATE TABLE IF NOT EXISTS route_token_overrides (
+    feed TEXT NOT NULL,
+    raw_token TEXT NOT NULL,
+    route_id TEXT NOT NULL,
+    note TEXT,
+    edited_by TEXT,
+    edited_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (feed, raw_token)
+);
+
+DROP TRIGGER IF EXISTS route_token_overrides_touch_trg ON route_token_overrides;
+CREATE TRIGGER route_token_overrides_touch_trg
+    BEFORE UPDATE ON route_token_overrides
+    FOR EACH ROW EXECUTE FUNCTION touch_edited_at();
+
+-- Resolve one observed RT route token to its canonical route_id: the
+-- override when route_token_overrides has one, otherwise the token itself
+-- (the common case -- most feeds' RT route_id already equals a static
+-- route_id, so nothing needs to be stored for it at all).
+CREATE OR REPLACE FUNCTION resolve_route_token(p_feed TEXT, p_token TEXT)
+RETURNS TEXT AS $$
+    SELECT COALESCE(
+        (SELECT route_id FROM route_token_overrides
+         WHERE feed = p_feed AND raw_token = p_token),
+        p_token
+    );
+$$ LANGUAGE sql STABLE;
 
 -- Latest synced GTFS version per feed, by the same rule
 -- dashboard/api/services/data.py's _latest_version_slug already uses: the
