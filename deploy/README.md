@@ -75,7 +75,10 @@ Save as `deploy-role-trust.json` — fill in your AWS account ID:
 }
 ```
 
-Save as `deploy-role-policy.json` — fill in REGION, ACCOUNT_ID, and INSTANCE_ID after step 3:
+Save as `deploy-role-policy.json` — fill in ACCOUNT_ID and each box's REGION/INSTANCE_ID
+after step 3 (one `ec2:instance` ARN per box now that `deploy.yml` fans out to all
+3 regions, plus one `ssm:document` ARN per region — that ARN type is
+region-scoped, not account-scoped, so it doesn't collide across regions):
 
 ```json
 {
@@ -85,8 +88,12 @@ Save as `deploy-role-policy.json` — fill in REGION, ACCOUNT_ID, and INSTANCE_I
       "Effect": "Allow",
       "Action": "ssm:SendCommand",
       "Resource": [
-        "arn:aws:ec2:REGION:ACCOUNT_ID:instance/INSTANCE_ID",
-        "arn:aws:ssm:REGION::document/AWS-RunShellScript"
+        "arn:aws:ec2:us-east-1:ACCOUNT_ID:instance/US_INSTANCE_ID",
+        "arn:aws:ec2:eu-central-1:ACCOUNT_ID:instance/EU_INSTANCE_ID",
+        "arn:aws:ec2:ap-southeast-2:ACCOUNT_ID:instance/AU_INSTANCE_ID",
+        "arn:aws:ssm:us-east-1::document/AWS-RunShellScript",
+        "arn:aws:ssm:eu-central-1::document/AWS-RunShellScript",
+        "arn:aws:ssm:ap-southeast-2::document/AWS-RunShellScript"
       ]
     },
     {
@@ -116,6 +123,17 @@ Note the **role ARN** — you'll need it for `AWS_DEPLOY_ROLE_ARN` in step 5.
 ---
 
 ## Step 3 — EC2 instance
+
+> **Note:** the sections below describe the *original* manual bootstrap (single
+> box, hand-launched, local EBS landing volume). The live us-east-1 box has
+> since moved to Terraform-managed provisioning (`terraform/box.tf`) with S3
+> landing and no data volume, and two more region-local boxes now exist —
+> `terraform/box_eu.tf` (Frankfurt) and `terraform/box_au.tf` (Sydney), each
+> polling only their own continent's agencies via `--continent`. This section
+> is kept for the IAM role/policy JSON (still accurate and reused as-is
+> across all three boxes) and the general shape of the SSM bootstrap — for an
+> actual new box, apply the relevant `terraform/box*.tf` file instead of
+> hand-launching, then follow 3c's `.env` step below.
 
 ### 3a. IAM role for the instance
 
@@ -211,6 +229,13 @@ git clone https://github.com/ankoure/us-rail-performance-archiver.git .
 # Create .env from your local one (paste contents).
 nano .env
 
+# On the EU/AU boxes ONLY, also add (see compose.prod.yml for how these are
+# consumed -- unset on the us-east-1 box's .env, which keeps its behavior
+# unchanged: no --continent filter, 2 shards, default Datadog hostname):
+#   CONTINENT=eu        # or au
+#   SHARD_COUNT=1        # single shard is enough at EU/AU's current agency counts
+#   DD_HOSTNAME=rail-archiver-eu   # or rail-archiver-au -- avoids colliding with the us box in Datadog
+
 # If the GHCR image is private, log in once:
 # docker login ghcr.io -u ankoure
 ```
@@ -232,6 +257,14 @@ docker compose -f compose.prod.yml up -d --remove-orphans   # --remove-orphans d
 docker compose -f compose.prod.yml logs -f app-shard-0   # (and app-shard-1)
 ```
 
+On the EU/AU boxes, name only the services they actually run (single shard,
+no `app-shard-1` -- matches what `deploy.yml`'s matrix passes on every deploy):
+
+```bash
+docker compose -f compose.prod.yml pull datadog-agent app-shard-0 autoheal
+docker compose -f compose.prod.yml up -d --remove-orphans datadog-agent app-shard-0 autoheal
+```
+
 If logs show feed polls landing in `./archive/` and both shards report `healthy`
 (`docker compose -f compose.prod.yml ps`), you're done with the bootstrap.
 
@@ -246,11 +279,30 @@ Settings → Secrets and variables → Actions → **New repository secret**:
 | Name                  | Value                                                                |
 |-----------------------|----------------------------------------------------------------------|
 | `AWS_DEPLOY_ROLE_ARN` | ARN of `rail-archiver-deploy` from step 2b                           |
-| `EC2_INSTANCE_ID`     | `i-XXXXXXXX` from step 3b                                            |
+| `EC2_INSTANCE_IDS`    | JSON object of all 3 boxes' instance IDs (see below)                 |
 
-### 4b. Region (optional)
+`EC2_INSTANCE_IDS` replaces the old single `EC2_INSTANCE_ID` secret now that
+`deploy.yml` fans out to 3 regional boxes via a matrix — GitHub Actions can't
+index the `secrets` context by a matrix value, so one JSON blob decoded with
+`jq` stands in for 3 separate secrets:
 
-`deploy.yml` defaults to `us-east-1`. Change the `AWS_REGION` env at the top of the workflow if you launched elsewhere.
+```json
+{"us": "i-XXXXXXXX", "eu": "i-YYYYYYYY", "au": "i-ZZZZZZZZ"}
+```
+
+Pull the IDs from `terraform output poller_eu_instance_id` /
+`poller_au_instance_id` (and the existing us-east-1 instance ID) after applying
+`terraform/box_eu.tf`/`box_au.tf`.
+
+`deploy-role-policy.json`'s `ssm:SendCommand` resource ARN above also needs an
+entry per region/instance now (the `arn:aws:ec2:REGION:...` line), since each
+is a distinct ARN.
+
+### 4b. Regions
+
+`deploy.yml`'s matrix (`strategy.matrix.include`) pins each box to its region
+directly (`us-east-1`/`eu-central-1`/`ap-southeast-2`) — edit that list if a
+box ever moves.
 
 ### 4c. Workflow permissions
 

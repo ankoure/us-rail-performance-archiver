@@ -6,7 +6,10 @@ services:
       - DD_API_KEY=${DD_API_KEY}
       - DD_SITE=${DD_SITE:-datadoghq.com}
       - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
-      - DD_HOSTNAME=rail-archiver
+      # Each regional box sets its own DD_HOSTNAME in .env (rail-archiver-eu,
+      # rail-archiver-au, ...) so the 3 boxes don't collide in Datadog. Unset
+      # on the existing us-east-1 box's .env => same hostname as today.
+      - DD_HOSTNAME=${DD_HOSTNAME:-rail-archiver}
       - DD_LOGS_ENABLED=true
       - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
     volumes:
@@ -33,6 +36,15 @@ services:
   # the file. poll_state is keyed by feed name and each feed lives on one shard,
   # so nothing is lost by not sharing it. ./archive stays shared: feed names are
   # globally unique, so there are no collisions and rollup consumes one tree.
+  #
+  # SHARD_COUNT/CONTINENT/WORKERS come from each box's own .env (regional
+  # boxes set CONTINENT=eu|au + SHARD_COUNT=1; the us-east-1 box's .env is
+  # unchanged, so ${VAR:-default} reproduces today's hardcoded flags exactly).
+  # Wrapped in `sh -c` with `$$`-escaping so these are expanded by the
+  # CONTAINER's shell at runtime (using env_file's injected env), not by
+  # Compose's own (more limited) interpolation at compose-file parse time --
+  # in particular ${CONTINENT:+--continent $CONTINENT} needs real POSIX
+  # parameter expansion to omit the flag entirely when CONTINENT is unset.
   app-shard-0: &poller
     image: ghcr.io/ankoure/us-rail-performance-archiver:${IMAGE_TAG:-latest}
     restart: unless-stopped
@@ -44,7 +56,9 @@ services:
       - ./config:/app/config:ro
       - ./archive:/app/archive
       - ./data/poll_state/shard-0:/app/data/poll_state
-    command: python main.py --shard-index 0 --shard-count 2 --workers 40
+    command: >-
+      sh -c "python main.py --shard-index 0 --shard-count $${SHARD_COUNT:-2}
+      $${CONTINENT:+--continent $$CONTINENT} --workers $${WORKERS:-40}"
     environment:
       # botocore >=1.36 wraps the upload body in a non-seekable AwsChunkedWrapper
       # to add a default request checksum; a retried PutObject then fails with
@@ -57,13 +71,19 @@ services:
     depends_on:
       - datadog-agent
 
+  # Only started on the us-east-1 box (2 shards for ~144 agencies); the
+  # regional boxes' deploy step names services explicitly and omits this one
+  # (see deploy.yml), since SHARD_COUNT=1 there means a shard-index-1 process
+  # would have nothing to do (shard.py's belongs_to_shard rejects index >= count).
   app-shard-1:
     <<: *poller
     volumes:
       - ./config:/app/config:ro
       - ./archive:/app/archive
       - ./data/poll_state/shard-1:/app/data/poll_state
-    command: python main.py --shard-index 1 --shard-count 2 --workers 40
+    command: >-
+      sh -c "python main.py --shard-index 1 --shard-count $${SHARD_COUNT:-2}
+      $${CONTINENT:+--continent $$CONTINENT} --workers $${WORKERS:-40}"
 
   autoheal:
     image: willfarrell/autoheal:latest
