@@ -64,3 +64,26 @@ resource "aws_iam_role_policy" "box_landing_write" {
     ]
   })
 }
+
+# Lets each poller box (us-east-1, EU, AU -- same shared role across all 3,
+# see box.tf/box_eu.tf/box_au.tf) read the env secret at boot to build its
+# own .env, instead of a human pasting it via SSM. Same secret the Fargate
+# rollup already reads (aws_secretsmanager_secret.env, rollup_secrets.tf) --
+# see that file's header comment for what the secret value now needs to
+# contain.
+resource "aws_iam_role_policy" "box_secrets_read" {
+  name = "rail-archiver-secrets-read"
+  role = var.instance_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadEnvSecret"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [aws_secretsmanager_secret.env.arn]
+      },
+    ]
+  })
+}

@@ -22,3 +22,35 @@ provider "aws" {
     }
   }
 }
+
+# --- Regional poller providers ---------------------------------------------- #
+# S3 landing + the Fargate rollup stay centralized on the default (us-east-1)
+# provider above -- only the poller boxes are regional (box_eu.tf/box_au.tf).
+# default_tags is NOT inherited from the default provider block, so it's
+# repeated on every alias.
+
+provider "aws" {
+  alias   = "eu"
+  region  = var.eu_region
+  profile = var.aws_profile
+
+  default_tags {
+    tags = {
+      project   = "rail-archiver"
+      managedby = "terraform"
+    }
+  }
+}
+
+provider "aws" {
+  alias   = "au"
+  region  = var.au_region
+  profile = var.aws_profile
+
+  default_tags {
+    tags = {
+      project   = "rail-archiver"
+      managedby = "terraform"
+    }
+  }
+}

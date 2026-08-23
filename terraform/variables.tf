@@ -3,6 +3,18 @@ variable "region" {
   default = "us-east-1"
 }
 
+variable "eu_region" {
+  type        = string
+  default     = "eu-central-1"
+  description = "AWS region for the EU/Frankfurt poller box."
+}
+
+variable "au_region" {
+  type        = string
+  default     = "ap-southeast-2"
+  description = "AWS region for the AU/Sydney poller box."
+}
+
 variable "aws_profile" {
   type        = string
   default     = null
@@ -125,21 +137,21 @@ variable "rollup_memory" {
 
 variable "rollup_heavy_cpu" {
   type        = string
-  default     = "1024" # 1 vCPU -- runs local.heavy_agencies with --workers 1, no concurrency to parallelize
+  default     = "4096" # 4 vCPU -- bumped alongside rollup_heavy_memory below (Fargate pairs cpu/memory ranges)
   description = "Fargate task CPU units for the rollup_heavy stage (the agencies split out of the main rollup task for OOM isolation)."
 }
 
 variable "rollup_heavy_memory" {
   type = string
-  # Starting point, not a measured peak: GO_AHEAD (the only agency here so
-  # far) got SIGKILLed sharing the main task's 20 GiB with 3 concurrent
-  # sibling agencies -- it's untested what GO_AHEAD alone actually needs.
-  # 8 GiB roughly matches the pre-dedup single-worker peak this file's
-  # rollup_memory history references (4.59 GiB) with ~2x headroom for one
-  # large agency running alone (--workers 1, see local.rollup_heavy_script).
-  # Bump if this task OOMs too -- same iterative tuning as rollup_memory's
-  # history above.
-  default     = "8192"
+  # 8 GiB was a guess (see git history) and wrong: verified 2026-08-20 via a
+  # manual run-task that GO_AHEAD SIGKILLs in pipeline/gtfs.py at 8 GiB even
+  # running ALONE with --workers 1 -- so this was never a concurrency/
+  # contention problem, GO_AHEAD's gtfs.py step genuinely needs more than
+  # 8 GiB by itself. Bumped straight to 20 GiB (matching the old shared
+  # rollup_memory ceiling, now dedicated to just this one agency) rather than
+  # guess again -- right-size down later with real peak data if it turns out
+  # to be overkill.
+  default     = "20480"
   description = "Fargate task memory (MiB) for the rollup_heavy stage."
 }
 
