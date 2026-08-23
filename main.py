@@ -7,7 +7,12 @@ from archiver.health import FeedHealth, is_transient_failure
 from archiver.feed import Feed
 from archiver.logger import logger, setup_logging
 from dotenv import load_dotenv
-from archiver.loader import build_archiver, build_landing_uploader, load_config
+from archiver.loader import (
+    build_archiver,
+    build_landing_uploader,
+    load_config,
+    VALID_CONTINENTS,
+)
 import argparse
 import logging
 import time
@@ -55,6 +60,12 @@ def parse_args():
         default=1,
         help="Total number of shards (default: 1 = no sharding)",
     )
+    parser.add_argument(
+        "--continent",
+        choices=sorted(VALID_CONTINENTS),
+        default=None,
+        help="Restrict this worker to agencies in one continent/box (default: unrestricted)",
+    )
 
     parser.add_argument(
         "-c",
@@ -70,10 +81,16 @@ def parse_args():
 async def run(args):
     config = load_config(args.config)
     archiver = build_archiver(
-        config, shard_index=args.shard_index, shard_count=args.shard_count
+        config,
+        shard_index=args.shard_index,
+        shard_count=args.shard_count,
+        continent=args.continent,
     )
     landing_uploader = build_landing_uploader(
-        config, shard_index=args.shard_index, shard_count=args.shard_count
+        config,
+        shard_index=args.shard_index,
+        shard_count=args.shard_count,
+        continent=args.continent,
     )  # None unless landing_mode == "s3"
     scheduler = Scheduler(
         archiver.feeds,

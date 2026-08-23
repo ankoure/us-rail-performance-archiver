@@ -25,6 +25,7 @@ from archiver.decoder import Decoder
 from archiver.feed import Feed
 from archiver.parser import Parser
 from archiver.poll_state import PollStateStore
+from archiver.region import belongs_to_continent, TIMEZONE_TO_CONTINENT
 from archiver.rollup import Rollup
 from archiver.shard import belongs_to_shard
 from archiver.shipper import Shipper
@@ -33,6 +34,11 @@ from archiver.source import LocalSource, S3Source, Source
 from archiver.telemetry import NoOpTelemetry, Telemetry
 from archiver.uploader import Uploader
 from archiver.writer import BaseWriter, BatchingWriter, LocalWriter
+
+# Single source of truth for what a valid --continent value is: whatever
+# boxes region.py actually assigns timezones to, so this can't drift out
+# of sync with region.py if a box is ever added or renamed.
+VALID_CONTINENTS = frozenset(TIMEZONE_TO_CONTINENT.values())
 
 
 def _read_env(name: str) -> str:
@@ -114,11 +120,22 @@ def build_client(agency: AgencyConfig) -> APIClient:
 
 
 def build_feeds(
-    config: ArchiverConfig, shard_index: int = 0, shard_count: int = 1
+    config: ArchiverConfig,
+    shard_index: int = 0,
+    shard_count: int = 1,
+    continent: str | None = None,
 ) -> list[Feed]:
+    if continent is not None and continent not in VALID_CONTINENTS:
+        raise ValueError(
+            f"continent {continent!r} must be one of {sorted(VALID_CONTINENTS)}"
+        )
     feeds: list[Feed] = []
     for agency in config.agencies:
         if not belongs_to_shard(agency.agency_id, shard_index, shard_count):
+            continue
+        if continent is not None and not belongs_to_continent(
+            agency.timezone, continent
+        ):
             continue
         client = build_client(agency)
         for feed_cfg in agency.feeds:
@@ -190,9 +207,12 @@ def build_writer(config: ArchiverConfig) -> BaseWriter:
 
 
 def build_archiver(
-    config: ArchiverConfig, shard_index: int, shard_count: int
+    config: ArchiverConfig,
+    shard_index: int,
+    shard_count: int,
+    continent: str | None = None,
 ) -> FeedArchiver:
-    feeds = build_feeds(config, shard_index, shard_count)
+    feeds = build_feeds(config, shard_index, shard_count, continent)
     writer = build_writer(config)
     telemetry = build_telemetry(config.telemetry, shard_index)
     store = PollStateStore(str(config.writer.poll_state_dir))
@@ -261,12 +281,17 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
 
 
 def build_landing_uploader(
-    config: ArchiverConfig, shard_index: int = 0, shard_count: int = 1
+    config: ArchiverConfig,
+    shard_index: int = 0,
+    shard_count: int = 1,
+    continent: str | None = None,
 ) -> LandingUploader | None:
     if config.writer.landing_mode == "s3":
         telemetry = build_telemetry(config.telemetry)
         uploader = build_uploader(config.s3, telemetry)
-        feed_names = {f.name for f in build_feeds(config, shard_index, shard_count)}
+        feed_names = {
+            f.name for f in build_feeds(config, shard_index, shard_count, continent)
+        }
         return LandingUploader(
             landing_dir=config.writer.landing_dir,
             uploader=uploader,
