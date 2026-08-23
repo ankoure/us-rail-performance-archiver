@@ -21,6 +21,12 @@
       "prefix": "agency",
       "available_values": [],
       "default": "*"
+    },
+    {
+      "name": "host",
+      "prefix": "host",
+      "available_values": [],
+      "default": "*"
     }
   ],
   "widgets": [
@@ -135,6 +141,33 @@
           {
             "definition": {
               "type": "timeseries",
+              "title": "Poll latency p95 by box (host) — confirms the regional-poller latency win",
+              "show_legend": true,
+              "legend_layout": "auto",
+              "yaxis": {
+                "scale": "linear",
+                "include_zero": true,
+                "label": "ms"
+              },
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "display_type": "line",
+                  "queries": [
+                    {
+                      "name": "p95",
+                      "data_source": "metrics",
+                      "query": "avg:feed.poll.duration.95percentile{$env, service:rail-archiver} by {host}"
+                    }
+                  ],
+                  "formulas": [{ "formula": "p95" }]
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
               "title": "Poll latency p95 by feed",
               "show_legend": true,
               "legend_layout": "auto",
@@ -151,7 +184,7 @@
                     {
                       "name": "p95",
                       "data_source": "metrics",
-                      "query": "avg:feed.poll.duration.95percentile{$env, service:rail-archiver, $feed} by {feed}"
+                      "query": "avg:feed.poll.duration.95percentile{$env, service:rail-archiver, $feed, $host} by {feed}"
                     }
                   ],
                   "formulas": [{ "formula": "p95" }]
@@ -173,7 +206,7 @@
                     {
                       "name": "errs",
                       "data_source": "metrics",
-                      "query": "sum:feed.poll.duration.count{$env, service:rail-archiver, status:error, $feed} by {feed,error_type}.as_count()"
+                      "query": "sum:feed.poll.duration.count{$env, service:rail-archiver, status:error, $feed, $host} by {feed,error_type}.as_count()"
                     }
                   ],
                   "formulas": [{ "formula": "errs" }],
