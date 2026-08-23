@@ -3481,103 +3481,109 @@ agencies:
   # github #50. One Ocp-Apim-Subscription-Key credential covers all 4 PTV
   # services below. Metro Bus and V/Line don't publish an alerts feed (per
   # the MDB catalog -- not an omission here).
-  - agency_id: PTV_METRO_BUS
-    name: Public Transport Victoria (PTV) Metro Bus
-    region: Victoria
-    timezone: Australia/Melbourne
-    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus
-    mdb_feed_id: mdb-2654
-    auth:
-      type: api_key
-      header: Ocp-Apim-Subscription-Key
-      env: PTV_API_KEY
-    feeds:
-      - name: ptv-metro-bus-trips
-        path: /trip-updates
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 30
-      - name: ptv-metro-bus-vehicles
-        path: /vehicle-positions
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 30
+  #
+  # Disabled 2026-08-23: PTV_API_KEY 401s on every endpoint (confirmed via
+  # direct curl, not a deploy issue -- Vordel/Axway gateway "MessageBlocked"
+  # fault, not APIM's usual invalid-subscription-key message, so the key is
+  # likely still pending activation on the dev portal). Re-enable once the
+  # key is confirmed working.
+  # - agency_id: PTV_METRO_BUS
+  #   name: Public Transport Victoria (PTV) Metro Bus
+  #   region: Victoria
+  #   timezone: Australia/Melbourne
+  #   base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus
+  #   mdb_feed_id: mdb-2654
+  #   auth:
+  #     type: api_key
+  #     header: Ocp-Apim-Subscription-Key
+  #     env: PTV_API_KEY
+  #   feeds:
+  #     - name: ptv-metro-bus-trips
+  #       path: /trip-updates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #     - name: ptv-metro-bus-vehicles
+  #       path: /vehicle-positions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
 
-  - agency_id: PTV_METRO_TRAIN
-    name: Public Transport Victoria (PTV) Metro Train
-    region: Victoria
-    timezone: Australia/Melbourne
-    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro
-    mdb_feed_id: mdb-2657
-    auth:
-      type: api_key
-      header: Ocp-Apim-Subscription-Key
-      env: PTV_API_KEY
-    feeds:
-      - name: ptv-metro-train-trips
-        path: /trip-updates
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 15
-      - name: ptv-metro-train-vehicles
-        path: /vehicle-positions
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 15
-      - name: ptv-metro-train-alerts
-        path: /service-alerts
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 60
+  # - agency_id: PTV_METRO_TRAIN
+  #   name: Public Transport Victoria (PTV) Metro Train
+  #   region: Victoria
+  #   timezone: Australia/Melbourne
+  #   base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro
+  #   mdb_feed_id: mdb-2657
+  #   auth:
+  #     type: api_key
+  #     header: Ocp-Apim-Subscription-Key
+  #     env: PTV_API_KEY
+  #   feeds:
+  #     - name: ptv-metro-train-trips
+  #       path: /trip-updates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 15
+  #     - name: ptv-metro-train-vehicles
+  #       path: /vehicle-positions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 15
+  #     - name: ptv-metro-train-alerts
+  #       path: /service-alerts
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
 
-  - agency_id: PTV_VLINE
-    name: Public Transport Victoria (PTV) V/Line Regional Train
-    region: Victoria
-    timezone: Australia/Melbourne
-    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/vline
-    mdb_feed_id: mdb-2873
-    auth:
-      type: api_key
-      header: Ocp-Apim-Subscription-Key
-      env: PTV_API_KEY
-    feeds:
-      - name: ptv-vline-trips
-        path: /trip-updates
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 30
-      - name: ptv-vline-vehicles
-        path: /vehicle-positions
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 30
+  # - agency_id: PTV_VLINE
+  #   name: Public Transport Victoria (PTV) V/Line Regional Train
+  #   region: Victoria
+  #   timezone: Australia/Melbourne
+  #   base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/vline
+  #   mdb_feed_id: mdb-2873
+  #   auth:
+  #     type: api_key
+  #     header: Ocp-Apim-Subscription-Key
+  #     env: PTV_API_KEY
+  #   feeds:
+  #     - name: ptv-vline-trips
+  #       path: /trip-updates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #     - name: ptv-vline-vehicles
+  #       path: /vehicle-positions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
 
-  - agency_id: PTV_YARRA_TRAMS
-    name: Public Transport Victoria (PTV) Yarra Trams
-    region: Victoria
-    timezone: Australia/Melbourne
-    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/tram
-    mdb_feed_id: mdb-2660
-    auth:
-      type: api_key
-      header: Ocp-Apim-Subscription-Key
-      env: PTV_API_KEY
-    feeds:
-      - name: ptv-yarra-trams-trips
-        path: /trip-updates
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 15
-      - name: ptv-yarra-trams-vehicles
-        path: /vehicle-positions
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 15
-      - name: ptv-yarra-trams-alerts
-        path: /service-alerts
-        expected_format: protobuf
-        decoder: standard
-        poll_interval_seconds: 60
+  # - agency_id: PTV_YARRA_TRAMS
+  #   name: Public Transport Victoria (PTV) Yarra Trams
+  #   region: Victoria
+  #   timezone: Australia/Melbourne
+  #   base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/tram
+  #   mdb_feed_id: mdb-2660
+  #   auth:
+  #     type: api_key
+  #     header: Ocp-Apim-Subscription-Key
+  #     env: PTV_API_KEY
+  #   feeds:
+  #     - name: ptv-yarra-trams-trips
+  #       path: /trip-updates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 15
+  #     - name: ptv-yarra-trams-vehicles
+  #       path: /vehicle-positions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 15
+  #     - name: ptv-yarra-trams-alerts
+  #       path: /service-alerts
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
 
   - agency_id: ZDITM
     name: Zarząd Dróg i Transportu Miejskiego (ZDiTM)
