@@ -526,6 +526,91 @@ agencies:
         decoder: standard
         poll_interval_seconds: 60
 
+  # Same api.pugetsound.onebusaway.org API as SOUND_TRANSIT above (agency 40)
+  # -- github #47 linked a different-looking "Sound Transit OTD" portal page,
+  # but the actual feed endpoints are the same regional OneBusAway API, just
+  # different agency ids. Reuses SOUND_TRANSIT_API_KEY; no new signup needed.
+  - agency_id: PIERCE_TRANSIT
+    name: Pierce Transit
+    region: Seattle
+    timezone: America/Los_Angeles
+    base_url: https://api.pugetsound.onebusaway.org/api/gtfs_realtime
+    mdb_feed_id: mdb-1543
+    auth:
+      type: api_key
+      param: key
+      env: SOUND_TRANSIT_API_KEY
+    feeds:
+      - name: pierce-transit-vehicles
+        path: /vehicle-positions-for-agency/3.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: pierce-transit-trips
+        path: /trip-updates-for-agency/3.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: pierce-transit-alerts
+        path: /alerts-for-agency/3.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+
+  - agency_id: SEATTLE_STREETCAR
+    name: City of Seattle - Streetcar
+    region: Seattle
+    timezone: America/Los_Angeles
+    base_url: https://api.pugetsound.onebusaway.org/api/gtfs_realtime
+    mdb_feed_id: mdb-1546
+    auth:
+      type: api_key
+      param: key
+      env: SOUND_TRANSIT_API_KEY
+    feeds:
+      - name: seattle-streetcar-vehicles
+        path: /vehicle-positions-for-agency/23.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: seattle-streetcar-trips
+        path: /trip-updates-for-agency/23.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: seattle-streetcar-alerts
+        path: /alerts-for-agency/23.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+
+  - agency_id: WASHINGTON_STATE_FERRIES
+    name: Washington State Ferries
+    region: Seattle
+    timezone: America/Los_Angeles
+    base_url: https://api.pugetsound.onebusaway.org/api/gtfs_realtime
+    mdb_feed_id: mdb-1555
+    auth:
+      type: api_key
+      param: key
+      env: SOUND_TRANSIT_API_KEY
+    feeds:
+      - name: wsf-vehicles
+        path: /vehicle-positions-for-agency/95.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: wsf-trips
+        path: /trip-updates-for-agency/95.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: wsf-alerts
+        path: /alerts-for-agency/95.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+
   - agency_id: TRIMET
     name: TriMet (MAX Light Rail)
     region: Portland
@@ -1001,6 +1086,255 @@ agencies:
   # ATI (Tren Urbano), HART (TECO Line), KCSA (KC Streetcar),
   # M-1 Rail (Q-Line), NFTA (Buffalo Metro Rail), PATCO,
   # DDOT (DC Streetcar - discontinued)
+
+  # ---- API key obtained, not yet wired in (github issue tracker "Key Ready") ----
+  # Each block below is otherwise complete (base_url/auth/feeds from the MDB
+  # catalog) -- uncomment and set the env var once the key exists. Left
+  # commented rather than live: an agency whose auth env var isn't set raises
+  # at startup and crashes the WHOLE poller process, not just that agency
+  # (archiver/loader.py's _read_env), so these must not go live key-less.
+
+  # - agency_id: METLINK
+  #   name: Metlink (Wellington)
+  #   region: Wellington
+  #   timezone: Pacific/Auckland
+  #   base_url: https://api.opendata.metlink.org.nz/v1/gtfs-rt
+  #   auth:
+  #     type: api_key
+  #     header: x-api-key
+  #     env: METLINK_API_KEY
+  #   feeds:
+  #     - name: metlink-trips
+  #       path: /tripupdates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #     - name: metlink-alerts
+  #       path: /servicealerts
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
+  #     - name: metlink-vehicles
+  #       path: /vehiclepositions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #   # github #83. Portal https://opendata.metlink.org.nz/
+
+  # - agency_id: BKK
+  #   name: Budapesti Közlekedési Központ (BKK)
+  #   region: Budapest
+  #   timezone: Europe/Budapest
+  #   base_url: https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full
+  #   auth:
+  #     type: api_key
+  #     param: key
+  #     env: BKK_API_KEY
+  #   feeds:
+  #     - name: bkk-trips
+  #       path: /TripUpdates.pb
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #     - name: bkk-alerts
+  #       path: /Alerts.pb
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
+  #     - name: bkk-vehicles
+  #       path: /VehiclePositions.pb
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #   # github #59. Portal https://fiok.bkk.hu/auth
+
+  # - agency_id: AT_METRO_REGIONAL
+  #   name: SeaLink Pine Harbour, Waikato Regional Council, Pavlovich Transport Solutions, AT Metro
+  #   region: Auckland
+  #   timezone: Pacific/Auckland
+  #   base_url: https://api.at.govt.nz/realtime/legacy
+  #   auth:
+  #     type: api_key
+  #     header: Ocp-Apim-Subscription-Key
+  #     env: AT_METRO_API_KEY
+  #   feeds:
+  #     - name: at-metro-trips
+  #       path: /tripupdates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #     - name: at-metro-alerts
+  #       path: /servicealerts
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
+  #     - name: at-metro-vehicles
+  #       path: /vehiclelocations
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #   # github #94. Portal https://dev-portal.at.govt.nz/. One MDB source
+  #   # covers all 4 operators together -- not 4 separate feeds.
+
+  # - agency_id: STM
+  #   name: Société de transport de Montréal (STM)
+  #   region: Montréal
+  #   timezone: America/Montreal
+  #   base_url: https://api.stm.info/pub/od
+  #   auth:
+  #     type: api_key
+  #     header: apiKey
+  #     env: STM_API_KEY
+  #   feeds:
+  #     - name: stm-trips
+  #       path: /gtfs-rt/ic/v2/tripUpdates
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #     - name: stm-alerts
+  #       path: /i3/v2/messages/etatservice
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
+  #     - name: stm-vehicles
+  #       path: /gtfs-rt/ic/v2/vehiclePositions
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #   # github #91. Portal https://portail.developpeurs.stm.info/apihub/#/
+
+  # - agency_id: METRO_CHRISTCHURCH
+  #   name: Metro Christchurch
+  #   region: Canterbury
+  #   timezone: Pacific/Auckland
+  #   base_url: https://apis.metroinfo.co.nz/rti/gtfsrt/v1
+  #   auth:
+  #     type: api_key
+  #     header: Ocp-Apim-Subscription-Key
+  #     env: METRO_CHRISTCHURCH_API_KEY
+  #   feeds:
+  #     - name: metro-christchurch-trips
+  #       path: /trip-updates.pb
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 30
+  #     - name: metro-christchurch-alerts
+  #       path: /service-alerts.pb
+  #       expected_format: protobuf
+  #       decoder: standard
+  #       poll_interval_seconds: 60
+  #   # github #84. Portal https://apidevelopers.metroinfo.co.nz/. No
+  #   # vehicle-positions feed found in the MDB catalog for this one.
+
+  # Transport for New South Wales -- github #51. Portal
+  # https://opendata.transport.nsw.gov.au/data/user/register. One shared
+  # credential covers all 4 agencies below.
+
+  - agency_id: TFNSW
+    name: Transport for New South Wales
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-alerts
+        path: /alerts/all
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+
+  - agency_id: TFNSW_SYDNEY_TRAINS
+    name: Transport for New South Wales - Sydney Trains
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-sydney-trains-trips
+        path: /realtime/sydneytrains
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: tfnsw-sydney-trains-vehicles
+        path: /vehiclepos/sydneytrains
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  - agency_id: TFNSW_METRO
+    name: Transport for New South Wales - Metro
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-metro-trips
+        path: /realtime/metro
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: tfnsw-metro-vehicles
+        path: /vehiclepos/metro
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  - agency_id: TFNSW_LIGHT_RAIL
+    name: Transport for New South Wales - Light Rail
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-light-rail-trips
+        path: /realtime/lightrail/innerwest
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      # MDB lists only the Inner West line -- other lines (CBD/Newcastle
+      # etc.) may need their own path, check the portal once the key's in hand.
+
+  # Trafiklab (Sweden) -- github #45. Portal
+  # https://developer.trafiklab.se/register. ONE shared key (param `key`,
+  # env TRAFIKLAB_API_KEY -- see .env.example) covers all 16 operators below
+  # (base_url + region code); the original
+  # issue listed 20 "agencies" but 4 were duplicate MDB catalog entries for
+  # the same operator under two names (JLT/Jönköpings Länstrafik, KLT/Kalmar
+  # Länstrafik, SL/Stockholm Länstrafik, UL/Uppsala Länstrafik) -- deduped
+  # here. All feeds live at https://opendata.samtrafiken.se/gtfs-rt/<code>/
+  # {TripUpdates,ServiceAlerts,VehiclePositions}.pb (auth: api_key_param
+  # `key`), region Sweden, timezone Europe/Stockholm, decoder standard,
+  # except Hallandstrafiken which only publishes VehiclePositions.
+  #
+  # code       operator
+  # blekinge   Blekingetrafiken
+  # dt         Dalatrafik
+  # dintur     Din Tur - Västernorrland
+  # gotland    Gotland
+  # halland    Hallandstrafiken (vehicles only)
+  # jlt        JLT / Jönköpings Länstrafik
+  # klt        KLT / Kalmar Länstrafik
+  # krono      Kronoberg
+  # sl         SL / Stockholm Länstrafik
+  # skane      Skånetrafiken
+  # ul         UL / Uppsala Länstrafik
+  # varm       Värmlandstrafik
+  # vastmanland Västmanland
+  # xt         X-trafik
+  # orebro     Örebro
+  # otraf      Östgötatrafiken
 
   # ---- Onboarded from Mobility Database (scripts/gen_feeds_from_mdb.py -> validate_candidates.py) ----
   - agency_id: OCTA
@@ -3143,6 +3477,108 @@ agencies:
     default_headers: {}
     mdb_feed_id: mdb-935
     tls_verify: true
+
+  # github #50. One Ocp-Apim-Subscription-Key credential covers all 4 PTV
+  # services below. Metro Bus and V/Line don't publish an alerts feed (per
+  # the MDB catalog -- not an omission here).
+  - agency_id: PTV_METRO_BUS
+    name: Public Transport Victoria (PTV) Metro Bus
+    region: Victoria
+    timezone: Australia/Melbourne
+    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/bus
+    mdb_feed_id: mdb-2654
+    auth:
+      type: api_key
+      header: Ocp-Apim-Subscription-Key
+      env: PTV_API_KEY
+    feeds:
+      - name: ptv-metro-bus-trips
+        path: /trip-updates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: ptv-metro-bus-vehicles
+        path: /vehicle-positions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  - agency_id: PTV_METRO_TRAIN
+    name: Public Transport Victoria (PTV) Metro Train
+    region: Victoria
+    timezone: Australia/Melbourne
+    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/metro
+    mdb_feed_id: mdb-2657
+    auth:
+      type: api_key
+      header: Ocp-Apim-Subscription-Key
+      env: PTV_API_KEY
+    feeds:
+      - name: ptv-metro-train-trips
+        path: /trip-updates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: ptv-metro-train-vehicles
+        path: /vehicle-positions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: ptv-metro-train-alerts
+        path: /service-alerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+
+  - agency_id: PTV_VLINE
+    name: Public Transport Victoria (PTV) V/Line Regional Train
+    region: Victoria
+    timezone: Australia/Melbourne
+    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/vline
+    mdb_feed_id: mdb-2873
+    auth:
+      type: api_key
+      header: Ocp-Apim-Subscription-Key
+      env: PTV_API_KEY
+    feeds:
+      - name: ptv-vline-trips
+        path: /trip-updates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: ptv-vline-vehicles
+        path: /vehicle-positions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  - agency_id: PTV_YARRA_TRAMS
+    name: Public Transport Victoria (PTV) Yarra Trams
+    region: Victoria
+    timezone: Australia/Melbourne
+    base_url: https://api.opendata.transport.vic.gov.au/opendata/public-transport/gtfs/realtime/v1/tram
+    mdb_feed_id: mdb-2660
+    auth:
+      type: api_key
+      header: Ocp-Apim-Subscription-Key
+      env: PTV_API_KEY
+    feeds:
+      - name: ptv-yarra-trams-trips
+        path: /trip-updates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: ptv-yarra-trams-vehicles
+        path: /vehicle-positions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 15
+      - name: ptv-yarra-trams-alerts
+        path: /service-alerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+
   - agency_id: ZDITM
     name: Zarząd Dróg i Transportu Miejskiego (ZDiTM)
     region: Zachodniopomorskie
