@@ -1148,33 +1148,33 @@ agencies:
         poll_interval_seconds: 30
     # github #59. Portal https://opendata.bkk.hu/data-sources
 
-  # - agency_id: AT_METRO_REGIONAL
-  #   name: SeaLink Pine Harbour, Waikato Regional Council, Pavlovich Transport Solutions, AT Metro
-  #   region: Auckland
-  #   timezone: Pacific/Auckland
-  #   base_url: https://api.at.govt.nz/realtime/legacy
-  #   auth:
-  #     type: api_key
-  #     header: Ocp-Apim-Subscription-Key
-  #     env: AT_METRO_API_KEY
-  #   feeds:
-  #     - name: at-metro-trips
-  #       path: /tripupdates
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #     - name: at-metro-alerts
-  #       path: /servicealerts
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 60
-  #     - name: at-metro-vehicles
-  #       path: /vehiclelocations
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #   # github #94. Portal https://dev-portal.at.govt.nz/. One MDB source
-  #   # covers all 4 operators together -- not 4 separate feeds.
+  - agency_id: AT_METRO_REGIONAL
+    name: SeaLink Pine Harbour, Waikato Regional Council, Pavlovich Transport Solutions, AT Metro
+    region: Auckland
+    timezone: Pacific/Auckland
+    base_url: https://api.at.govt.nz/realtime/legacy
+    auth:
+      type: api_key
+      header: Ocp-Apim-Subscription-Key
+      env: AT_METRO_API_KEY
+    feeds:
+      - name: at-metro-trips
+        path: /tripupdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: at-metro-alerts
+        path: /servicealerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+      - name: at-metro-vehicles
+        path: /vehiclelocations
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+    # github #94. Portal https://dev-portal.at.govt.nz/. One MDB source
+    # covers all 4 operators together -- not 4 separate feeds.
 
   - agency_id: STM
     name: Société de transport de Montréal (STM)
@@ -1203,28 +1203,28 @@ agencies:
         poll_interval_seconds: 30
     # github #91. Portal https://portail.developpeurs.stm.info/apihub/#/
 
-  # - agency_id: METRO_CHRISTCHURCH
-  #   name: Metro Christchurch
-  #   region: Canterbury
-  #   timezone: Pacific/Auckland
-  #   base_url: https://apis.metroinfo.co.nz/rti/gtfsrt/v1
-  #   auth:
-  #     type: api_key
-  #     header: Ocp-Apim-Subscription-Key
-  #     env: METRO_CHRISTCHURCH_API_KEY
-  #   feeds:
-  #     - name: metro-christchurch-trips
-  #       path: /trip-updates.pb
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #     - name: metro-christchurch-alerts
-  #       path: /service-alerts.pb
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 60
-  #   # github #84. Portal https://apidevelopers.metroinfo.co.nz/. No
-  #   # vehicle-positions feed found in the MDB catalog for this one.
+  - agency_id: METRO_CHRISTCHURCH
+    name: Metro Christchurch
+    region: Canterbury
+    timezone: Pacific/Auckland
+    base_url: https://apis.metroinfo.co.nz/rti/gtfsrt/v1
+    auth:
+      type: api_key
+      header: Ocp-Apim-Subscription-Key
+      env: METRO_CHRISTCHURCH_API_KEY
+    feeds:
+      - name: metro-christchurch-trips
+        path: /trip-updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: metro-christchurch-alerts
+        path: /service-alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+    # github #84. Portal https://apidevelopers.metroinfo.co.nz/. No
+    # vehicle-positions feed found in the MDB catalog for this one.
 
   # Transport for New South Wales -- github #51. Portal
   # https://opendata.transport.nsw.gov.au/data/user/register. One shared
