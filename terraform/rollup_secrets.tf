@@ -50,9 +50,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "hot_scratch" {
 #   aws secretsmanager put-secret-value --secret-id rail-archiver/env \
 #     --secret-string "$(python3 - <<'PY'
 #   import json
-#   keys = ["BAY_AREA_511_API_KEY","MARTA_API_KEY","METRA_API_KEY","METRO_HOUSTON_API_KEY",
-#           "SAN_DIEGO_MTS_API_KEY","SOUND_TRANSIT_API_KEY","SWIFTLY_API_KEY","TRIMET_API_KEY",
-#           "VALLEY_METRO_API_KEY","WMATA_API_KEY",
+#   keys = ["BAY_AREA_511_API_KEY","BKK_API_KEY","MARTA_API_KEY","METLINK_API_KEY","METRA_API_KEY",
+#           "METRO_HOUSTON_API_KEY","SAN_DIEGO_MTS_API_KEY","SOUND_TRANSIT_API_KEY","STM_API_KEY",
+#           "SWIFTLY_API_KEY","TRIMET_API_KEY","VALLEY_METRO_API_KEY","WMATA_API_KEY",
 #           "DD_API_KEY","DD_SITE","AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY"]
 #   env = dict(l.strip().split("=",1) for l in open(".env") if "=" in l and not l.startswith("#"))
 #   print(json.dumps({k: env[k] for k in keys}))

@@ -1094,59 +1094,59 @@ agencies:
   # at startup and crashes the WHOLE poller process, not just that agency
   # (archiver/loader.py's _read_env), so these must not go live key-less.
 
-  # - agency_id: METLINK
-  #   name: Metlink (Wellington)
-  #   region: Wellington
-  #   timezone: Pacific/Auckland
-  #   base_url: https://api.opendata.metlink.org.nz/v1/gtfs-rt
-  #   auth:
-  #     type: api_key
-  #     header: x-api-key
-  #     env: METLINK_API_KEY
-  #   feeds:
-  #     - name: metlink-trips
-  #       path: /tripupdates
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #     - name: metlink-alerts
-  #       path: /servicealerts
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 60
-  #     - name: metlink-vehicles
-  #       path: /vehiclepositions
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #   # github #83. Portal https://opendata.metlink.org.nz/
+  - agency_id: METLINK
+    name: Metlink (Wellington)
+    region: Wellington
+    timezone: Pacific/Auckland
+    base_url: https://api.opendata.metlink.org.nz/v1/gtfs-rt
+    auth:
+      type: api_key
+      header: x-api-key
+      env: METLINK_API_KEY
+    feeds:
+      - name: metlink-trips
+        path: /tripupdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: metlink-alerts
+        path: /servicealerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+      - name: metlink-vehicles
+        path: /vehiclepositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+    # github #83. Portal https://opendata.metlink.org.nz/
 
-  # - agency_id: BKK
-  #   name: Budapesti Közlekedési Központ (BKK)
-  #   region: Budapest
-  #   timezone: Europe/Budapest
-  #   base_url: https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full
-  #   auth:
-  #     type: api_key
-  #     param: key
-  #     env: BKK_API_KEY
-  #   feeds:
-  #     - name: bkk-trips
-  #       path: /TripUpdates.pb
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #     - name: bkk-alerts
-  #       path: /Alerts.pb
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 60
-  #     - name: bkk-vehicles
-  #       path: /VehiclePositions.pb
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #   # github #59. Portal https://fiok.bkk.hu/auth
+  - agency_id: BKK
+    name: Budapesti Közlekedési Központ (BKK)
+    region: Budapest
+    timezone: Europe/Budapest
+    base_url: https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full
+    auth:
+      type: api_key
+      param: key
+      env: BKK_API_KEY
+    feeds:
+      - name: bkk-trips
+        path: /TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: bkk-alerts
+        path: /Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+      - name: bkk-vehicles
+        path: /VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+    # github #59. Portal https://opendata.bkk.hu/data-sources
 
   # - agency_id: AT_METRO_REGIONAL
   #   name: SeaLink Pine Harbour, Waikato Regional Council, Pavlovich Transport Solutions, AT Metro
@@ -1176,32 +1176,32 @@ agencies:
   #   # github #94. Portal https://dev-portal.at.govt.nz/. One MDB source
   #   # covers all 4 operators together -- not 4 separate feeds.
 
-  # - agency_id: STM
-  #   name: Société de transport de Montréal (STM)
-  #   region: Montréal
-  #   timezone: America/Montreal
-  #   base_url: https://api.stm.info/pub/od
-  #   auth:
-  #     type: api_key
-  #     header: apiKey
-  #     env: STM_API_KEY
-  #   feeds:
-  #     - name: stm-trips
-  #       path: /gtfs-rt/ic/v2/tripUpdates
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #     - name: stm-alerts
-  #       path: /i3/v2/messages/etatservice
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 60
-  #     - name: stm-vehicles
-  #       path: /gtfs-rt/ic/v2/vehiclePositions
-  #       expected_format: protobuf
-  #       decoder: standard
-  #       poll_interval_seconds: 30
-  #   # github #91. Portal https://portail.developpeurs.stm.info/apihub/#/
+  - agency_id: STM
+    name: Société de transport de Montréal (STM)
+    region: Montréal
+    timezone: America/Montreal
+    base_url: https://api.stm.info/pub/od
+    auth:
+      type: api_key
+      header: apiKey
+      env: STM_API_KEY
+    feeds:
+      - name: stm-trips
+        path: /gtfs-rt/ic/v2/tripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: stm-alerts
+        path: /i3/v2/messages/etatservice
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+      - name: stm-vehicles
+        path: /gtfs-rt/ic/v2/vehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+    # github #91. Portal https://portail.developpeurs.stm.info/apihub/#/
 
   # - agency_id: METRO_CHRISTCHURCH
   #   name: Metro Christchurch
