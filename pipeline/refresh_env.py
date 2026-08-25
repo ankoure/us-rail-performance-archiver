@@ -2,11 +2,17 @@
 Manager secret, then refresh .env on every poller box and restart its
 pollers so the change actually takes effect.
 
-Each box's user_data (terraform/box.tf, box_regional_common.tf) fetches
+Each box's user_data (terraform/box.tf, box_eu.tf, box_au.tf) fetches
 rail-archiver/env into /opt/rail-archiver/.env ONCE, at first boot — nothing
 re-fetches it afterward, so editing the secret alone does nothing to an
 already-running box. This script is the "afterward" step: it's the same
-fetch-and-append logic user_data runs, replayed over SSM.
+fetch-and-filter-and-append logic user_data runs, replayed over SSM --
+including the same continent scoping (box_eu.tf's poller_eu_env_tail): each
+box's refresh reads ITS OWN currently-running CONTINENT setting and re-filters
+to just that region's keys, so a rotation can never hand a box back keys its
+--continent filter already dropped. A box with no CONTINENT set (us-east-1,
+until it's switched over) still gets the full unfiltered blob, matching its
+current unfiltered polling scope.
 
 Usage:
   python pipeline/refresh_env.py NEW_AGENCY_API_KEY [MORE_KEY ...]
@@ -72,15 +78,35 @@ def _build_refresh_script(shard_services: str) -> str:
     # Built fresh per box (not a shared template + later .format()) so the
     # embedded python one-liner's OWN f-string braces (f"{k}={v}") don't
     # collide with a second templating pass over the same string.
+    #
+    # Reads the box's OWN currently-running CONTINENT out of its existing
+    # .env (not something this script decides) -- requires scripts/
+    # agency_env_keys.py to already be in the deployed image, i.e. this
+    # refresh won't work correctly until that ships.
     return f"""
 set -euo pipefail
+CONTINENT=$(grep -oP '^CONTINENT=\\K.*' /opt/rail-archiver/.env || true)
+IMAGE="ghcr.io/ankoure/us-rail-performance-archiver:latest"
+if [ -n "$CONTINENT" ]; then
+  docker run --rm "$IMAGE" python scripts/agency_env_keys.py --continent "$CONTINENT" > /tmp/agency_keys.txt
+else
+  docker run --rm "$IMAGE" python scripts/agency_env_keys.py > /tmp/agency_keys.txt
+fi
+
 aws secretsmanager get-secret-value --region {SECRET_REGION} --secret-id {SECRET_ID} \\
   --query SecretString --output text \\
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(chr(10).join(f"{{k}}={{v}}" for k,v in d.items()))' \\
-  > /tmp/rail-archiver-env-new
+  | python3 -c '
+import json, sys
+always = {{"DD_API_KEY", "DD_SITE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"}}
+with open("/tmp/agency_keys.txt") as f:
+    wanted = always | {{line.strip() for line in f if line.strip()}}
+d = json.load(sys.stdin)
+print(chr(10).join(f"{{k}}={{v}}" for k, v in d.items() if k in wanted))
+' > /tmp/rail-archiver-env-new
 grep -E '^(CONTINENT|SHARD_COUNT|DD_HOSTNAME|WORKERS)=' /opt/rail-archiver/.env >> /tmp/rail-archiver-env-new || true
 mv /tmp/rail-archiver-env-new /opt/rail-archiver/.env
 chmod 600 /opt/rail-archiver/.env
+rm -f /tmp/agency_keys.txt
 cd /opt/rail-archiver
 docker compose -f compose.prod.yml up -d --force-recreate {shard_services}
 """
