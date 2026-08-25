@@ -74,28 +74,52 @@ data "aws_ssm_parameter" "al2023_arm64_eu" {
 }
 
 # Appended to local.regional_poller_bootstrap_base. Fetches the shared env
-# secret and writes it straight to .env, then appends this box's own
-# (non-secret) config. The secret VALUE only ever flows through the pipe
-# into python's stdin -- never as a command-line argument -- so `set -x`'s
-# command tracing (cloud-init logs every command) doesn't leak it; the
-# CONTINENT/SHARD_COUNT/DD_HOSTNAME lines below aren't secret, so they're
-# fine to trace. AWS CLI auth is implicit via the instance role (IMDSv2) --
-# no credentials to manage here.
+# secret, filters it down to this box's own agency keys (agency_env_keys.py,
+# run inside the just-pulled image) plus the always-keep infra keys, writes
+# the result to .env, then appends this box's own (non-secret) config. The
+# secret VALUE only ever flows through the pipe into python's stdin -- never
+# as a command-line argument -- so `set -x`'s command tracing (cloud-init
+# logs every command) doesn't leak it; the CONTINENT/SHARD_COUNT/DD_HOSTNAME
+# lines below aren't secret, so they're fine to trace. AWS CLI auth is
+# implicit via the instance role (IMDSv2) -- no credentials to manage here.
 #
 # NOTE: assumes AL2023 ships (or `dnf install`s cleanly as) a working `aws`
 # CLI -- unverified against a live instance as of writing, same as the rest
 # of this bootstrap script; watch /var/log/cloud-init-output.log on first
 # apply, the same way box.tf's original gotchas were found empirically.
 locals {
+  # Non-agency keys every box needs regardless of --continent: Datadog, plus
+  # AWS creds if a box ever needs them despite the instance role (kept for
+  # parity with the old unfiltered fetch, not confirmed as actually read).
+  poller_always_keep_keys = ["DD_API_KEY", "DD_SITE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+
   poller_eu_env_tail = <<-EOT
     command -v aws >/dev/null 2>&1 || dnf install -y awscli2 || dnf install -y aws-cli
+
+    cd /opt/rail-archiver
+    docker compose -f compose.prod.yml pull datadog-agent app-shard-0 autoheal
+
+    # Trim the shared secret down to only what --continent eu will ever read:
+    # the always-keep infra keys above, plus this region's agency keys --
+    # computed from the SAME config/feeds.yaml baked into the image just
+    # pulled (archiver/region.py's timezone->continent mapping), so this box
+    # never has another region's credentials on disk, not just unused ones.
+    docker run --rm ghcr.io/ankoure/us-rail-performance-archiver:latest \
+      python scripts/agency_env_keys.py --continent eu > /tmp/agency_keys.txt
 
     aws secretsmanager get-secret-value \
       --region ${var.region} \
       --secret-id ${var.env_secret_name} \
       --query SecretString --output text \
-      | python3 -c 'import json,sys; d=json.load(sys.stdin); print("\n".join(f"{k}={v}" for k,v in d.items()))' \
-      > /opt/rail-archiver/.env
+      | python3 -c '
+    import json, sys
+    always = set(${jsonencode(local.poller_always_keep_keys)})
+    with open("/tmp/agency_keys.txt") as f:
+        wanted = always | {line.strip() for line in f if line.strip()}
+    d = json.load(sys.stdin)
+    print("\n".join(f"{k}={v}" for k, v in d.items() if k in wanted))
+    ' > /opt/rail-archiver/.env
+    rm -f /tmp/agency_keys.txt
     chmod 600 /opt/rail-archiver/.env
 
     printf '%s\n' \
@@ -104,8 +128,6 @@ locals {
       'DD_HOSTNAME=rail-archiver-eu' \
       >> /opt/rail-archiver/.env
 
-    cd /opt/rail-archiver
-    docker compose -f compose.prod.yml pull datadog-agent app-shard-0 autoheal
     docker compose -f compose.prod.yml up -d datadog-agent app-shard-0 autoheal
 
     touch /opt/rail-archiver/.bootstrap-complete

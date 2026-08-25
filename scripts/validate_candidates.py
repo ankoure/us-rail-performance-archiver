@@ -6,8 +6,8 @@ script does one real GET per feed, classifies the outcome, prints a report, and
 writes a filtered YAML containing only the OK feeds — the subset safe to merge into
 config/feeds.yaml.
 
-It reuses the live machinery (build_feeds/build_client + parse_response) so feeds
-are fetched and parsed exactly as the poller would.
+It reuses the live machinery (build_feeds/build_agency_clients + parse_response) so
+feeds are fetched and parsed exactly as the poller would.
 
 Buckets:
   ok              200 + parses as GTFS-rt with the standard decoder
@@ -33,9 +33,10 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from archiver.auth import APIClient  # noqa: E402
 from archiver.config import ArchiverConfig  # noqa: E402
 from archiver.feed import Feed  # noqa: E402
-from archiver.loader import build_feeds  # noqa: E402
+from archiver.loader import build_agency_clients, build_feeds  # noqa: E402
 from archiver.logger import logger  # noqa: E402
 from archiver.parser import parse_response  # noqa: E402
 from archiver.response import (  # noqa: E402
@@ -52,8 +53,8 @@ NEEDS_AUTH = "needs_auth"
 DEAD = "dead"
 
 
-def load_candidates(path: Path) -> tuple[dict, list[Feed]]:
-    """Return (raw YAML dict, built Feeds).
+def load_candidates(path: Path) -> tuple[dict, list[Feed], dict[str, APIClient]]:
+    """Return (raw YAML dict, built Feeds, agency_id -> client).
 
     The candidate file holds only ``agencies:``; ArchiverConfig needs a writer
     block, so wrap it with a throwaway one (never written to — we only build
@@ -71,16 +72,16 @@ def load_candidates(path: Path) -> tuple[dict, list[Feed]]:
             "agencies": raw.get("agencies", []),
         }
     )
-    return raw, build_feeds(config)
+    return raw, build_feeds(config), build_agency_clients(config)
 
 
 async def validate_one(
-    feed: Feed, sem: asyncio.Semaphore, timeout: int
+    feed: Feed, clients: dict[str, APIClient], sem: asyncio.Semaphore, timeout: int
 ) -> tuple[str, str, str]:
     """One GET; return (feed_name, bucket, detail)."""
     async with sem:
         try:
-            http = await feed.client.get(feed.path, timeout=timeout)
+            http = await clients[feed.agency_id].get(feed.path, timeout=timeout)
         except Exception as exc:  # httpx timeout / connect / DNS / etc.
             return feed.name, DEAD, f"{type(exc).__name__}: {exc}"
 
@@ -104,15 +105,20 @@ async def validate_one(
 
 
 async def validate_all(
-    feeds: list[Feed], concurrency: int, timeout: int
+    feeds: list[Feed],
+    clients: dict[str, APIClient],
+    concurrency: int,
+    timeout: int,
 ) -> list[tuple[str, str, str]]:
     sem = asyncio.Semaphore(concurrency)
     async with contextlib.AsyncExitStack() as stack:
         # One client per agency (shared across its feeds) — open the pools now,
         # close them on exit, same as the poll loop does.
-        for client in {feed.client for feed in feeds}:
+        for client in clients.values():
             await stack.enter_async_context(client)
-        return await asyncio.gather(*(validate_one(f, sem, timeout) for f in feeds))
+        return await asyncio.gather(
+            *(validate_one(f, clients, sem, timeout) for f in feeds)
+        )
 
 
 def write_validated(raw: dict, ok_names: set[str], out_path: Path) -> int:
@@ -183,9 +189,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    raw, feeds = load_candidates(args.candidates)
+    raw, feeds, clients = load_candidates(args.candidates)
     logger.info("validating %d candidate feeds", len(feeds))
-    results = asyncio.run(validate_all(feeds, args.concurrency, args.timeout))
+    results = asyncio.run(validate_all(feeds, clients, args.concurrency, args.timeout))
 
     report(results)
     ok_names = {name for name, bucket, _ in results if bucket == OK}

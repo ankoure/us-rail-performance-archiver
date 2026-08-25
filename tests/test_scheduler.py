@@ -17,7 +17,6 @@ def make_feed(name: str, interval: int | None = None) -> Feed:
     return Feed(
         name=name,
         path=f"/{name}",
-        client=None,  # type: ignore — scheduler never touches it
         parser=None,  # type: ignore
         decoder=None,  # type: ignore
         poll_interval_seconds=interval,

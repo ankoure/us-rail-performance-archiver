@@ -90,7 +90,6 @@ def _echo_feed() -> Feed:
     return Feed(
         name="echo-feed",
         path="/whatever",
-        client=None,
         parser=EchoParser(),
         decoder=EchoDecoder(),
         agency_id="A",
@@ -230,7 +229,6 @@ def test_skip_happens_when_outputs_exist(tmp_path, monkeypatch):
     feed = Feed(
         name="fake-feed",
         path="/whatever",
-        client=None,
         parser=None,
         decoder=FakeDecoder(),
         agency_id="A",
@@ -262,7 +260,6 @@ def test_skip_does_not_happen_when_outputs_missing(tmp_path, monkeypatch):
     feed = Feed(
         name="fake-feed",
         path="/whatever",
-        client=None,
         parser=None,
         decoder=FakeDecoder(),
         agency_id="A",
@@ -291,7 +288,6 @@ def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
     feed = Feed(
         name="fake-feed",
         path="/whatever",
-        client=None,
         parser=None,
         decoder=FakeDecoder(),
         agency_id="A",
@@ -598,7 +594,6 @@ def test_second_run_does_not_redo_work(tmp_path):
     feed = Feed(
         name="fake-feed",
         path="/whatever",
-        client=None,
         parser=FakeParser(),
         decoder=FakeDecoder(),
         agency_id="A",

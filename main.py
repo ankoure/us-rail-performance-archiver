@@ -119,8 +119,8 @@ async def run(args):
 
     async with contextlib.AsyncExitStack() as stack:
         # Enter every distinct agency client so their pools open now and close on
-        # exit. One client is shared across all feeds of an agency, hence the set.
-        for client in {feed.client for feed in archiver.feeds}:
+        # exit. One client per agency, shared across all of that agency's feeds.
+        for client in archiver.clients.values():
             await stack.enter_async_context(client)
         if landing_uploader is not None:
             await stack.enter_async_context(landing_uploader)
@@ -181,7 +181,8 @@ async def run(args):
 
                 if sem.locked():  # concurrency gate: no free slot → shed this cycle
                     archiver.telemetry.incr("poll.skipped", tags={"feed": feed.name})
-                elif not feed.client.limiter.try_acquire():  # per-agency rate gate
+                elif not archiver.clients[feed.agency_id].limiter.try_acquire():
+                    # per-agency rate gate
                     archiver.telemetry.incr(
                         "poll.rate_limited", tags={"feed": feed.name}
                     )

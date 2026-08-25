@@ -89,6 +89,7 @@ region-scoped, not account-scoped, so it doesn't collide across regions):
       "Action": "ssm:SendCommand",
       "Resource": [
         "arn:aws:ec2:us-east-1:ACCOUNT_ID:instance/US_INSTANCE_ID",
+        "arn:aws:ec2:us-east-1:ACCOUNT_ID:instance/DASHBOARD_API_INSTANCE_ID",
         "arn:aws:ec2:eu-central-1:ACCOUNT_ID:instance/EU_INSTANCE_ID",
         "arn:aws:ec2:ap-southeast-2:ACCOUNT_ID:instance/AU_INSTANCE_ID",
         "arn:aws:ssm:us-east-1::document/AWS-RunShellScript",
@@ -226,15 +227,32 @@ sudo chown ssm-user:ssm-user /opt/rail-archiver
 cd /opt/rail-archiver
 git clone https://github.com/ankoure/us-rail-performance-archiver.git .
 
-# Create .env from your local one (paste contents).
-nano .env
+# On your LOCAL machine (not this SSM session) -- filter the shared secret
+# down to just the keys us-east-1's own agencies need (agency_env_keys.py),
+# the same continent-scoping the EU/AU boxes' terraform bootstrap already
+# does automatically (see box_eu.tf's poller_eu_env_tail). This is what makes
+# "conditionally required" real: without it, us-east-1 -- the one box with no
+# --continent filter until now -- would need every region's keys just to
+# start.
+#   uv run python scripts/agency_env_keys.py --continent us > /tmp/agency_keys.txt
+#   aws secretsmanager get-secret-value \
+#     --secret-id rail-archiver/env --query SecretString --output text \
+#     | python3 -c '
+#   import json, sys
+#   always = {"DD_API_KEY", "DD_SITE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"}
+#   with open("/tmp/agency_keys.txt") as f:
+#       wanted = always | {line.strip() for line in f if line.strip()}
+#   d = json.load(sys.stdin)
+#   print("\n".join(f"{k}={v}" for k, v in d.items() if k in wanted))
+#   ' > /tmp/us_env
+#   echo 'CONTINENT=us' >> /tmp/us_env
+# Copy /tmp/us_env's contents, then back in the SSM session:
+nano .env   # paste the filtered contents + CONTINENT=us
 
-# On the EU/AU boxes ONLY, also add (see compose.prod.yml for how these are
-# consumed -- unset on the us-east-1 box's .env, which keeps its behavior
-# unchanged: no --continent filter, 2 shards, default Datadog hostname):
-#   CONTINENT=eu        # or au
-#   SHARD_COUNT=1        # single shard is enough at EU/AU's current agency counts
-#   DD_HOSTNAME=rail-archiver-eu   # or rail-archiver-au -- avoids colliding with the us box in Datadog
+# SHARD_COUNT/DD_HOSTNAME stay at compose.prod.yml's defaults (2 shards,
+# hostname "rail-archiver") -- only the EU/AU boxes override those:
+#   SHARD_COUNT=1
+#   DD_HOSTNAME=rail-archiver-eu   # or rail-archiver-au
 
 # If the GHCR image is private, log in once:
 # docker login ghcr.io -u ankoure
@@ -279,7 +297,13 @@ Settings → Secrets and variables → Actions → **New repository secret**:
 | Name                  | Value                                                                |
 |-----------------------|----------------------------------------------------------------------|
 | `AWS_DEPLOY_ROLE_ARN` | ARN of `rail-archiver-deploy` from step 2b                           |
-| `EC2_INSTANCE_IDS`    | JSON object of all 3 boxes' instance IDs (see below)                 |
+| `EC2_INSTANCE_IDS`    | JSON object of all 3 poller boxes' instance IDs (see below)          |
+| `DASHBOARD_API_INSTANCE_ID` | Instance ID of the gtfs-rt-rater box (used by `deploy-dashboard-api.yml`) |
+
+`DASHBOARD_API_INSTANCE_ID` reuses the same `rail-archiver-deploy` role as the
+poller deploys — its instance ARN must also be listed in
+`deploy-role-policy.json`'s `ssm:SendCommand` resource above, same as any
+other box.
 
 `EC2_INSTANCE_IDS` replaces the old single `EC2_INSTANCE_ID` secret now that
 `deploy.yml` fans out to 3 regional boxes via a matrix — GitHub Actions can't

@@ -178,10 +178,14 @@ resource "aws_ecs_task_definition" "rollup" {
         # default checksum here too (S3 does not require it).
         { name = "AWS_REQUEST_CHECKSUM_CALCULATION", value = "when_required" },
       ]
-      secrets = [
-        for k in var.agency_secret_keys :
-        { name = k, valueFrom = "${aws_secretsmanager_secret.env.arn}:${k}::" }
-      ]
+      # No agency API keys here: rollup/snapshot/gtfs/gold/ship all read
+      # landing/curated data from S3, never a live feed URL, so they never
+      # build an authenticated client (archiver/loader.py's build_feeds() is
+      # metadata-only; build_agency_clients(), which DOES need keys, is only
+      # ever called by the live poller). Injecting agency keys here used to be
+      # a footgun, not a requirement: a new agency's key missing from
+      # var.agency_secret_keys crashed this task for EVERY agency, not just
+      # the new one (see the 2026-08-24 TFNSW outage).
       # Start the sidecar before the rollup so early metrics aren't dropped onto a
       # dead UDP socket (DogStatsD fails silently). START, not HEALTHY — no healthcheck.
       dependsOn = [
@@ -286,10 +290,8 @@ resource "aws_ecs_task_definition" "rollup_heavy" {
         { name = "HOT_BUCKET", value = var.hot_bucket },
         { name = "AWS_REQUEST_CHECKSUM_CALCULATION", value = "when_required" },
       ]
-      secrets = [
-        for k in var.agency_secret_keys :
-        { name = k, valueFrom = "${aws_secretsmanager_secret.env.arn}:${k}::" }
-      ]
+      # No agency API keys here either -- see the main rollup container's
+      # comment above.
       dependsOn = [
         { containerName = "datadog-agent", condition = "START" }
       ]

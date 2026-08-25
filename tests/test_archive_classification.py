@@ -26,11 +26,10 @@ def _client(handler) -> APIClient:
     return c
 
 
-def _feed(client) -> Feed:
+def _feed() -> Feed:
     return Feed(
         name="f",
         path="/x",
-        client=client,
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
         agency_id="A",
@@ -38,9 +37,12 @@ def _feed(client) -> Feed:
     )
 
 
-def _archiver(feed, tmp_path) -> FeedArchiver:
+def _archiver(feed, client, tmp_path) -> FeedArchiver:
     return FeedArchiver(
-        feeds=[feed], writer=LocalWriter(str(tmp_path)), store=PollStateStore()
+        feeds=[feed],
+        clients={feed.agency_id: client},
+        writer=LocalWriter(str(tmp_path)),
+        store=PollStateStore(),
     )
 
 
@@ -48,9 +50,10 @@ async def test_success_returns_non_failure(tmp_path, valid_protobuf_bytes):
     def handler(request):
         return httpx.Response(200, content=valid_protobuf_bytes)
 
-    feed = _feed(_client(handler))
-    arch = _archiver(feed, tmp_path)
-    async with feed.client:
+    feed = _feed()
+    client = _client(handler)
+    arch = _archiver(feed, client, tmp_path)
+    async with client:
         resp = await arch.archive_one(feed)
     assert isinstance(resp, ProtobufResponse)
     assert resp.status_code == 200
@@ -61,9 +64,10 @@ async def test_5xx_is_failure(tmp_path):
     def handler(request):
         return httpx.Response(500, content=b"")
 
-    feed = _feed(_client(handler))
-    arch = _archiver(feed, tmp_path)
-    async with feed.client:
+    feed = _feed()
+    client = _client(handler)
+    arch = _archiver(feed, client, tmp_path)
+    async with client:
         resp = await arch.archive_one(feed)
     assert resp.status_code == 500
     assert is_transient_failure(resp)
@@ -73,9 +77,10 @@ async def test_transport_error_is_failure(tmp_path):
     def handler(request):
         raise httpx.ConnectError("connection refused")
 
-    feed = _feed(_client(handler))
-    arch = _archiver(feed, tmp_path)
-    async with feed.client:
+    feed = _feed()
+    client = _client(handler)
+    arch = _archiver(feed, client, tmp_path)
+    async with client:
         resp = await arch.archive_one(feed)
     assert isinstance(resp, TransportErrorResponse)
     assert is_transient_failure(resp)

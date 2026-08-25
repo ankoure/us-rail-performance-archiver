@@ -200,26 +200,6 @@ variable "env_secret_name" {
   description = "Secrets Manager secret holding the agency API keys as a JSON object (populated out-of-band, not by Terraform)."
 }
 
-variable "agency_secret_keys" {
-  type = list(string)
-  default = [
-    "BAY_AREA_511_API_KEY",
-    "BKK_API_KEY",
-    "MARTA_API_KEY",
-    "METLINK_API_KEY",
-    "METRA_API_KEY",
-    "METRO_HOUSTON_API_KEY",
-    "SAN_DIEGO_MTS_API_KEY",
-    "SOUND_TRANSIT_API_KEY",
-    "STM_API_KEY",
-    "SWIFTLY_API_KEY",
-    "TRIMET_API_KEY",
-    "VALLEY_METRO_API_KEY",
-    "WMATA_API_KEY",
-  ]
-  description = "Agency API-key env vars the rollup needs (it builds feed clients). Each is injected from a JSON key in the env secret."
-}
-
 variable "log_retention_days" {
   type    = number
   default = 14

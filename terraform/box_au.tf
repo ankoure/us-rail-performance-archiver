@@ -66,12 +66,27 @@ locals {
   poller_au_env_tail = <<-EOT
     command -v aws >/dev/null 2>&1 || dnf install -y awscli2 || dnf install -y aws-cli
 
+    cd /opt/rail-archiver
+    docker compose -f compose.prod.yml pull datadog-agent app-shard-0 autoheal
+
+    # Trim the shared secret down to only what --continent au will ever read --
+    # see box_eu.tf's poller_eu_env_tail for the full rationale.
+    docker run --rm ghcr.io/ankoure/us-rail-performance-archiver:latest \
+      python scripts/agency_env_keys.py --continent au > /tmp/agency_keys.txt
+
     aws secretsmanager get-secret-value \
       --region ${var.region} \
       --secret-id ${var.env_secret_name} \
       --query SecretString --output text \
-      | python3 -c 'import json,sys; d=json.load(sys.stdin); print("\n".join(f"{k}={v}" for k,v in d.items()))' \
-      > /opt/rail-archiver/.env
+      | python3 -c '
+    import json, sys
+    always = set(${jsonencode(local.poller_always_keep_keys)})
+    with open("/tmp/agency_keys.txt") as f:
+        wanted = always | {line.strip() for line in f if line.strip()}
+    d = json.load(sys.stdin)
+    print("\n".join(f"{k}={v}" for k, v in d.items() if k in wanted))
+    ' > /opt/rail-archiver/.env
+    rm -f /tmp/agency_keys.txt
     chmod 600 /opt/rail-archiver/.env
 
     printf '%s\n' \
@@ -80,8 +95,6 @@ locals {
       'DD_HOSTNAME=rail-archiver-au' \
       >> /opt/rail-archiver/.env
 
-    cd /opt/rail-archiver
-    docker compose -f compose.prod.yml pull datadog-agent app-shard-0 autoheal
     docker compose -f compose.prod.yml up -d datadog-agent app-shard-0 autoheal
 
     touch /opt/rail-archiver/.bootstrap-complete

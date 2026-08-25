@@ -16,14 +16,16 @@ async def test_duplicate_poll_writes_no_bin(
     feed = Feed(
         name="test-feed",
         path="/x",
-        client=_FakeClient(make_response(content=valid_protobuf_bytes)),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
         agency_id="A",
         poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
-    archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
+    client = _FakeClient(make_response(content=valid_protobuf_bytes))
+    archiver = FeedArchiver(
+        feeds=[feed], clients={"A": client}, writer=writer, store=PollStateStore()
+    )
 
     await archiver.archive_one(feed)  # first poll  -> stores bytes
     await archiver.archive_one(feed)  # second poll -> identical -> DuplicateResponse
@@ -74,14 +76,16 @@ async def test_lirr_json_lands_raw(tmp_path):
     feed = Feed(
         name="lirr-locations",
         path="/locations",
-        client=_FakeClient(_FakeResponse(200, content=raw)),
         parser=Parser.from_name("json"),
         decoder=Decoder.from_name("mta_lirr_json"),
         agency_id="LIRR",
         poll_interval_seconds=15,
     )
     writer = LocalWriter(str(tmp_path))
-    archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
+    client = _FakeClient(_FakeResponse(200, content=raw))
+    archiver = FeedArchiver(
+        feeds=[feed], clients={"LIRR": client}, writer=writer, store=PollStateStore()
+    )
 
     await archiver.archive_one(feed)  # first poll  -> lands raw bytes
     await archiver.archive_one(feed)  # second poll -> identical -> DuplicateResponse
@@ -104,17 +108,19 @@ async def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
     feed = Feed(
         name="test-feed",
         path="/x",
-        client=_ConditionalFakeClient(
-            content=valid_protobuf_bytes,
-            etag="v1",
-        ),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
         agency_id="A",
         poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
-    archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
+    client = _ConditionalFakeClient(
+        content=valid_protobuf_bytes,
+        etag="v1",
+    )
+    archiver = FeedArchiver(
+        feeds=[feed], clients={"A": client}, writer=writer, store=PollStateStore()
+    )
     await archiver.archive_one(feed)  # first poll  -> stores bytes
     await archiver.archive_one(feed)  # second poll -> doesn't
 
@@ -134,24 +140,26 @@ async def test_304_stores_nothing(valid_protobuf_bytes, tmp_path):
         assert records[1]["response_type"] == "NotModifiedResponse", (
             "second poll should indicate NotModifiedResponse"
         )
-        assert feed.client.calls[1]["If-None-Match"] == "v1"
+        assert client.calls[1]["If-None-Match"] == "v1"
 
 
 async def test_archiver_respects_last_modified(valid_protobuf_bytes, tmp_path):
     feed = Feed(
         name="test-feed",
         path="/x",
-        client=_ConditionalFakeClient(
-            content=valid_protobuf_bytes,
-            last_modified="Sun, 02 Jun 2026 12:00:00 GMT",
-        ),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
         agency_id="A",
         poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
-    archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
+    client = _ConditionalFakeClient(
+        content=valid_protobuf_bytes,
+        last_modified="Sun, 02 Jun 2026 12:00:00 GMT",
+    )
+    archiver = FeedArchiver(
+        feeds=[feed], clients={"A": client}, writer=writer, store=PollStateStore()
+    )
     await archiver.archive_one(feed)  # first poll  -> stores bytes
     await archiver.archive_one(feed)  # second poll -> doesn't
     bins = list(tmp_path.rglob("*.bin"))
@@ -170,9 +178,7 @@ async def test_archiver_respects_last_modified(valid_protobuf_bytes, tmp_path):
         assert records[1]["response_type"] == "NotModifiedResponse", (
             "second poll should indicate NotModifiedResponse"
         )
-        assert (
-            feed.client.calls[1]["If-Modified-Since"] == "Sun, 02 Jun 2026 12:00:00 GMT"
-        )
+        assert client.calls[1]["If-Modified-Since"] == "Sun, 02 Jun 2026 12:00:00 GMT"
 
 
 async def test_transient_error_does_not_update_poll_state(
@@ -181,24 +187,24 @@ async def test_transient_error_does_not_update_poll_state(
     feed = Feed(
         name="test-feed",
         path="/x",
-        client=_SequenceFakeClient(
-            [
-                make_response(
-                    content=valid_protobuf_bytes
-                ),  # first poll -> stores bytes
-                make_response(status_code=500),  # second poll -> transient error
-                make_response(
-                    content=valid_protobuf_bytes
-                ),  # third poll -> identical -> DuplicateResponse
-            ]
-        ),
         parser=Parser.from_name("protobuf"),
         decoder=Decoder.from_name("standard"),
         agency_id="A",
         poll_interval_seconds=60,
     )
     writer = LocalWriter(str(tmp_path))
-    archiver = FeedArchiver(feeds=[feed], writer=writer, store=PollStateStore())
+    client = _SequenceFakeClient(
+        [
+            make_response(content=valid_protobuf_bytes),  # first poll -> stores bytes
+            make_response(status_code=500),  # second poll -> transient error
+            make_response(
+                content=valid_protobuf_bytes
+            ),  # third poll -> identical -> DuplicateResponse
+        ]
+    )
+    archiver = FeedArchiver(
+        feeds=[feed], clients={"A": client}, writer=writer, store=PollStateStore()
+    )
     await archiver.archive_one(feed)  # first poll  -> stores bytes
     await archiver.archive_one(
         feed

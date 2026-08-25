@@ -30,32 +30,43 @@ resource "aws_s3_bucket_lifecycle_configuration" "hot_scratch" {
 # Terraform creates the secret CONTAINER only; the value is put out-of-band so
 # secrets never land in TF state/code.
 #
-# Two consumers now read this SAME secret:
-#   - The Fargate rollup task (rollup_iam.tf) -- projects ONLY the
-#     var.agency_secret_keys entries into named container env vars via its ECS
-#     task def, so extra keys below are invisible to it (safe to add more).
+# Two consumers now read this SAME secret, neither wanting the whole thing:
+#   - The Fargate rollup task (rollup_iam.tf, rollup.tf) -- reads ONLY
+#     DD_API_KEY (hardcoded on the datadog-agent container def). It never
+#     builds a live feed client (archiver.loader.build_feeds() is metadata-
+#     only), so it has no use for -- and, as of this file, no longer even
+#     requests -- any agency key. Extra keys below are simply invisible to it.
 #   - Each poller box's user_data (box_eu.tf/box_au.tf; box.tf's original
-#     us-east-1 box still gets .env pasted by hand) -- reads the WHOLE blob at
-#     boot to build /opt/rail-archiver/.env directly, via the box_secrets_read
-#     policy (landing.tf).
+#     us-east-1 box still gets .env pasted by hand per deploy/README.md) --
+#     fetches the blob at boot and filters it to that box's own continent
+#     (scripts/agency_env_keys.py) plus the always-keep infra keys, via the
+#     box_secrets_read policy (landing.tf). pipeline/refresh_env.py replays
+#     the same fetch, unfiltered, when pushing a rotated/new key afterward --
+#     see its TODO to apply the same continent filter.
 #
-# So the value must be a flat JSON object of every var.agency_secret_keys
-# entry PLUS DD_API_KEY, DD_SITE, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-# (the poller's full .env, minus continent/shard/hostname -- those are
-# per-box, baked into user_data directly, not secret). Deliberately does NOT
-# include every key that might be in a local dev .env (e.g. MBTA_API_KEY,
-# DD_APP_KEY, POSTGIS_DATABASE_URL as of 2026-08-22) -- only what
-# config/feeds.yaml's auth blocks and compose.prod.yml actually reference:
+# So the value must be a flat JSON object of every agency's auth env var
+# (config/feeds.yaml) PLUS DD_API_KEY, DD_SITE, AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY (the poller's full un-filtered .env, minus
+# continent/shard/hostname -- those are per-box, baked into user_data
+# directly, not secret). Deliberately does NOT include every key that might
+# be in a local dev .env (e.g. MBTA_API_KEY, DD_APP_KEY,
+# POSTGIS_DATABASE_URL) -- only what config/feeds.yaml's auth blocks and
+# compose.prod.yml actually reference. The key LIST used to be hand-maintained
+# here and drifted stale more than once (missing TFNSW/PTV/AT_METRO/
+# METRO_CHRISTCHURCH keys each broke something before anyone noticed) --
+# scripts/agency_env_keys.py (no --continent) now computes it from
+# config/feeds.yaml directly, so use that instead of retyping a list:
 #
 #   aws secretsmanager put-secret-value --secret-id rail-archiver/env \
 #     --secret-string "$(python3 - <<'PY'
-#   import json
-#   keys = ["BAY_AREA_511_API_KEY","BKK_API_KEY","MARTA_API_KEY","METLINK_API_KEY","METRA_API_KEY",
-#           "METRO_HOUSTON_API_KEY","SAN_DIEGO_MTS_API_KEY","SOUND_TRANSIT_API_KEY","STM_API_KEY",
-#           "SWIFTLY_API_KEY","TRIMET_API_KEY","VALLEY_METRO_API_KEY","WMATA_API_KEY",
-#           "DD_API_KEY","DD_SITE","AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY"]
+#   import json, subprocess
+#   keys = subprocess.run(
+#       ["uv", "run", "python", "scripts/agency_env_keys.py"],
+#       capture_output=True, text=True, check=True,
+#   ).stdout.split()
+#   keys += ["DD_API_KEY", "DD_SITE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
 #   env = dict(l.strip().split("=",1) for l in open(".env") if "=" in l and not l.startswith("#"))
-#   print(json.dumps({k: env[k] for k in keys}))
+#   print(json.dumps({k: env[k] for k in keys if k in env}))
 #   PY
 #   )"
 

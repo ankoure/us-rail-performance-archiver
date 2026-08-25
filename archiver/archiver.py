@@ -1,5 +1,6 @@
 import time
 
+from archiver.auth import APIClient
 from archiver.poll_state import PollState, PollStateStore
 from archiver.response import (
     DecodeFailureResponse,
@@ -27,11 +28,13 @@ class FeedArchiver:
     def __init__(
         self,
         feeds: list[Feed],
+        clients: dict[str, APIClient],
         writer: LocalWriter,
         store: PollStateStore,
         telemetry: Telemetry | None = None,
     ):
         self.feeds = feeds
+        self.clients = clients
         self.writer = writer
         self.telemetry = telemetry or NoOpTelemetry()
         self.store = store
@@ -56,14 +59,13 @@ class FeedArchiver:
                     tags={"feed": feed.name, "interval_class": interval_class},
                 ):
                     start = time.monotonic()
+                    client = self.clients[feed.agency_id]
                     if feed.method == "POST":
-                        http = await feed.client.post(
+                        http = await client.post(
                             feed.path, json=feed.body, headers=conditional_headers
                         )
                     else:
-                        http = await feed.client.get(
-                            feed.path, headers=conditional_headers
-                        )
+                        http = await client.get(feed.path, headers=conditional_headers)
 
                     if http.status_code == 304:
                         self.telemetry.incr(

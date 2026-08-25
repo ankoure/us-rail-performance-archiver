@@ -9,6 +9,7 @@ from archiver.backfill import LandingBackfill
 from archiver.landing_uploader import LandingUploader
 from archiver.archiver import FeedArchiver
 from archiver.auth import APIClient
+from archiver.logger import logger
 from archiver.config import (
     AgencyConfig,
     ArchiverConfig,
@@ -137,13 +138,11 @@ def build_feeds(
             agency.timezone, continent
         ):
             continue
-        client = build_client(agency)
         for feed_cfg in agency.feeds:
             feeds.append(
                 Feed(
                     name=feed_cfg.name,
                     path=feed_cfg.path,
-                    client=client,
                     parser=Parser.from_name(feed_cfg.expected_format),
                     decoder=Decoder.from_name(feed_cfg.decoder),
                     poll_interval_seconds=feed_cfg.poll_interval_seconds,
@@ -153,6 +152,80 @@ def build_feeds(
                 )
             )
     return feeds
+
+
+def build_agency_clients(
+    config: ArchiverConfig,
+    shard_index: int = 0,
+    shard_count: int = 1,
+    continent: str | None = None,
+) -> dict[str, APIClient]:
+    """agency_id -> authenticated client, for the live poller ONLY.
+
+    Every other consumer of build_feeds() (rollup, snapshot, shipper, dev
+    scripts) reads landing/curated data and never sends a live HTTP request,
+    so it has no business needing an agency's API key to be present. Keeping
+    client construction here, isolated from build_feeds(), means a missing
+    credential can only ever break polling for that one agency -- not crash
+    every offline pipeline step for every agency, as it did when TFNSW/PTV
+    were added without their keys wired into the rollup task's secrets.
+    """
+    if continent is not None and continent not in VALID_CONTINENTS:
+        raise ValueError(
+            f"continent {continent!r} must be one of {sorted(VALID_CONTINENTS)}"
+        )
+    clients: dict[str, APIClient] = {}
+    for agency in config.agencies:
+        if not belongs_to_shard(agency.agency_id, shard_index, shard_count):
+            continue
+        if continent is not None and not belongs_to_continent(
+            agency.timezone, continent
+        ):
+            continue
+        try:
+            clients[agency.agency_id] = build_client(agency)
+        except RuntimeError as exc:
+            # One agency's missing key (a secret provisioning gap, not a code
+            # bug) shouldn't crash every other agency's polling on this box --
+            # skip just this one. Its feeds still get scheduled (they're built
+            # by build_feeds() independently of this function) and will fail
+            # per-poll via archive_one's own error handling, which is visible
+            # in telemetry/logs without taking the whole box down.
+            logger.error(
+                "skipping agency %s, feeds won't poll until fixed: %s",
+                agency.agency_id,
+                exc,
+            )
+    return clients
+
+
+def agency_env_keys(config: ArchiverConfig, continent: str | None = None) -> list[str]:
+    """Sorted env var names build_client() would read, optionally scoped to one
+    continent -- the minimal secret set a poller box actually needs.
+
+    Used by each box's bootstrap to trim the shared Secrets Manager blob down
+    to just its own region's keys, so a region-local box never has another
+    region's credentials sitting on disk (not just unused -- absent).
+    """
+    if continent is not None and continent not in VALID_CONTINENTS:
+        raise ValueError(
+            f"continent {continent!r} must be one of {sorted(VALID_CONTINENTS)}"
+        )
+    keys: set[str] = set()
+    for agency in config.agencies:
+        if continent is not None and not belongs_to_continent(
+            agency.timezone, continent
+        ):
+            continue
+        match agency.auth:
+            case APIKeyAuthConfig() as a:
+                keys.add(a.env)
+            case BearerAuthConfig() as a:
+                keys.add(a.env)
+            case BasicAuthConfig() as a:
+                keys.add(a.username_env)
+                keys.add(a.password_env)
+    return sorted(keys)
 
 
 def build_telemetry(config: TelemetryConfig, shard_index: int = 0) -> Telemetry:
@@ -213,10 +286,13 @@ def build_archiver(
     continent: str | None = None,
 ) -> FeedArchiver:
     feeds = build_feeds(config, shard_index, shard_count, continent)
+    clients = build_agency_clients(config, shard_index, shard_count, continent)
     writer = build_writer(config)
     telemetry = build_telemetry(config.telemetry, shard_index)
     store = PollStateStore(str(config.writer.poll_state_dir))
-    return FeedArchiver(feeds=feeds, writer=writer, telemetry=telemetry, store=store)
+    return FeedArchiver(
+        feeds=feeds, clients=clients, writer=writer, telemetry=telemetry, store=store
+    )
 
 
 def build_rollup(config: ArchiverConfig) -> Rollup:
