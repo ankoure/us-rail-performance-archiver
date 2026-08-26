@@ -3789,29 +3789,35 @@ agencies:
     default_headers: {}
     mdb_feed_id: mdb-1078
     tls_verify: true
-  - agency_id: GTFS_DE_DELFI_REALTIME_DATA
-    name: gtfs.de DELFI Realtime data
-    region: nan
-    timezone: Europe/Berlin
-    base_url: https://realtime.gtfs.de/
-    auth:
-      type: none
-    # Nationwide feed (~150-200MB/5min window, polled every 30s) that was
-    # causing periodic poll.skipped bursts on the EU box by hogging worker
-    # slots. Pinned to its own dedicated shard so it can't contend with the
-    # rest of the EU pool for the concurrency-gate semaphore.
-    shard_pin: 1
-    feeds:
-    - name: gtfs-de-delfi-realtime-data-trips-alerts-3101
-      path: /realtime-free.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3101
-      method: GET
-    default_headers: {}
-    mdb_feed_id: mdb-1090
-    tls_verify: true
+  # DISABLED 2026-08-26: pinning this feed to its own EU shard (shard_pin: 1)
+  # isolated it from the rest of the pool as intended, but exposed that the
+  # feed's own process needs ~865MB alone (nationwide feed, ~150-200MB/5min
+  # window, polled every 30s) -- more than the entire rest of the EU pool
+  # combined -- which OOM-crash-loops the box's 2GiB t4g.small. Root causes
+  # identified (unbounded same-feed poll overlap when a poll runs longer than
+  # its 30s interval; the BatchingWriter's full-window raw-bytes buffer; the
+  # hourly S3 merge reading all 12 window files into memory at once) but not
+  # yet fixed. Re-enable once at least the poll-overlap guard is in, and/or
+  # the EU box is sized up.
+  # - agency_id: GTFS_DE_DELFI_REALTIME_DATA
+  #   name: gtfs.de DELFI Realtime data
+  #   region: nan
+  #   timezone: Europe/Berlin
+  #   base_url: https://realtime.gtfs.de/
+  #   auth:
+  #     type: none
+  #   shard_pin: 1
+  #   feeds:
+  #   - name: gtfs-de-delfi-realtime-data-trips-alerts-3101
+  #     path: /realtime-free.pb
+  #     expected_format: protobuf
+  #     decoder: standard
+  #     poll_interval_seconds: 30
+  #     mdb_feed_id: mdb-3101
+  #     method: GET
+  #   default_headers: {}
+  #   mdb_feed_id: mdb-1090
+  #   tls_verify: true
   - agency_id: DPN_AVL_CFL_CFLBUS_RGTR_TICE_TRAM
     name: DPN, AVL, CFL, CFLBus, RGTR, TICE, TRAM
     region: nan
