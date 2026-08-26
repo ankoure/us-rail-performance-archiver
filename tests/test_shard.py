@@ -166,12 +166,22 @@ def test_shards_are_roughly_balanced():
 # than silently mis-assigning.
 
 
-def test_shard_index_must_be_less_than_count():
-    """index == count (and index > count) is out of range and must raise."""
+def test_shard_index_ge_count_returns_false_for_unpinned():
+    """index == count (and index > count) is outside the general pool.
+
+    For an unpinned agency this just means "not a match" -- False, not
+    an error. A shard's index can legitimately be >= count when it's a
+    dedicated/pinned shard, and callers will ask ordinary unpinned
+    agencies about it as a matter of course.
+    """
+    assert belongs_to_shard("KCM", 4, 4) is False
+    assert belongs_to_shard("KCM", 5, 4) is False
+
+
+def test_shard_index_negative_must_raise():
+    """A negative index is malformed input, regardless of pinning."""
     with pytest.raises(ValueError):
-        belongs_to_shard("KCM", 4, 4)
-    with pytest.raises(ValueError):
-        belongs_to_shard("KCM", 5, 4)
+        belongs_to_shard("KCM", -1, 4)
 
 
 def test_negative_values_rejected():
