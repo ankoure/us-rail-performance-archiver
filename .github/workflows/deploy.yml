@@ -46,7 +46,9 @@ jobs:
             services: ""
           - name: eu
             region: eu-central-1
-            services: "datadog-agent app-shard-0 autoheal"
+            # app-shard-1 runs here as a dedicated pinned shard (DELFI), not
+            # a second general-pool member -- see compose.prod.yml.
+            services: "datadog-agent app-shard-0 app-shard-1 autoheal"
           - name: au
             region: ap-southeast-2
             services: "datadog-agent app-shard-0 autoheal"

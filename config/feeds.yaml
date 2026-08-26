@@ -3796,6 +3796,11 @@ agencies:
     base_url: https://realtime.gtfs.de/
     auth:
       type: none
+    # Nationwide feed (~150-200MB/5min window, polled every 30s) that was
+    # causing periodic poll.skipped bursts on the EU box by hogging worker
+    # slots. Pinned to its own dedicated shard so it can't contend with the
+    # rest of the EU pool for the concurrency-gate semaphore.
+    shard_pin: 1
     feeds:
     - name: gtfs-de-delfi-realtime-data-trips-alerts-3101
       path: /realtime-free.pb

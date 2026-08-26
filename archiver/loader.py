@@ -132,7 +132,9 @@ def build_feeds(
         )
     feeds: list[Feed] = []
     for agency in config.agencies:
-        if not belongs_to_shard(agency.agency_id, shard_index, shard_count):
+        if not belongs_to_shard(
+            agency.agency_id, shard_index, shard_count, pin=agency.shard_pin
+        ):
             continue
         if continent is not None and not belongs_to_continent(
             agency.timezone, continent
@@ -176,7 +178,9 @@ def build_agency_clients(
         )
     clients: dict[str, APIClient] = {}
     for agency in config.agencies:
-        if not belongs_to_shard(agency.agency_id, shard_index, shard_count):
+        if not belongs_to_shard(
+            agency.agency_id, shard_index, shard_count, pin=agency.shard_pin
+        ):
             continue
         if continent is not None and not belongs_to_continent(
             agency.timezone, continent

@@ -112,6 +112,7 @@ class AgencyConfig(BaseModel):
     mdb_feed_id: str | None = None
     tls_verify: bool = True
     tls_extra_ca_cert: str | None = None
+    shard_pin: int | None = None  # TODO: docstring/comment on what this means
 
     @field_validator("feeds")
     @classmethod
