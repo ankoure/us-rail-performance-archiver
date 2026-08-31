@@ -257,9 +257,7 @@ class TestVehicleDwellsNeverStoppedAt:
         rows = [
             {"vehicle_timestamp": 100, "current_status": "STOPPED_AT", "stop_id": "A"},
         ]
-        v = Vehicle(
-            "V1", rows, merge_gap_seconds=0, feed_publishes_stopped_at=False
-        )
+        v = Vehicle("V1", rows, merge_gap_seconds=0, feed_publishes_stopped_at=False)
         # Position-based ignores the status entirely: one same-stop run.
         assert len(v.dwells) == 1
         assert v.dwells[0].arrival_ts == 100
@@ -327,4 +325,3 @@ class TestVehicleDayPublishesStoppedAt:
             ],
         )
         assert day.vehicle("V2").dwells == []
-

@@ -177,9 +177,7 @@ class Vehicle:
         """
         publishes = self.feed_publishes_stopped_at
         if publishes is None:
-            publishes = any(
-                r.get("current_status") == "STOPPED_AT" for r in self._rows
-            )
+            publishes = any(r.get("current_status") == "STOPPED_AT" for r in self._rows)
         if publishes:
             return self._status_based_dwells()
         return self._position_based_dwells()

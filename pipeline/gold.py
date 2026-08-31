@@ -175,6 +175,7 @@ _TRIP_UPDATES_ONLY_FEEDS = {
     "verkehrsverbund-berlin-brandenburg-vbb-trips-2378",
 }
 
+
 def superseded_by_trip_updates(config_path: Path) -> set[str]:
     """The other feeds of every agency built from TripUpdates.
 
