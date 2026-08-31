@@ -18,8 +18,8 @@ export default function ComparePage() {
 
   const { data, error, loading } = useApiData<AgencyMetricsSummary[]>(
     `compare|${agencies.join(",")}|${start}|${end}`,
-    withinLimit,
     () => api.agenciesSummary({ agency: agencies, start_date: start, end_date: end }),
+    withinLimit,
   );
 
   const rows = data

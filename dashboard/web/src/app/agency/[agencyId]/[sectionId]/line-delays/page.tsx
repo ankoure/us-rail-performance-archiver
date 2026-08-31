@@ -1,16 +1,15 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { AgencyPicker } from "@/components/AgencyPicker";
 import { DayPicker, useDay } from "@/components/DayPicker";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
 import { FilterContext } from "@/components/FilterContext";
-import { NoAgencySelected } from "@/components/NoAgencySelected";
+import { ALL_SECTION } from "@/lib/sections";
 import { MetricBarChart } from "@/components/MetricBarChart";
 import { StatTile, type StatDelta } from "@/components/StatTile";
 import { api } from "@/lib/apiClient";
 import { dayBefore } from "@/lib/dates";
 import { useApiData } from "@/lib/useApiData";
+import { useSection } from "@/lib/useSection";
 
 function minutesDelta(current: number, prev: number): StatDelta {
   const diff = current - prev;
@@ -22,21 +21,20 @@ function minutesDelta(current: number, prev: number): StatDelta {
 }
 
 export default function LineDelaysPage() {
-  const searchParams = useSearchParams();
-  const agency = searchParams.get("agency");
+  const scope = useSection();
+  const { section } = scope;
   const day = useDay();
+  const agencyWide = section.slug !== ALL_SECTION.slug;
 
   const {
     data: summary,
     error,
     loading,
-  } = useApiData(`${agency}|${day}`, Boolean(agency), () => api.lineDelays(agency!, day));
+  } = useApiData(`${scope.agencyId}|${day}`, () => api.lineDelays(scope.agencyId, day));
 
   const prevDay = dayBefore(day);
-  const { data: prevSummary } = useApiData(
-    `prev-line-delays|${agency}|${prevDay}`,
-    Boolean(agency),
-    () => api.lineDelays(agency!, prevDay),
+  const { data: prevSummary } = useApiData(`prev-line-delays|${scope.agencyId}|${prevDay}`, () =>
+    api.lineDelays(scope.agencyId, prevDay),
   );
   const delayDelta =
     summary && prevSummary
@@ -57,14 +55,21 @@ export default function LineDelaysPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
         <DayPicker />
       </div>
-      {agency && <FilterContext agency={agency} when={day} />}
+      <FilterContext
+        scope={agencyWide ? `${section.label} (agency-wide totals)` : section.label}
+        when={day}
+      />
       <main>
-        {!agency && <NoAgencySelected />}
-        {agency && error && <ErrorState what="line delays">{error}</ErrorState>}
-        {agency && !error && loading && <LoadingState />}
+        {agencyWide && (
+          <p className="card-hint notice">
+            The delay summary is only published per agency, not per route, so these totals cover all
+            of {scope.agencyId} rather than just {section.label}.
+          </p>
+        )}
+        {error && <ErrorState what="line delays">{error}</ErrorState>}
+        {!error && loading && <LoadingState />}
         {summary && (
           <div className="card">
             <h2>Line delays, {summary.service_date ?? day}</h2>

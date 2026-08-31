@@ -126,6 +126,60 @@ a {
   font-weight: 600;
 }
 
+/* Sits directly under the agency banner, so it carries no top rule. */
+.section-nav {
+  border-top: none;
+}
+
+.section-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.section-crumb a {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.section-crumb a:hover {
+  color: var(--foreground);
+}
+
+.section-crumb-sep {
+  color: var(--text-muted);
+}
+
+.button-secondary {
+  padding: 6px 12px;
+  border: 1px solid var(--baseline);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.button-secondary:hover:not(:disabled) {
+  border-color: var(--foreground);
+}
+
+.button-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.notice {
+  margin: 0 20px 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border-hairline);
+  background: var(--surface);
+}
+
 .filter-bar {
   display: flex;
   align-items: flex-end;
@@ -357,6 +411,139 @@ th {
 .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
 .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
   border-top-color: var(--surface) !important;
+}
+
+.tab-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: var(--gridline);
+}
+
+.tab.active {
+  color: var(--foreground);
+  background: var(--gridline);
+  font-weight: 600;
+}
+
+.chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.chip:hover {
+  color: var(--text-secondary);
+}
+
+.chip.active {
+  color: var(--foreground);
+  border-color: var(--foreground);
+  font-weight: 600;
+}
+
+.chip-more {
+  border-style: dashed;
+}
+
+.agency-type-section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.agency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.agency-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+
+.agency-card:hover {
+  border-color: var(--baseline);
+}
+
+.agency-card-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.agency-card-region {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.agency-card-tagline {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.agency-banner {
+  border-bottom: 3px solid var(--agency-accent, var(--border-hairline));
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agency-banner-back {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.agency-banner-back:hover {
+  color: var(--foreground);
+}
+
+.agency-banner-logo {
+  height: 20px;
+  width: auto;
+}
+
+.agency-banner-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--foreground);
+}
+
+.agency-banner .tagline {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .empty-state {

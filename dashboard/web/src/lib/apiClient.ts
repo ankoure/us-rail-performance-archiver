@@ -14,6 +14,7 @@ import type {
   Adherence,
   AlertRow,
   LineDelaysSummary,
+  TripMetrics,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -101,4 +102,22 @@ export const api = {
 
   lineDelaysRange: (agency: string, filters: { start_date: string; end_date: string }) =>
     getJSON<LineDelaysSummary[]>(`/agencies/${agency}/line_delays`, filters),
+
+  tripMetrics: (
+    agency: string,
+    filters: {
+      route_id: string;
+      from_stop_id: string;
+      to_stop_id: string;
+      start_date: string;
+      end_date: string;
+      direction_id?: number;
+      aggregate?: boolean;
+    },
+  ) =>
+    getJSON<TripMetrics>(`/agencies/${agency}/trip_metrics`, {
+      ...filters,
+      direction_id: filters.direction_id?.toString(),
+      aggregate: filters.aggregate ? "true" : undefined,
+    }),
 };

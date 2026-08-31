@@ -2,6 +2,16 @@ export interface AgencySummary {
   agency_id: string;
   name: string;
   timezone: string;
+  continent: string | null;
+  region: string | null;
+  /** Every mode the agency operates. Absent on API builds older than the
+   * mode-tag migration -- use agencyTypeTags(), which falls back to `type`. */
+  types?: string[];
+  /** @deprecated first entry of `types`; kept for older API builds. */
+  type: string | null;
+  accent_color: string | null;
+  tagline: string | null;
+  logo: string | null;
 }
 
 export interface AgencyMetricsSummary {
@@ -247,4 +257,34 @@ export interface LineDelaysSummary {
   total_delay_minutes: number;
   delay_by_type: Record<string, number>;
   count_by_type: Record<string, number>;
+}
+
+export interface TripRun {
+  service_date: string;
+  trip_id: string;
+  vehicle_id: string | null;
+  direction_id: number | null;
+  departure_unix: number;
+  arrival_unix: number;
+  travel_time_s: number;
+  headway_s: number | null;
+}
+
+export interface TripDay {
+  service_date: string;
+  trip_count: number;
+  travel_time_p10_s: number | null;
+  travel_time_p50_s: number | null;
+  travel_time_p90_s: number | null;
+  headway_p50_s: number | null;
+  headway_p90_s: number | null;
+}
+
+export interface TripMetrics {
+  from_stop_id: string;
+  to_stop_id: string;
+  route_id: string;
+  direction_id: number | null;
+  runs: TripRun[];
+  days: TripDay[];
 }

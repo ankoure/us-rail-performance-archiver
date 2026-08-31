@@ -1,20 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
 import { FilterContext } from "@/components/FilterContext";
 import { LinePicker, useLine } from "@/components/LinePicker";
-import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { OtpStackedBarChart, type OtpBarDatum } from "@/components/OtpStackedBarChart";
 import { StatTile, type StatDelta } from "@/components/StatTile";
 import { api } from "@/lib/apiClient";
 import { previousPeriod } from "@/lib/dates";
 import { topByRoute } from "@/lib/rankings";
 import { useApiData } from "@/lib/useApiData";
-import type { RouteDayOtp, RouteRow, StopDayOtp } from "@/lib/types";
+import { useSection } from "@/lib/useSection";
+import type { RouteDayOtp, StopDayOtp } from "@/lib/types";
 
 function pctDelta(current: number, prev: number): StatDelta {
   const diff = current - prev;
@@ -43,34 +41,32 @@ function aggregateByRoute(rows: RouteDayOtp[]): OtpBarDatum[] {
 }
 
 export default function OtpPage() {
-  const searchParams = useSearchParams();
-  const agency = searchParams.get("agency");
+  const scope = useSection();
+  const { section } = scope;
   const line = useLine();
   const { start, end } = useDateRange();
-
-  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
-    api.routes(agency!),
-  );
+  const routeFilter = scope.apiRouteFilter(line);
 
   const { data, error, loading } = useApiData<[RouteDayOtp[], StopDayOtp[]]>(
-    `${agency}|${line}|${start}|${end}`,
-    Boolean(agency),
+    `${scope.key}|${line}|${start}|${end}`,
     () =>
       Promise.all([
-        api.routeDayOtp(agency!, {
+        api.routeDayOtp(scope.agencyId, {
           start_date: start,
           end_date: end,
-          route_id: line ? [line] : undefined,
+          route_id: routeFilter,
         }),
-        api.stopDayOtp(agency!, {
+        api.stopDayOtp(scope.agencyId, {
           start_date: start,
           end_date: end,
-          route_id: line ? [line] : undefined,
+          route_id: routeFilter,
         }),
       ]),
+    scope.ready,
   );
-  const routeRows = data?.[0] ?? null;
-  const stopRows = data?.[1] ?? null;
+  // `routeFilter` may have declined to filter server-side for a large section.
+  const routeRows = data?.[0].filter((r) => scope.includes(r.route_id)) ?? null;
+  const stopRows = data?.[1].filter((r) => scope.includes(r.route_id)) ?? null;
 
   const routeAgg = routeRows ? aggregateByRoute(routeRows) : null;
   const MAX_CHART_ROUTES = 15;
@@ -95,19 +91,24 @@ export default function OtpPage() {
 
   const prevRange = previousPeriod(start, end);
   const { data: prevRouteRows } = useApiData<RouteDayOtp[]>(
-    `prev-otp|${agency}|${line}|${prevRange.start}|${prevRange.end}`,
-    Boolean(agency),
+    `prev-otp|${scope.key}|${line}|${prevRange.start}|${prevRange.end}`,
     () =>
-      api.routeDayOtp(agency!, {
+      api.routeDayOtp(scope.agencyId, {
         start_date: prevRange.start,
         end_date: prevRange.end,
-        route_id: line ? [line] : undefined,
+        route_id: routeFilter,
       }),
+    scope.ready,
   );
-  const prevOverall = prevRouteRows?.reduce(
-    (acc, r) => ({ matched: acc.matched + r.matched_count, onTime: acc.onTime + r.on_time_count }),
-    { matched: 0, onTime: 0 },
-  );
+  const prevOverall = prevRouteRows
+    ?.filter((r) => scope.includes(r.route_id))
+    .reduce(
+      (acc, r) => ({
+        matched: acc.matched + r.matched_count,
+        onTime: acc.onTime + r.on_time_count,
+      }),
+      { matched: 0, onTime: 0 },
+    );
   const otpDelta =
     overall && overall.matched > 0 && prevOverall && prevOverall.matched > 0
       ? pctDelta(
@@ -128,19 +129,13 @@ export default function OtpPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && (
-          <LinePicker routes={routesData} allowAll />
-        )}
+        {scope.routes && scope.routes.length > 1 && <LinePicker routes={scope.routes} allowAll />}
         <DateRangePicker />
       </div>
-      {agency && (
-        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
-      )}
+      <FilterContext scope={section.label} line={line || undefined} when={`${start} – ${end}`} />
       <main>
-        {!agency && <NoAgencySelected />}
-        {agency && error && <ErrorState what="OTP data">{error}</ErrorState>}
-        {agency && !error && (
+        {error && <ErrorState what="OTP data">{error}</ErrorState>}
+        {!error && (
           <>
             <div className="card">
               <h2>
@@ -204,7 +199,7 @@ export default function OtpPage() {
                           <td>{r.stop_id}</td>
                           <td>
                             <Link
-                              href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}
+                              href={`/agency/${scope.agencyId}/${section.slug}/route?line=${r.route_id}&start=${start}&end=${end}`}
                             >
                               {r.route_id}
                             </Link>

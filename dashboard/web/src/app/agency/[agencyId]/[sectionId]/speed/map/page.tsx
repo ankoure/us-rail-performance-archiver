@@ -2,16 +2,14 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
 import { FilterContext } from "@/components/FilterContext";
 import { LinePicker, useLine } from "@/components/LinePicker";
-import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { api } from "@/lib/apiClient";
 import { useApiData } from "@/lib/useApiData";
-import type { RouteRow, SegmentSpeedMapResponse } from "@/lib/types";
+import { useSection } from "@/lib/useSection";
+import type { SegmentSpeedMapResponse } from "@/lib/types";
 
 // maplibre-gl touches window/canvas at import time — must never be part of
 // the server-rendered bundle for this statically-exported app. See
@@ -25,25 +23,22 @@ const SegmentSpeedMap = dynamic(
 );
 
 export default function SpeedMapPage() {
-  const searchParams = useSearchParams();
-  const agency = searchParams.get("agency");
+  const scope = useSection();
+  const { section } = scope;
   const line = useLine();
   const { start, end } = useDateRange();
 
-  const enabled = Boolean(agency) && Boolean(line);
-
-  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
-    api.routes(agency!),
-  );
+  const enabled = scope.ready && Boolean(line);
 
   const {
     data: mapData,
     error,
     loading,
   } = useApiData<SegmentSpeedMapResponse>(
-    `segment-speed-map|${agency}|${line}|${start}|${end}`,
+    `segment-speed-map|${scope.key}|${line}|${start}|${end}`,
+    () =>
+      api.segmentSpeedMap(scope.agencyId, { route_id: line!, start_date: start, end_date: end }),
     enabled,
-    () => api.segmentSpeedMap(agency!, { route_id: line!, start_date: start, end_date: end }),
   );
 
   const ready = Boolean(mapData);
@@ -54,20 +49,16 @@ export default function SpeedMapPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} />}
+        {scope.routes && scope.routes.length > 0 && <LinePicker routes={scope.routes} />}
         <DateRangePicker />
       </div>
-      {agency && (
-        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
-      )}
+      <FilterContext scope={section.label} line={line || undefined} when={`${start} – ${end}`} />
       <main>
-        {!agency && <NoAgencySelected />}
-        {agency && !routesData && <LoadingState what="routes" />}
-        {agency && routesData && routesData.length === 0 && (
+        {!scope.routes && <LoadingState what="routes" />}
+        {scope.routes && scope.routes.length === 0 && (
           <EmptyState>No routes found for this agency yet.</EmptyState>
         )}
-        {agency && routesData && routesData.length > 0 && !line && (
+        {scope.routes && scope.routes.length > 0 && !line && (
           <EmptyState>Pick a line above to load the map.</EmptyState>
         )}
         {enabled && error && <ErrorState what="map data">{error}</ErrorState>}
@@ -77,7 +68,9 @@ export default function SpeedMapPage() {
               Segment speeds on map, {line}, {start} – {end}
             </h2>
             <p className="card-hint">
-              <Link href={`/speed?agency=${agency}&line=${line}&start=${start}&end=${end}`}>
+              <Link
+                href={`/agency/${scope.agencyId}/${section.slug}/speed?line=${line}&start=${start}&end=${end}`}
+              >
                 ← View as chart
               </Link>
             </p>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
-import { NavBar } from "@/components/NavBar";
+import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
   title: "Transit Dashboard",
@@ -13,10 +13,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <Suspense fallback={null}>
-          <NavBar />
-          {children}
-        </Suspense>
+        <SiteHeader />
+        <Suspense fallback={null}>{children}</Suspense>
         <Analytics />
       </body>
     </html>

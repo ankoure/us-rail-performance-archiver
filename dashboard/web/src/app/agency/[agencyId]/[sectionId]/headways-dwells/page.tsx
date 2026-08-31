@@ -1,18 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
 import { FilterContext } from "@/components/FilterContext";
 import { LinePicker, useLine } from "@/components/LinePicker";
-import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { MetricBarChart } from "@/components/MetricBarChart";
 import { api } from "@/lib/apiClient";
 import { topByRoute } from "@/lib/rankings";
 import { useApiData } from "@/lib/useApiData";
-import type { RouteDayRow, RouteRow, StopDayRow } from "@/lib/types";
+import { useSection } from "@/lib/useSection";
+import type { RouteDayRow, StopDayRow } from "@/lib/types";
 
 interface RouteAgg {
   route_id: string;
@@ -56,34 +54,32 @@ function busiestRoutes(routeAgg: RouteAgg[]): RouteAgg[] {
 }
 
 export default function HeadwaysDwellsPage() {
-  const searchParams = useSearchParams();
-  const agency = searchParams.get("agency");
+  const scope = useSection();
+  const { section } = scope;
   const line = useLine();
   const { start, end } = useDateRange();
-
-  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
-    api.routes(agency!),
-  );
+  const routeFilter = scope.apiRouteFilter(line);
 
   const { data, error, loading } = useApiData<[RouteDayRow[], StopDayRow[]]>(
-    `${agency}|${line}|${start}|${end}`,
-    Boolean(agency),
+    `${scope.key}|${line}|${start}|${end}`,
     () =>
       Promise.all([
-        api.routeDay(agency!, {
+        api.routeDay(scope.agencyId, {
           start_date: start,
           end_date: end,
-          route_id: line ? [line] : undefined,
+          route_id: routeFilter,
         }),
-        api.stopDay(agency!, {
+        api.stopDay(scope.agencyId, {
           start_date: start,
           end_date: end,
-          route_id: line ? [line] : undefined,
+          route_id: routeFilter,
         }),
       ]),
+    scope.ready,
   );
-  const routeRows = data?.[0] ?? null;
-  const stopRows = data?.[1] ?? null;
+  // `routeFilter` may have declined to filter server-side for a large section.
+  const routeRows = data?.[0].filter((r) => scope.includes(r.route_id)) ?? null;
+  const stopRows = data?.[1].filter((r) => scope.includes(r.route_id)) ?? null;
 
   const routeAgg = routeRows ? aggregateRoutes(routeRows) : null;
   const chartRoutes = routeAgg ? busiestRoutes(routeAgg) : null;
@@ -99,19 +95,13 @@ export default function HeadwaysDwellsPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && (
-          <LinePicker routes={routesData} allowAll />
-        )}
+        {scope.routes && scope.routes.length > 1 && <LinePicker routes={scope.routes} allowAll />}
         <DateRangePicker />
       </div>
-      {agency && (
-        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
-      )}
+      <FilterContext scope={section.label} line={line || undefined} when={`${start} – ${end}`} />
       <main>
-        {!agency && <NoAgencySelected />}
-        {agency && error && <ErrorState what="data">{error}</ErrorState>}
-        {agency && !error && (
+        {error && <ErrorState what="data">{error}</ErrorState>}
+        {!error && (
           <>
             <div className="card">
               <h2>
@@ -191,7 +181,7 @@ export default function HeadwaysDwellsPage() {
                           <td>{r.stop_id}</td>
                           <td>
                             <Link
-                              href={`/route?agency=${agency}&line=${r.route_id}&start=${start}&end=${end}`}
+                              href={`/agency/${scope.agencyId}/${section.slug}/route?line=${r.route_id}&start=${start}&end=${end}`}
                             >
                               {r.route_id}
                             </Link>

@@ -29,7 +29,17 @@ function formatUnix(seconds: number | null): string {
   return new Date(seconds * 1000).toLocaleString();
 }
 
-export function AlertCard({ row, agency, day }: { row: AlertRow; agency?: string; day?: string }) {
+export function AlertCard({
+  row,
+  agency,
+  section,
+  day,
+}: {
+  row: AlertRow;
+  agency?: string;
+  section?: string;
+  day?: string;
+}) {
   const { alert } = row;
   const header = firstTranslation(alert.header_text) ?? "(no header text)";
   const description = firstTranslation(alert.description_text);
@@ -63,8 +73,10 @@ export function AlertCard({ row, agency, day }: { row: AlertRow; agency?: string
             {routes.map((r, i) => (
               <span key={r}>
                 {i > 0 && ", "}
-                {agency && day ? (
-                  <Link href={`/route?agency=${agency}&line=${r}&start=${day}&end=${day}`}>
+                {agency && section && day ? (
+                  <Link
+                    href={`/agency/${agency}/${section}/route?line=${r}&start=${day}&end=${day}`}
+                  >
                     {r}
                   </Link>
                 ) : (

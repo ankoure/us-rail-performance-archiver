@@ -1,25 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { AgencyPicker } from "@/components/AgencyPicker";
 import { AlertCard } from "@/components/AlertCard";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
 import { FilterContext } from "@/components/FilterContext";
 import { LinePicker, useLine } from "@/components/LinePicker";
-import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { StatTile, type StatDelta } from "@/components/StatTile";
 import { TimeSeriesChart, type ChartAnnotation } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
 import { previousPeriod } from "@/lib/dates";
 import { useApiData } from "@/lib/useApiData";
+import { useSection } from "@/lib/useSection";
 import type {
   AlertRow,
   LineDelaysSummary,
   RouteDayOtp,
   RouteDayRow,
-  RouteRow,
   SegmentDayRow,
 } from "@/lib/types";
 
@@ -99,49 +96,48 @@ function dailySpeed(rows: SegmentDayRow[]): DailySpeed[] {
 }
 
 export default function RoutePage() {
-  const searchParams = useSearchParams();
-  const agency = searchParams.get("agency");
+  const scope = useSection();
+  const { section } = scope;
   const line = useLine();
   const { start, end } = useDateRange();
 
-  const enabled = Boolean(agency) && Boolean(line);
+  const enabled = scope.ready && Boolean(line);
 
-  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
-    api.routes(agency!),
-  );
   const {
     data: otpRows,
     error: otpError,
     loading: otpLoading,
-  } = useApiData<RouteDayOtp[]>(`route-otp|${agency}|${line}|${start}|${end}`, enabled, () =>
-    api.routeDayOtp(agency!, { start_date: start, end_date: end, route_id: [line] }),
+  } = useApiData<RouteDayOtp[]>(
+    `route-otp|${scope.key}|${line}|${start}|${end}`,
+    () => api.routeDayOtp(scope.agencyId, { start_date: start, end_date: end, route_id: [line] }),
+    enabled,
   );
 
   const { data: hdRows, loading: hdLoading } = useApiData<RouteDayRow[]>(
-    `route-hd|${agency}|${line}|${start}|${end}`,
+    `route-hd|${scope.key}|${line}|${start}|${end}`,
+    () => api.routeDay(scope.agencyId, { start_date: start, end_date: end, route_id: [line] }),
     enabled,
-    () => api.routeDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
   );
 
   const { data: speedRows, loading: speedLoading } = useApiData<SegmentDayRow[]>(
-    `route-speed|${agency}|${line}|${start}|${end}`,
+    `route-speed|${scope.key}|${line}|${start}|${end}`,
+    () => api.segmentDay(scope.agencyId, { start_date: start, end_date: end, route_id: [line] }),
     enabled,
-    () => api.segmentDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
   );
 
   // The raw per-alert list is still day-only server-side; only the
   // delay-minutes summary below got a ranged endpoint (see B3), so this
   // covers the end of the selected range rather than the full range.
   const { data: alertRows, loading: alertsLoading } = useApiData<AlertRow[]>(
-    `route-alerts|${agency}|${line}|${end}`,
+    `route-alerts|${scope.key}|${line}|${end}`,
+    () => api.alerts(scope.agencyId, end),
     enabled,
-    () => api.alerts(agency!, end),
   );
 
   const { data: delayRows } = useApiData<LineDelaysSummary[]>(
-    `route-delays|${agency}|${start}|${end}`,
+    `route-delays|${scope.key}|${start}|${end}`,
+    () => api.lineDelaysRange(scope.agencyId, { start_date: start, end_date: end }),
     enabled,
-    () => api.lineDelaysRange(agency!, { start_date: start, end_date: end }),
   );
   const delayAnnotations: ChartAnnotation[] = (delayRows ?? [])
     .filter((r) => r.total_delay_minutes > 0 && r.service_date)
@@ -161,14 +157,14 @@ export default function RoutePage() {
 
   const prevRange = previousPeriod(start, end);
   const { data: prevOtpRows } = useApiData<RouteDayOtp[]>(
-    `prev-route-otp|${agency}|${line}|${prevRange.start}|${prevRange.end}`,
-    enabled,
+    `prev-route-otp|${scope.key}|${line}|${prevRange.start}|${prevRange.end}`,
     () =>
-      api.routeDayOtp(agency!, {
+      api.routeDayOtp(scope.agencyId, {
         start_date: prevRange.start,
         end_date: prevRange.end,
         route_id: [line],
       }),
+    enabled,
   );
   const prevOverallOtp = prevOtpRows?.reduce(
     (acc, r) => ({ matched: acc.matched + r.matched_count, onTime: acc.onTime + r.on_time_count }),
@@ -195,16 +191,12 @@ export default function RoutePage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} />}
+        {scope.routes && scope.routes.length > 0 && <LinePicker routes={scope.routes} />}
         <DateRangePicker />
       </div>
-      {agency && (
-        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
-      )}
+      <FilterContext scope={section.label} line={line || undefined} when={`${start} – ${end}`} />
       <main>
-        {!agency && <NoAgencySelected />}
-        {agency && routesData && routesData.length > 0 && !line && (
+        {scope.routes && scope.routes.length > 0 && !line && (
           <EmptyState>Pick a route above to load route health.</EmptyState>
         )}
         {enabled && otpError && <ErrorState what="route health data">{otpError}</ErrorState>}
@@ -302,7 +294,9 @@ export default function RoutePage() {
                 />
               )}
               <p className="card-hint">
-                <Link href={`/speed?agency=${agency}&line=${line}&start=${start}&end=${end}`}>
+                <Link
+                  href={`/agency/${scope.agencyId}/${section.slug}/speed?line=${line}&start=${start}&end=${end}`}
+                >
                   View full speed detail →
                 </Link>
               </p>
@@ -319,7 +313,13 @@ export default function RoutePage() {
                 <EmptyState>No alerts recorded for this route on {end}.</EmptyState>
               )}
               {routeAlerts?.map((row) => (
-                <AlertCard key={row.alert_id} row={row} agency={agency ?? undefined} day={end} />
+                <AlertCard
+                  key={row.alert_id}
+                  row={row}
+                  agency={scope.agencyId}
+                  section={section.slug}
+                  day={end}
+                />
               ))}
             </div>
           </>

@@ -1,16 +1,14 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { AgencyPicker } from "@/components/AgencyPicker";
 import { DayPicker, useDay } from "@/components/DayPicker";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
 import { FilterContext } from "@/components/FilterContext";
 import { LinePicker, useLine } from "@/components/LinePicker";
-import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { StatTile } from "@/components/StatTile";
 import { api } from "@/lib/apiClient";
 import { useApiData } from "@/lib/useApiData";
-import type { Adherence, RouteRow } from "@/lib/types";
+import { useSection } from "@/lib/useSection";
+import type { Adherence } from "@/lib/types";
 
 const MAX_ROWS = 500;
 
@@ -20,27 +18,25 @@ function formatDelay(seconds: number | null): string {
 }
 
 export default function AdherencePage() {
-  const searchParams = useSearchParams();
-  const agency = searchParams.get("agency");
+  const scope = useSection();
+  const { section } = scope;
   const line = useLine();
   const day = useDay();
+  const routeFilter = scope.apiRouteFilter(line);
 
-  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
-    api.routes(agency!),
+  const { data, error, loading } = useApiData<Adherence[]>(
+    `adherence|${scope.key}|${line}|${day}`,
+    () =>
+      api.adherence(scope.agencyId, {
+        start_date: day,
+        end_date: day,
+        route_id: routeFilter,
+        limit: MAX_ROWS,
+      }),
+    scope.ready,
   );
-
-  const {
-    data: rows,
-    error,
-    loading,
-  } = useApiData<Adherence[]>(`adherence|${agency}|${line}|${day}`, Boolean(agency), () =>
-    api.adherence(agency!, {
-      start_date: day,
-      end_date: day,
-      route_id: line ? [line] : undefined,
-      limit: MAX_ROWS,
-    }),
-  );
+  // `routeFilter` may have declined to filter server-side for a large section.
+  const rows = data?.filter((r) => scope.includes(r.route_id)) ?? null;
 
   const summary = rows?.reduce(
     (acc, r) => {
@@ -56,17 +52,13 @@ export default function AdherencePage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && (
-          <LinePicker routes={routesData} allowAll />
-        )}
+        {scope.routes && scope.routes.length > 1 && <LinePicker routes={scope.routes} allowAll />}
         <DayPicker />
       </div>
-      {agency && <FilterContext agency={agency} line={line || undefined} when={day} />}
+      <FilterContext scope={section.label} line={line || undefined} when={day} />
       <main>
-        {!agency && <NoAgencySelected />}
-        {agency && error && <ErrorState what="adherence data">{error}</ErrorState>}
-        {agency && !error && loading && <LoadingState />}
+        {error && <ErrorState what="adherence data">{error}</ErrorState>}
+        {!error && loading && <LoadingState />}
         {summary && summary.total > 0 && (
           <div className="card">
             <h2>Trip adherence, {day}</h2>

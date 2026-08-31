@@ -16,7 +16,7 @@ interface KeyedError {
  * (avoids the synchronous setState-in-effect anti-pattern of resetting
  * data to null before kicking off the fetch).
  */
-export function useApiData<T>(key: string, enabled: boolean, fetcher: () => Promise<T>) {
+export function useApiData<T>(key: string, fetcher: () => Promise<T>, enabled = true) {
   const [result, setResult] = useState<KeyedResult<T> | null>(null);
   const [error, setError] = useState<KeyedError | null>(null);
 

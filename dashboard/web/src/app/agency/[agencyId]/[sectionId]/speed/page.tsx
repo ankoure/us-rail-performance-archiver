@@ -2,24 +2,16 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { AgencyPicker } from "@/components/AgencyPicker";
 import { DateRangePicker, useDateRange } from "@/components/DateRangePicker";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
 import { FilterContext } from "@/components/FilterContext";
 import { LinePicker, useLine } from "@/components/LinePicker";
-import { NoAgencySelected } from "@/components/NoAgencySelected";
 import { TimeSeriesChart, type ChartAnnotation } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
 import { useApiData } from "@/lib/useApiData";
+import { useSection } from "@/lib/useSection";
 import { aggregateSegmentSpeeds, type SegmentSpeedAgg } from "@/lib/segments";
-import type {
-  DirectionRow,
-  LineDelaysSummary,
-  RouteRow,
-  SegmentDayRow,
-  StopRow,
-} from "@/lib/types";
+import type { DirectionRow, LineDelaysSummary, SegmentDayRow, StopRow } from "@/lib/types";
 
 const MIN_SAMPLES_FOR_SLOWEST = 5;
 const MAX_SLOWEST_SEGMENTS = 20;
@@ -96,41 +88,35 @@ function buildSlowestSegments(rows: SegmentDayRow[]): SegmentSpeedAgg[] {
 }
 
 export default function SpeedPage() {
-  const searchParams = useSearchParams();
-  const agency = searchParams.get("agency");
+  const scope = useSection();
+  const { section } = scope;
   const line = useLine();
   const { start, end } = useDateRange();
 
-  const enabled = Boolean(agency) && Boolean(line);
+  const enabled = scope.ready && Boolean(line);
 
   // Routes/names/directions come from the latest static schedule, not tied to
   // the selected date range — fetched once per agency, not per line or date
   // change.
-  const { data: routesData } = useApiData<RouteRow[]>(`routes|${agency}`, Boolean(agency), () =>
-    api.routes(agency!),
+  const { data: stopsData } = useApiData<StopRow[]>(`stops|${scope.agencyId}`, () =>
+    api.stops(scope.agencyId),
   );
-  const { data: stopsData } = useApiData<StopRow[]>(`stops|${agency}`, Boolean(agency), () =>
-    api.stops(agency!),
-  );
-  const { data: directionsData } = useApiData<DirectionRow[]>(
-    `directions|${agency}`,
-    Boolean(agency),
-    () => api.directions(agency!),
+  const { data: directionsData } = useApiData<DirectionRow[]>(`directions|${scope.agencyId}`, () =>
+    api.directions(scope.agencyId),
   );
 
   const { data, error, loading } = useApiData<SegmentDayRow[]>(
-    `${agency}|${line}|${start}|${end}`,
+    `${scope.key}|${line}|${start}|${end}`,
+    () => api.segmentDay(scope.agencyId, { start_date: start, end_date: end, route_id: [line] }),
     enabled,
-    () => api.segmentDay(agency!, { start_date: start, end_date: end, route_id: [line] }),
   );
 
   // Best-effort: delay-day markers on the speed/travel-time charts below. Not
   // gated on `error` from the segment fetch — a failure here just means no
   // markers render, not a page-level error.
   const { data: delayRows } = useApiData<LineDelaysSummary[]>(
-    `delays|${agency}|${start}|${end}`,
-    Boolean(agency),
-    () => api.lineDelaysRange(agency!, { start_date: start, end_date: end }),
+    `delays|${scope.key}|${start}|${end}`,
+    () => api.lineDelaysRange(scope.agencyId, { start_date: start, end_date: end }),
   );
   const delayAnnotations: ChartAnnotation[] = (delayRows ?? [])
     .filter((r) => r.total_delay_minutes > 0 && r.service_date)
@@ -179,27 +165,25 @@ export default function SpeedPage() {
   return (
     <>
       <div className="filter-bar">
-        <AgencyPicker />
-        {agency && routesData && routesData.length > 0 && <LinePicker routes={routesData} />}
+        {scope.routes && scope.routes.length > 0 && <LinePicker routes={scope.routes} />}
         <DateRangePicker />
       </div>
-      {agency && (
-        <FilterContext agency={agency} line={line || undefined} when={`${start} – ${end}`} />
-      )}
+      <FilterContext scope={section.label} line={line || undefined} when={`${start} – ${end}`} />
       <main>
-        {!agency && <NoAgencySelected />}
-        {agency && !routesData && <LoadingState what="routes" />}
-        {agency && routesData && routesData.length === 0 && (
+        {!scope.routes && <LoadingState what="routes" />}
+        {scope.routes && scope.routes.length === 0 && (
           <EmptyState>No routes found for this agency yet.</EmptyState>
         )}
-        {agency && routesData && routesData.length > 0 && !line && (
+        {scope.routes && scope.routes.length > 0 && !line && (
           <EmptyState>Pick a line above to load speed data.</EmptyState>
         )}
         {enabled && error && <ErrorState what="speed data">{error}</ErrorState>}
         {enabled && !error && (
           <>
             <p className="card-hint">
-              <Link href={`/speed/map?agency=${agency}&line=${line}&start=${start}&end=${end}`}>
+              <Link
+                href={`/agency/${scope.agencyId}/${section.slug}/speed/map?line=${line}&start=${start}&end=${end}`}
+              >
                 View on map →
               </Link>
             </p>
