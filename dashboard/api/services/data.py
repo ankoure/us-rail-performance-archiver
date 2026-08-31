@@ -50,6 +50,7 @@ _KINDS: dict[str, tuple[str, str | None]] = {
     "stop_day_otp": ("metrics/stop_day_otp", "service_date"),
     "route_day_otp": ("metrics/route_day_otp", "service_date"),
     "segment_day": ("metrics/segment_day", "service_date"),
+    "events": ("metrics/events", "service_date"),
     "gtfs_versions": ("metrics/gtfs_versions", "service_date"),
     "routes": ("metrics/routes", "service_date"),
     "alerts": ("alerts", None),

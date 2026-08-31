@@ -17,6 +17,7 @@ from api.routers import (
     stop_day,
     stop_day_otp,
     stops,
+    trip_metrics,
     line_delays,
 )
 
@@ -43,4 +44,5 @@ app.include_router(route_shape.router)
 app.include_router(directions.router)
 app.include_router(adherence.router)
 app.include_router(alerts.router)
+app.include_router(trip_metrics.router)
 app.include_router(line_delays.router)
