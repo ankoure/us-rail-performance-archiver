@@ -79,11 +79,17 @@ class Vehicle:
         vehicle_id: str,
         rows: list[dict],
         merge_gap_seconds: int = DEFAULT_MERGE_GAP_S,
+        feed_publishes_stopped_at: bool | None = None,
     ) -> None:
         self.vehicle_id = vehicle_id
         # Rows already sorted by VehicleDay before construction.
         self._rows = rows
         self.merge_gap_seconds = merge_gap_seconds
+        # Whether this vehicle's *feed* published any STOPPED_AT ping today —
+        # a feed-level property, so VehicleDay answers it once for every
+        # Vehicle (see `_raw_dwells` on why it can't be decided per-vehicle).
+        # None means "decide from my own rows", for a standalone Vehicle.
+        self.feed_publishes_stopped_at = feed_publishes_stopped_at
 
     def __repr__(self) -> str:
         return f"Vehicle({self.vehicle_id!r}, pings={len(self._rows)})"
@@ -133,28 +139,48 @@ class Vehicle:
     def _raw_dwells(self) -> list[Visit]:
         """Detect dwell visits, no merging.
 
-        Chooses an algorithm based on what this vehicle's feed publishes:
+        Chooses an algorithm by whether the feed publishes STOPPED_AT at all:
 
-          - **status-based**: when any ping carries `current_status`, a run is
+          - **status-based**: when the feed publishes STOPPED_AT, a run is
             consecutive pings where `current_status == 'STOPPED_AT'` AND
             stop_id is the same. Any change in status or stop_id closes it.
 
-          - **position-based**: when no ping carries `current_status`, a run is
-            simply consecutive pings sharing the same non-null stop_id. Used
-            for feeds (e.g. septa-rail, metra, uta) that publish stop_id but
-            omit the status enum — per the GTFS-RT spec, an omitted
-            current_status defaults to IN_TRANSIT_TO, so stop_id here names
-            the stop the vehicle is *approaching*, not one it's dwelling at.
-            A run's pings span the whole inbound segment, ending right as the
-            vehicle reaches the stop and stop_id flips to the next one — so
-            the run's *last* ping, not its first, is the best estimate of
-            arrival. There's no separately observable departure, so
-            arrival_ts is set equal to departure_ts (both = the run's last
-            ping), matching the convention TripUpdatesDay uses when only one
-            true timestamp is available: downstream tools see dwell == 0
-            rather than a fabricated dwell/transit split.
+          - **position-based**: when it never does, a run is simply consecutive
+            pings sharing the same non-null stop_id. Used for feeds (e.g.
+            septa-rail, metra, uta) that publish stop_id but omit the status
+            enum — per the GTFS-RT spec, an omitted current_status defaults to
+            IN_TRANSIT_TO, so stop_id here names the stop the vehicle is
+            *approaching*, not one it's dwelling at. A run's pings span the
+            whole inbound segment, ending right as the vehicle reaches the stop
+            and stop_id flips to the next one — so the run's *last* ping, not
+            its first, is the best estimate of arrival. There's no separately
+            observable departure, so arrival_ts is set equal to departure_ts
+            (both = the run's last ping), matching the convention
+            TripUpdatesDay uses when only one true timestamp is available:
+            downstream tools see dwell == 0 rather than a fabricated
+            dwell/transit split.
+
+        The test is "publishes STOPPED_AT", not "publishes current_status",
+        because some feeds (Sofia, Vilnius, Fuenlabrada) set the field on every
+        ping and still never emit STOPPED_AT. Selecting on presence alone sent
+        those down the status-based path, where nothing ever matches, and they
+        silently produced zero visits — and therefore zero gold marts — every
+        day. Their always-IN_TRANSIT_TO stop_id is exactly the "stop being
+        approached" the position-based branch already handles.
+
+        The answer is a property of the *feed*, not of one vehicle: an
+        individual vehicle can easily go a day without a STOPPED_AT ping on a
+        feed that publishes them, and inferring per-vehicle would silently mix
+        approach-based visits into an otherwise dwell-based feed. VehicleDay
+        decides once for the whole partition and passes it in. A standalone
+        Vehicle (no flag passed) falls back to its own rows.
         """
-        if any(r.get("current_status") for r in self._rows):
+        publishes = self.feed_publishes_stopped_at
+        if publishes is None:
+            publishes = any(
+                r.get("current_status") == "STOPPED_AT" for r in self._rows
+            )
+        if publishes:
             return self._status_based_dwells()
         return self._position_based_dwells()
 
@@ -364,9 +390,32 @@ class VehicleDay:
         return dict(grouped)
 
     @cached_property
+    def publishes_stopped_at(self) -> bool:
+        """Whether this (feed, day) contains any STOPPED_AT ping at all.
+
+        Decides which dwell-detection algorithm every Vehicle in the partition
+        uses (see `Vehicle._raw_dwells`). Scanning the whole day, rather than
+        one vehicle's rows, keeps the choice uniform across the partition.
+
+        A day with genuinely no STOPPED_AT on a feed that normally publishes
+        them (a near-total outage) therefore falls to position-based visits
+        instead of producing none — arrival-only, dwell 0, but not nothing.
+        """
+        return any(
+            r.get("current_status") == "STOPPED_AT"
+            for rows in self._rows_by_vehicle.values()
+            for r in rows
+        )
+
+    @cached_property
     def vehicles(self) -> list[Vehicle]:
         return [
-            Vehicle(vid, rows, merge_gap_seconds=self.merge_gap_seconds)
+            Vehicle(
+                vid,
+                rows,
+                merge_gap_seconds=self.merge_gap_seconds,
+                feed_publishes_stopped_at=self.publishes_stopped_at,
+            )
             for vid, rows in self._rows_by_vehicle.items()
         ]
 
@@ -383,7 +432,12 @@ class VehicleDay:
         rows = self._rows_by_vehicle.get(vehicle_id)
         if rows is None:
             raise KeyError(vehicle_id)
-        return Vehicle(vehicle_id, rows, merge_gap_seconds=self.merge_gap_seconds)
+        return Vehicle(
+            vehicle_id,
+            rows,
+            merge_gap_seconds=self.merge_gap_seconds,
+            feed_publishes_stopped_at=self.publishes_stopped_at,
+        )
 
     def stop(self, stop_id: str) -> Stop:
         """The Stop for one id, built from every vehicle's dwells there.

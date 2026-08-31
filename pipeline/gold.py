@@ -85,20 +85,46 @@ load_dotenv()
 _PART_RE = re.compile(r"^(year|month|day)=(\d+)$")
 _SOURCE_SUBDIR = {"vehicles": "vehicles", "trip-updates": "trip_updates"}
 
-# Feeds whose VehiclePositions never carry stop_id/current_stop_sequence, so the
-# default vehicles-source Visit inference can never produce a dwell for them —
-# confirmed by auditing every onboarded feed on 2026-08-13: each of these has a
-# TripUpdates feed with 100%-populated stop_id, paired with either no vehicles
-# feed at all, or one that resolves GTFS fine (writes the `routes` mart) but
-# yields zero events/adherence rows every day. `main()` forces these onto
-# --source trip-updates by default (see `parse_args`'s --source default=None)
-# so the daily automated batch (which never passes --source) picks it up
-# without a per-feed CLI invocation.
+# Feeds built from TripUpdates rather than VehiclePositions: `main()` forces
+# these onto --source trip-updates by default (see `parse_args`'s --source
+# default=None) so the daily automated batch (which never passes --source)
+# picks it up without a per-feed CLI invocation. Every entry has a TripUpdates
+# feed with 100%-populated stop_id. Two shapes qualify:
+#
+#   - **VehiclePositions can't yield a dwell at all**: they never carry
+#     stop_id/current_stop_sequence, so there's nothing to group a run of pings
+#     by — or there's no vehicles feed in the first place. Without this list
+#     they'd silently produce zero gold marts forever. Confirmed by auditing
+#     every onboarded feed on 2026-08-13 and again on 2026-08-31: each is
+#     paired with either no vehicles feed, or one that resolves GTFS fine
+#     (writes the `routes` mart) but yields zero events/adherence rows daily.
+#
+#   - **TripUpdates are simply better**: the VehiclePositions would now produce
+#     something — see the never-STOPPED_AT class handled by
+#     `VehicleDay.publishes_stopped_at` — but only arrival-only, dwell-0
+#     estimates, while the agency's TripUpdates carry absolute arrival *and*
+#     departure times and so give true dwells. Listing these is a quality
+#     choice, not a rescue; a feed in this shape still produces marts if left
+#     off the list.
 #
 # 2026-08-16: added the 7 trips-only agencies from the Aug 14 global feed
 # merge (config/feeds.candidates.validated.yaml) — none have a vehicles feed
 # at all, so without this they'd silently produce zero gold marts forever.
+#
+# 2026-08-31: audited the 12 agencies that resolve GTFS but produce no events
+# and no OTP. Added Adelaide Metro, Connecticut Transit and MiWay (vehicles
+# carry no stop_id), MTA_524 (no vehicles feed at all), and Sofia — the first
+# confirmed never-STOPPED_AT feed (5 live snapshots, ~2,900 pings, zero
+# STOPPED_AT), which lands in the second shape above: its TripUpdates carry
+# stop_id, arrival.time and departure.time on 100% of stop_time_updates, and
+# every RT trip_id/stop_id matches the mdb-2848 static snapshot.
+#
+# Vilnius and Fuenlabrada are the same never-STOPPED_AT class but are NOT
+# listed: their TripUpdates publish `delay` only, with no absolute times, so
+# TripUpdatesDay has nothing to build a Visit from. They rely on the
+# position-based fallback instead.
 _TRIP_UPDATES_ONLY_FEEDS = {
+    "adelaide-metro-trips-1773",
     "arlington-transit-trips-1372",
     "bart-trips",
     "beach-cities-transit-trips-1564",
@@ -107,6 +133,7 @@ _TRIP_UPDATES_ONLY_FEEDS = {
     "c-tran-trips-1922",
     "cincinnati-metro-trips-1488",
     "commerce-municipal-bus-lines-trips-1795",
+    "connecticut-transit-trips-2423",
     "dpn-avl-cfl-cflbus-rgtr-tice-tram-trips-1640",
     "el-paso-transportation-authority-trips-3203",
     "emery-go-round-trips-2226",
@@ -116,10 +143,12 @@ _TRIP_UPDATES_ONLY_FEEDS = {
     "maryland-transit-administration-vehicles-trips-1619",
     "metra-trips",
     "metro-houston-trips",
+    "metropolitan-transit-authority-mta-trips-1627",
     "metropolitan-transit-authority-mta-vehicles-trips-1624",
     "metrostl-trips",
     "metro-transit-city-of-madison-trips-2096",
     "milwaukee-county-transit-system-mcts-trips-2128",
+    "miway-trips-1611",
     "mountain-line-transit-trips-1981",
     "mountain-view-transportation-management-association-mvgo-trips-2109",
     "mts-trips",
@@ -140,10 +169,39 @@ _TRIP_UPDATES_ONLY_FEEDS = {
     "st-trips",
     "trirail-trips",
     "trolleybus-transport-pleven-trips-2120",
+    "urban-mobility-center-sofia-traffic-trips-2850",
     "uta-trips",
     "valley-regional-transit-trips-2453",
     "verkehrsverbund-berlin-brandenburg-vbb-trips-2378",
 }
+
+def superseded_by_trip_updates(config_path: Path) -> set[str]:
+    """The other feeds of every agency built from TripUpdates.
+
+    When an agency is on `_TRIP_UPDATES_ONLY_FEEDS` its marts come from the
+    TripUpdates feed; running its vehicles feed as well would write a second,
+    lower-quality set of rows for the same (agency, day) under a different
+    `feed=` partition. dashboard/api reads every feed an agency owns, so those
+    rows are not a harmless duplicate — they double-count.
+
+    This never mattered while the list only held feeds whose VehiclePositions
+    can't yield a dwell at all: their vehicles feed wrote nothing, so the
+    one-source-per-agency invariant held by accident. The never-STOPPED_AT
+    class breaks that, because the position-based fallback now *does* produce
+    visits for them (Sofia, Valley Regional Transit).
+
+    Only the automated all-feeds enumeration is filtered; an explicit
+    `--feed`/`--source` still builds exactly what the operator asked for.
+    """
+    config = load_config(str(config_path))
+    superseded: set[str] = set()
+    for agency in config.agencies:
+        names = [f.name for f in agency.feeds]
+        if not any(n in _TRIP_UPDATES_ONLY_FEEDS for n in names):
+            continue
+        superseded |= {n for n in names if n not in _TRIP_UPDATES_ONLY_FEEDS}
+    return superseded
+
 
 _SCHEDULE_FREE_MARTS = ("stop_day", "route_day", "events")
 _OTP_MARTS = ("adherence", "stop_day_otp", "route_day_otp")
@@ -941,7 +999,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.normalize:
         return _run_normalize(args)
     feed_tz_map = load_feed_tz_map(args.config)
-    feeds = args.feed if args.feed else sorted(feed_tz_map)
+    if args.feed:
+        feeds = args.feed
+    else:
+        # See superseded_by_trip_updates: an agency builds from one source.
+        skip = superseded_by_trip_updates(args.config)
+        feeds = [f for f in sorted(feed_tz_map) if f not in skip]
     base_dates = [args.day] if args.day else []
     gtfs_for = None if args.no_otp else _make_gtfs_resolver(args)
 
