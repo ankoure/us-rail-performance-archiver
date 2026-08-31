@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     env: str = "dev"
     cors_origins: str = "http://localhost:3000"
     feeds_config_path: Path = _REPO_ROOT / "config" / "feeds.yaml"
+    agency_metadata_path: Path = _REPO_ROOT / "dashboard" / "api" / "agency_metadata.yaml"
+    route_metadata_path: Path = _REPO_ROOT / "dashboard" / "api" / "route_metadata.yaml"
 
 
 settings = Settings()

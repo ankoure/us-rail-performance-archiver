@@ -1,0 +1,33 @@
+# Hand-maintained per-route mode overrides. No generator script -- unlike
+# agency_metadata.yaml, RouteRow.mode already flows through the API for
+# every route (see dashboard/api/services/route_metadata.py), so entries
+# here only need to cover routes whose default mode is wrong or ambiguous.
+# Look up route_id from GET /agencies/{agency}/routes.
+#
+# Valid mode values (dashboard/web/src/lib/routeModes.ts):
+#   subway_metro | light_rail_streetcar | commuter_rail | bus_rta | ferry_other
+routes:
+  - agency_id: MBTA
+    route_id: Red
+    mode: subway_metro
+  - agency_id: MBTA
+    route_id: Orange
+    mode: subway_metro
+  - agency_id: MBTA
+    route_id: Blue
+    mode: subway_metro
+  - agency_id: MBTA
+    route_id: Green-B
+    mode: light_rail_streetcar
+  - agency_id: MBTA
+    route_id: Green-C
+    mode: light_rail_streetcar
+  - agency_id: MBTA
+    route_id: Green-D
+    mode: light_rail_streetcar
+  - agency_id: MBTA
+    route_id: Green-E
+    mode: light_rail_streetcar
+  - agency_id: MBTA
+    route_id: Mattapan
+    mode: light_rail_streetcar

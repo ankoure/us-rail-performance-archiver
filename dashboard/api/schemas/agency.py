@@ -5,6 +5,17 @@ class AgencySummary(BaseModel):
     agency_id: str
     name: str
     timezone: str
+    continent: str | None = None
+    region: str | None = None
+    #: Every mode the agency operates; an agency appears under each of them
+    #: in the browse UI. See scripts/gen_agency_metadata.py.
+    types: list[str] = []
+    #: Deprecated: the first tag in `types`. Kept only so a dashboard build
+    #: deployed before the tag migration still classifies agencies.
+    type: str | None = None
+    accent_color: str | None = None
+    tagline: str | None = None
+    logo: str | None = None
 
 
 class AgencyMetricsSummary(BaseModel):

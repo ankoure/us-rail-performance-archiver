@@ -12,7 +12,18 @@ router = APIRouter(tags=["agencies"])
 def get_agencies() -> list[AgencySummary]:
     rows = agencies.list_agencies()
     return [
-        AgencySummary(agency_id=a.agency_id, name=a.name, timezone=a.timezone)
+        AgencySummary(
+            agency_id=a.agency_id,
+            name=a.name,
+            timezone=a.timezone,
+            continent=a.continent,
+            region=a.region,
+            types=a.types,
+            type=a.types[0] if a.types else None,
+            accent_color=a.accent_color,
+            tagline=a.tagline,
+            logo=a.logo,
+        )
         for a in rows
     ]
 

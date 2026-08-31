@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api import dependencies
 from api.schemas.route import RouteRow
-from api.services import data
+from api.services import data, route_metadata
 from api.services.agencies import Agency
 
 router = APIRouter(prefix="/agencies/{agency}", tags=["routes"])
@@ -20,4 +20,9 @@ def get_routes(agency: Agency = Depends(dependencies.get_agency)) -> list[dict]:
             status_code=404, detail=f"Agency {agency.agency_id!r} has no feeds"
         )
     table = data.read_current_routes(agency.feed_names[0])
-    return table.to_pylist()
+    rows = table.to_pylist()
+    for row in rows:
+        row["mode"] = route_metadata.resolve_mode(
+            agency.agency_id, row["route_id"], row["mode"]
+        )
+    return rows

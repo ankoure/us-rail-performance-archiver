@@ -1,6 +1,7 @@
 # dashboard/api/services/agencies.py
 
-from dataclasses import dataclass
+import dataclasses
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,6 +20,14 @@ class Agency:
     name: str
     timezone: str
     feed_names: list[str]
+    continent: str | None = None
+    region: str | None = None
+    #: Mode tags -- every mode this agency operates, so a bus+ferry+commuter
+    #: rail operator carries all three and is browsable under all three.
+    types: list[str] = field(default_factory=list)
+    accent_color: str | None = None
+    tagline: str | None = None
+    logo: str | None = None
 
 
 def _parse_feeds_yaml(path: Path) -> dict[str, Agency]:
@@ -39,9 +48,58 @@ def _parse_feeds_yaml(path: Path) -> dict[str, Agency]:
     return agencies
 
 
+def _parse_agency_metadata_yaml(path: Path) -> dict[str, dict]:
+    """Parse the dashboard-owned agency_metadata.yaml once; keyed by agency_id.
+
+    This file is separate from feeds.yaml (which archiver/config.py parses
+    with a strict extra="forbid" pydantic model) so browsing/display
+    metadata can evolve without touching the archiver's config schema.
+    Tolerant of a missing file so local dev environments that haven't run
+    scripts/gen_agency_metadata.py yet still work — every agency just has
+    null continent/region and no mode tags.
+    """
+    if not path.exists():
+        return {}
+
+    with path.open("r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+
+    return {entry["agency_id"]: entry for entry in raw.get("agencies", [])}
+
+
+def _types_of(meta: dict) -> list[str]:
+    """Mode tags for one metadata entry.
+
+    Falls back to the pre-tag scalar `type` so an agency_metadata.yaml
+    generated before the tag migration still classifies (as a single tag)
+    instead of going silently untagged.
+    """
+    types = meta.get("types")
+    if types:
+        return list(types)
+    scalar = meta.get("type")
+    return [scalar] if scalar else []
+
+
 @lru_cache
 def _load_agencies() -> dict[str, Agency]:
-    return _parse_feeds_yaml(settings.feeds_config_path)
+    base = _parse_feeds_yaml(settings.feeds_config_path)
+    metadata = _parse_agency_metadata_yaml(settings.agency_metadata_path)
+
+    agencies: dict[str, Agency] = {}
+    for agency_id, agency in base.items():
+        meta = metadata.get(agency_id, {})
+        agencies[agency_id] = dataclasses.replace(
+            agency,
+            continent=meta.get("continent"),
+            region=meta.get("region"),
+            types=_types_of(meta),
+            accent_color=meta.get("accent_color"),
+            tagline=meta.get("tagline"),
+            logo=meta.get("logo"),
+        )
+
+    return agencies
 
 
 def get_agency(agency_id: str) -> Agency:
