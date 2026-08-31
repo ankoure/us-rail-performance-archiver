@@ -5,13 +5,13 @@ dashboard/api/agency_metadata.yaml.
 `types` is the set of modes an agency operates -- every distinct bucket
 present in the raw GTFS route_type column of its static feed (fetched via
 analysis.gtfs_fetcher.GtfsResolver, using the agency's mdb_feed_id), mapped
-into 5 buckets: subway_metro, light_rail_streetcar, commuter_rail, bus_rta,
+into 5 buckets: subway_metro, light_rail_streetcar, commuter_rail, bus,
 ferry_other. An agency running buses, ferries and commuter rail carries all
 three tags and appears in all three sections of the browse UI.
 
 Tags are deliberately unthresholded: a bucket earns a tag on one route. A
 plurality vote (the earlier design) collapsed 144 of 201 agencies into
-bus_rta and hid every rail and ferry operation a bus-dominated agency also
+bus and hid every rail and ferry operation a bus-dominated agency also
 runs, which is the exact thing the dashboard is for.
 
 This intentionally does NOT reuse analysis/static_gtfs.py's route_modes /
@@ -57,12 +57,12 @@ _BASE_TYPE_MAP: dict[int, str] = {
     0: "light_rail_streetcar",
     1: "subway_metro",
     2: "commuter_rail",
-    3: "bus_rta",
+    3: "bus",
     4: "ferry_other",
     5: "ferry_other",  # cable tram (e.g. SF cable cars) — a novelty mode, not scheduled rapid transit
     6: "ferry_other",  # aerial lift
     7: "ferry_other",  # funicular
-    11: "bus_rta",  # trolleybus
+    11: "bus",  # trolleybus
     12: "subway_metro",  # monorail
 }
 
@@ -72,7 +72,7 @@ _TYPE_ORDER: list[str] = [
     "subway_metro",
     "light_rail_streetcar",
     "commuter_rail",
-    "bus_rta",
+    "bus",
     "ferry_other",
 ]
 
@@ -86,7 +86,7 @@ _MANUAL_OVERRIDE_ENTRIES: dict[str, dict] = {
         "agency_id": "BAY_AREA_511",
         "continent": "us",
         "region": "San Francisco Bay Area",
-        "types": ["bus_rta"],
+        "types": ["bus"],
         "types_source": "manual",
         "types_note": (
             "Composite agency_id: SFMTA/VTA/Caltrain/ACE/Capitol Corridor/"
@@ -108,7 +108,7 @@ def _categorize_route_type(rt: int) -> str:
     if 100 <= rt <= 117 or 300 <= rt <= 307:
         return "commuter_rail"
     if 200 <= rt <= 209 or 700 <= rt <= 716 or rt == 800:
-        return "bus_rta"
+        return "bus"
     if 400 <= rt <= 405:
         return "subway_metro"
     if 900 <= rt <= 906:

@@ -6,16 +6,17 @@ import yaml
 
 from api.config import settings
 
-# The gold routes mart only ever persists these 4 coarse buckets (see
-# analysis/static_gtfs.py::_categorize_route_type) -- "rapid" collapses
-# subway and light rail (GTFS route_type 1 vs 0) because the raw route_type
-# int isn't persisted, so there's nothing here to split it further
-# automatically. Left out of this map on purpose: it falls through
-# resolve_mode() unchanged, staying its own honestly-ambiguous bucket until
-# a manual override in route_metadata.yaml assigns a specific route to
-# subway_metro or light_rail_streetcar.
+# The gold routes mart only ever persists 4 coarse buckets (see
+# analysis/static_gtfs.py::_categorize_route_type); this renames the two
+# whose spelling differs from the taxonomy. "bus" is spelled the same in
+# both vocabularies, so it needs no entry. Also left out on purpose:
+# "rapid", which collapses subway and light rail (GTFS route_type 1 vs 0)
+# because the raw route_type int isn't persisted, so there's nothing here to
+# split it further automatically -- it falls through resolve_mode()
+# unchanged, staying its own honestly-ambiguous bucket until a manual
+# override in route_metadata.yaml assigns a specific route to subway_metro
+# or light_rail_streetcar.
 _DEFAULT_MODE_MAP = {
-    "bus": "bus_rta",
     "cr": "commuter_rail",
     "other": "ferry_other",
 }

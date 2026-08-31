@@ -42,7 +42,7 @@ export const CURATED_SECTIONS: Record<string, Section[]> = {
       routeIds: ["Green-B", "Green-C", "Green-D", "Green-E"],
     },
     { slug: "mattapan-line", label: "Mattapan Line", routeIds: ["Mattapan"] },
-    { slug: "buses", label: "Buses", modes: ["bus_rta"] },
+    { slug: "buses", label: "Buses", modes: ["bus"] },
     { slug: "commuter-rail", label: "Commuter Rail", modes: ["commuter_rail"] },
     {
       slug: "the-ride",

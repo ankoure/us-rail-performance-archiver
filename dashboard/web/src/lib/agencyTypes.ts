@@ -13,7 +13,7 @@ export const AGENCY_TYPE_LABELS: Record<string, string> = {
   subway_metro: "Subway/Metro",
   light_rail_streetcar: "Light Rail/Streetcar",
   commuter_rail: "Commuter Rail",
-  bus_rta: "Bus",
+  bus: "Bus",
   ferry_other: "Ferry+Other",
 };
 

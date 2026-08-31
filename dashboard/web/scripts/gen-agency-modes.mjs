@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const API = process.env.API_BASE_URL ?? "https://api.transit.andrewkoure.com";
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "agencyModes.json");
 const CONCURRENCY = 12;
-const RAW_MODE_ALIASES = { bus: "bus_rta", cr: "commuter_rail", other: "ferry_other" };
+const RAW_MODE_ALIASES = { cr: "commuter_rail", other: "ferry_other" };
 
 const agencies = await (await fetch(`${API}/agencies`)).json();
 const queue = [...agencies];

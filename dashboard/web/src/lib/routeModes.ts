@@ -10,7 +10,7 @@ export const ROUTE_MODE_LABELS: Record<string, string> = {
   light_rail_streetcar: "Light Rail/Streetcar",
   rapid: "Subway/Light Rail",
   commuter_rail: "Commuter Rail",
-  bus_rta: "Bus",
+  bus: "Bus",
   ferry_other: "Ferry+Other",
 };
 
@@ -19,7 +19,7 @@ export const ROUTE_MODE_ORDER = [
   "light_rail_streetcar",
   "rapid",
   "commuter_rail",
-  "bus_rta",
+  "bus",
   "ferry_other",
 ];
 
@@ -29,11 +29,14 @@ export const OTHER_ROUTE_MODE_LABEL = "Other";
 // directly. dashboard/api/services/route_metadata.py maps them onto the
 // taxonomy above; mirroring that map here means the dashboard resolves the
 // same modes -- and therefore the same section slugs -- whichever version of
-// the API it is pointed at. Keep in sync with _DEFAULT_MODE_MAP there.
+// the API it is pointed at. Keep in sync with _DEFAULT_MODE_MAP there. The
+// mart's "bus" needs no alias: it is spelled the same in both vocabularies.
+// bus_rta is this taxonomy's own former spelling of that bucket, kept so a
+// build deployed ahead of the renamed API still labels those routes.
 const RAW_MODE_ALIASES: Record<string, string> = {
-  bus: "bus_rta",
   cr: "commuter_rail",
   other: "ferry_other",
+  bus_rta: "bus",
 };
 
 /** A route's mode in the taxonomy above, whatever spelling the API used. */

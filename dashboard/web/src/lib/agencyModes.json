@@ -1,114 +1,114 @@
 {
   "ADELAIDE_METRO": [
-    "bus_rta",
+    "bus",
     "commuter_rail",
     "ferry_other",
     "rapid"
   ],
   "AMB": [
-    "bus_rta"
+    "bus"
   ],
   "ARLINGTON_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "BARRIE_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "BART": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "BC_TRANSIT_COWICHAN_VALLEY_REGIONAL_TRANSIT_SYSTEM": [
-    "bus_rta"
+    "bus"
   ],
   "BC_TRANSIT_HAZELTON_KITIMAT_TERRACE": [
-    "bus_rta"
+    "bus"
   ],
   "CANBERRA_METRO_OPERATIONS": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "CAPITAL_AREA_TRANSPORTATION_AUTHORITY": [
-    "bus_rta"
+    "bus"
   ],
   "CAPITAL_METRO": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "CARRIS_2929": [
-    "bus_rta"
+    "bus"
   ],
   "CARRIS_METROPOLITANA": [
-    "bus_rta"
+    "bus"
   ],
   "CAR_JAUNE": [
-    "bus_rta"
+    "bus"
   ],
   "CATS": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "CINCINNATI_METRO": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "COMMERCE_MUNICIPAL_BUS_LINES": [
-    "bus_rta"
+    "bus"
   ],
   "COMMUNITY_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "CONNECTICUT_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "COTRAL_BUSONE": [
-    "bus_rta"
+    "bus"
   ],
   "C_TRAN": [
-    "bus_rta"
+    "bus"
   ],
   "DULUTH_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "EDMONTON_TRANSIT_SYSTEM": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "EL_PASO_TRANSPORTATION_AUTHORITY": [
-    "bus_rta"
+    "bus"
   ],
   "EMT": [
-    "bus_rta"
+    "bus"
   ],
   "GCRTA": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "GRUPPO_TORINESE_TRASPORTI": [
-    "bus_rta",
+    "bus",
     "ferry_other",
     "rapid"
   ],
   "INTERCITY_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "KINGSTON_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "LACMTA": [
     "commuter_rail"
   ],
   "LONDON_TRANSIT_COMMISSION": [
-    "bus_rta"
+    "bus"
   ],
   "LYNX": [
-    "bus_rta"
+    "bus"
   ],
   "MARYLAND_TRANSIT_ADMINISTRATION": [
     "commuter_rail"
   ],
   "MBTA": [
-    "bus_rta",
+    "bus",
     "commuter_rail",
     "ferry_other",
     "rapid"
@@ -117,18 +117,18 @@
     "commuter_rail"
   ],
   "METRO_HOUSTON": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "METRO_MN": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "MIDDLETOWN_AREA_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "MOUNTAIN_LINE_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "MTA": [
     "commuter_rail",
@@ -138,106 +138,106 @@
     "commuter_rail"
   ],
   "MTS": [
-    "bus_rta",
+    "bus",
     "ferry_other",
     "rapid"
   ],
   "MVGO": [
-    "bus_rta"
+    "bus"
   ],
   "NASHVILLE_MTA_WEGO_PUBLIC_TRANSIT": [
-    "bus_rta",
+    "bus",
     "commuter_rail"
   ],
   "NYC_FERRY": [
-    "bus_rta",
+    "bus",
     "ferry_other"
   ],
   "OCTA": [
-    "bus_rta"
+    "bus"
   ],
   "PORT_ALBERNI": [
-    "bus_rta"
+    "bus"
   ],
   "PRT": [
-    "bus_rta",
+    "bus",
     "commuter_rail"
   ],
   "PVTA": [
-    "bus_rta"
+    "bus"
   ],
   "RGRTA": [
-    "bus_rta"
+    "bus"
   ],
   "RIVERSIDE_TRANSIT_AGENCY": [
-    "bus_rta"
+    "bus"
   ],
   "ROMA_SERVIZI_PER_LA_MOBILIT": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "RTD": [
-    "bus_rta",
+    "bus",
     "commuter_rail",
     "rapid"
   ],
   "SCMTD": [
-    "bus_rta"
+    "bus"
   ],
   "SEPTA_BUS": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "SEPTA_RAIL": [
     "commuter_rail"
   ],
   "SMART": [
-    "bus_rta"
+    "bus"
   ],
   "SMITHERS": [
-    "bus_rta"
+    "bus"
   ],
   "SOUND_TRANSIT": [
-    "bus_rta",
+    "bus",
     "commuter_rail",
     "rapid"
   ],
   "THUNDER_BAY_TRANSIT": [
-    "bus_rta"
+    "bus"
   ],
   "TRIMET": [
-    "bus_rta",
+    "bus",
     "commuter_rail",
     "ferry_other",
     "rapid"
   ],
   "TRI_RAIL": [
-    "bus_rta",
+    "bus",
     "commuter_rail"
   ],
   "TROLLEYBUS_TRANSPORT_PLEVEN": [
-    "bus_rta"
+    "bus"
   ],
   "TTC": [
-    "bus_rta",
+    "bus",
     "ferry_other",
     "rapid"
   ],
   "URBAN_MOBILITY_CENTER_SOFIA_TRAFFIC": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "UTA": [
-    "bus_rta",
+    "bus",
     "commuter_rail",
     "rapid"
   ],
   "VALLEY_METRO": [
-    "bus_rta",
+    "bus",
     "rapid"
   ],
   "VBB": [
-    "bus_rta",
+    "bus",
     "commuter_rail",
     "ferry_other",
     "rapid"

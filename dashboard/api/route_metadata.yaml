@@ -5,7 +5,7 @@
 # Look up route_id from GET /agencies/{agency}/routes.
 #
 # Valid mode values (dashboard/web/src/lib/routeModes.ts):
-#   subway_metro | light_rail_streetcar | commuter_rail | bus_rta | ferry_other
+#   subway_metro | light_rail_streetcar | commuter_rail | bus | ferry_other
 routes:
   - agency_id: MBTA
     route_id: Red

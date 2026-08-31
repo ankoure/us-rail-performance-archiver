@@ -14,7 +14,7 @@ agencies:
   region: San Francisco Bay Area
   types:
   - subway_metro
-  - bus_rta
+  - bus
   types_source: gtfs
   accent_color: '#0079c2'
   tagline: The Bay Area's rapid transit backbone
@@ -28,7 +28,7 @@ agencies:
   region: Charlotte
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: GCRTA
   continent: us
@@ -36,7 +36,7 @@ agencies:
   types:
   - subway_metro
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: METRA
   continent: us
@@ -49,7 +49,7 @@ agencies:
   region: Minneapolis-Saint Paul
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MTA
   continent: us
@@ -63,7 +63,7 @@ agencies:
   region: Pittsburgh
   types:
   - commuter_rail
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: RTD
   continent: us
@@ -71,7 +71,7 @@ agencies:
   types:
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SACRT
   continent: us
@@ -90,13 +90,13 @@ agencies:
   types:
   - subway_metro
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BAY_AREA_511
   continent: us
   region: San Francisco Bay Area
   types:
-  - bus_rta
+  - bus
   types_source: manual
   types_note: 'Composite agency_id: SFMTA/VTA/Caltrain/ACE/Capitol Corridor/SMART
     share this agency_id + API key, and only SFMTA''s feeds are actually polled under
@@ -108,7 +108,7 @@ agencies:
   region: San Diego
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: SOUND_TRANSIT
@@ -117,7 +117,7 @@ agencies:
   types:
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PIERCE_TRANSIT
   continent: us
@@ -140,7 +140,7 @@ agencies:
   types:
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: UTA
@@ -149,14 +149,14 @@ agencies:
   types:
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: VALLEY_METRO
   continent: us
   region: Phoenix
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: WMATA
   continent: us
@@ -169,7 +169,7 @@ agencies:
   region: South Florida
   types:
   - commuter_rail
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MARTA
   continent: us
@@ -186,7 +186,7 @@ agencies:
   continent: us
   region: MetroWest Boston
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CCRTA
   continent: us
@@ -197,13 +197,13 @@ agencies:
   continent: us
   region: Berkshire
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MEVA
   continent: us
   region: Merrimack Valley
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: GATRA
   continent: us
@@ -214,7 +214,7 @@ agencies:
   continent: us
   region: Lowell
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: WRTA
   continent: us
@@ -225,32 +225,32 @@ agencies:
   continent: us
   region: Martha's Vineyard
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: FRTA
   continent: us
   region: Franklin County
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MART
   continent: us
   region: Montachusett
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PVTA
   continent: us
   region: Pioneer Valley
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: METRO_HOUSTON
   continent: us
   region: Houston
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: LACMTA
   continent: us
@@ -307,13 +307,13 @@ agencies:
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: HUMBOLDT_TRANSIT
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: THOUSAND_OAKS_TRANSIT
   continent: us
@@ -324,13 +324,13 @@ agencies:
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PASADENA_TRANSIT
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: THE_BUS
   continent: us
@@ -341,75 +341,75 @@ agencies:
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BENTON_AREA_TRANSPORTATION
   continent: us
   region: Oregon
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: VALLEY_REGIONAL_TRANSIT
   continent: us
   region: Idaho
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CAPITAL_METRO
   continent: us
   region: Texas
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: DART
   continent: us
   region: Iowa
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: WASHINGTON_PARK_SHUTTLE
   continent: us
   region: Oregon
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: C_TRAN
   continent: us
   region: Washington
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: INTERCITY_TRANSIT
   continent: us
   region: Washington
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: COMMUNITY_TRANSIT
   continent: us
   region: Washington
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: DULUTH_TRANSIT
   continent: us
   region: Minnesota
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CINCINNATI_METRO
   continent: us
   region: Ohio
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: LYNX
   continent: us
   region: Florida
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: VOTRAN
   continent: us
@@ -420,14 +420,14 @@ agencies:
   continent: us
   region: South Carolina
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: NASHVILLE_MTA_WEGO_PUBLIC_TRANSIT
   continent: us
   region: Tennessee
   types:
   - commuter_rail
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SMTD
   continent: us
@@ -438,19 +438,19 @@ agencies:
   continent: us
   region: Wisconsin
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CAPITAL_AREA_TRANSPORTATION_AUTHORITY
   continent: us
   region: Michigan
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CENTRAL_OHIO_TRANSIT_AUTHORITY
   continent: us
   region: Ohio
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MBTA
   continent: us
@@ -459,7 +459,7 @@ agencies:
   - subway_metro
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: MARYLAND_TRANSIT_ADMINISTRATION
@@ -472,7 +472,7 @@ agencies:
   continent: us
   region: Virginia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MTA_507
   continent: us
@@ -484,13 +484,13 @@ agencies:
   continent: us
   region: New York
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: NYC_FERRY
   continent: us
   region: New York
   types:
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: MTA_524
@@ -503,25 +503,25 @@ agencies:
   continent: us
   region: New York
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: TCAT
   continent: us
   region: New York
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MIDDLETOWN_AREA_TRANSIT
   continent: us
   region: Connecticut
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MADERA_COUNTY_CONNECTION
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SOUTH_BEND_PUBLIC_TRANSPORTATION_CORPORATION
   continent: us
@@ -533,7 +533,7 @@ agencies:
   continent: us
   region: Rhode Island
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BEACH_CITIES_TRANSIT
   continent: us
@@ -544,14 +544,14 @@ agencies:
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: KING_COUNTY_METRO
   continent: us
   region: Washington
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: STANRTA
@@ -563,25 +563,25 @@ agencies:
   continent: us
   region: Maryland
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MOUNTAIN_LINE_TRANSIT
   continent: us
   region: Arizona
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MVGO
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BEN_FRANKLIN_TRANSIT
   continent: us
   region: Washington
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MCTS
   continent: us
@@ -592,85 +592,85 @@ agencies:
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SPIRIT_BUS
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: EMERY_GO_ROUND
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: VIA_MOBILITY
   continent: us
   region: Colorado
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SCMTD
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: FREDERICK_COUNTY_TRANSIT
   continent: us
   region: Maryland
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: GREATER_PORTLAND_METRO_BUS
   continent: us
   region: Maine
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: TARC
   continent: us
   region: Kentucky
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SMART
   continent: us
   region: Oregon
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SANDY_AREA_METRO
   continent: us
   region: Oregon
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CLACKAMAS_COUNTY
   continent: us
   region: Oregon
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CLOVIS_TRANSIT
   continent: us
   region: California
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CECIL_TRANSIT
   continent: us
   region: Maryland
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: EVERETT_TRANSIT
   continent: us
   region: Washington
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: NY_WATERWAY
   continent: us
@@ -682,31 +682,31 @@ agencies:
   continent: us
   region: Texas
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: LONDON_TRANSIT_COMMISSION
   continent: us
   region: Ontario
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BARRIE_TRANSIT
   continent: us
   region: Ontario
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: NICE_BUS
   continent: us
   region: New York
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CONNECTICUT_TRANSIT
   continent: us
   region: Connecticut
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: ADELAIDE_METRO
   continent: au
@@ -714,7 +714,7 @@ agencies:
   types:
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: TRANSLINK_SEQ
@@ -726,57 +726,57 @@ agencies:
   continent: au
   region: Queensland
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: DAWSON_CREEK
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: EDMONTON_TRANSIT_SYSTEM
   continent: us
   region: Alberta
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: YORK_REGION_TRANSIT
   continent: us
   region: Ontario
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MIWAY
   continent: us
   region: Ontario
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: KINGSTON_TRANSIT
   continent: us
   region: Ontario
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: HALIFAX_TRANSIT
   continent: us
   region: Nova Scotia
   types:
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: THUNDER_BAY_TRANSIT
   continent: us
   region: Ontario
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PORT_ALBERNI
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PID
   continent: eu
@@ -785,7 +785,7 @@ agencies:
   - subway_metro
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: VBB
@@ -795,14 +795,14 @@ agencies:
   - subway_metro
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: EMT_MADRID
   continent: eu
   region: Madrid
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: HELSINGIN_SEUDUN_LIIKENNE
   continent: eu
@@ -811,21 +811,21 @@ agencies:
   - subway_metro
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: AMB
   continent: eu
   region: Barcelona
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CANBERRA_METRO_OPERATIONS
   continent: au
   region: Australian Capital Territory
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PTV_METRO_BUS
   continent: au
@@ -852,14 +852,14 @@ agencies:
   region: Zachodniopomorskie
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: ZARZ_D_TRANSPORTU_MIEJSKIEGO_POZNA_ZTM_POZNA
   continent: eu
   region: Wielkopolskie
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CARRIS
   continent: eu
@@ -870,7 +870,7 @@ agencies:
   continent: eu
   region: Vilniaus Apskritis
   types:
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: OVAPI
@@ -880,7 +880,7 @@ agencies:
   - subway_metro
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: GO_AHEAD
@@ -890,7 +890,7 @@ agencies:
   - subway_metro
   - light_rail_streetcar
   - commuter_rail
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: DPN_AVL_CFL_CFLBUS_RGTR_TICE_TRAM
@@ -915,7 +915,7 @@ agencies:
   types:
   - subway_metro
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: R_SEAU_URBAIN_CAP_COTENTIN
   continent: eu
@@ -926,13 +926,13 @@ agencies:
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CARRIS_METROPOLITANA
   continent: eu
   region: Lisboa
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PKP_INTERCITY
   continent: eu
@@ -945,26 +945,26 @@ agencies:
   types:
   - subway_metro
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: TRANSBUS_BUZ_U
   continent: eu
   region: Buzău
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: COMPANIA_DE_TRANSPORT_PUBLIC_IA_I
   continent: eu
   region: Iași
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: TROLLEYBUS_TRANSPORT_PLEVEN
   continent: eu
   region: Pleven
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: COMPANIA_DE_TRANSPORT_PUBLIC_CLUJ_NAPOCA
   continent: eu
@@ -975,21 +975,21 @@ agencies:
   continent: eu
   region: Andalucía
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: TTC
   continent: us
   region: Ontario
   types:
   - light_rail_streetcar
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: EMTF
   continent: eu
   region: Madrid
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: RLV_MOBILIT_S
   continent: eu
@@ -1000,205 +1000,205 @@ agencies:
   continent: eu
   region: null
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_HAZELTON_KITIMAT_TERRACE
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: QUESNEL
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: REVELSTOKE
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_SALT_SPRING_ISLAND
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MOUNT_WADDINGTON
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_ASHCROFT_CACHE_CREEK_CLINTON
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: 100_MILE_HOUSE
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: PEMBERTON_VALLEY
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: MERRITT
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SMITHERS
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: NANAIMO
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_SHUSWAP_VERNON
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_BULKLEY_NECHAKO_PRINCE_GEORGE
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_CAMPBELL_RIVER_TRANSIT
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CLEARWATER
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_COLUMBIA_VALLEY_CRANBROOK_ELK_VALLEY_KIMBERLEY
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_COMOX_VALLEY_TRANSIT_SYSTEM
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_COWICHAN_VALLEY_REGIONAL_TRANSIT_SYSTEM
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: POWELL_RIVER
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_SOUTH_OKANAGAN_SIMILKAMEEN
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CRESTON_VALLEY
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_PORT_EDWARD_PRINCE_RUPERT
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_FORT_ST_JOHN
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_KAMLOOPS_TRANSIT_SYSTEM
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_KELOWNA_REGIONAL_TRANSIT_SYSTEM
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: SQUAMISH
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_SUNSHINE_COAST_TRANSIT_SYSTEM
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_VICTORIA_REGIONAL_TRANSIT_SYSTEM
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: WEST_COAST
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: BC_TRANSIT_WEST_KOOTENAY_TRANSIT_SYSTEM
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: WHISTLER
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: WILLIAMS_LAKE
   continent: us
   region: British Columbia
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: ZARZ_D_TRANSPORTU_PUBLICZNEGO_W_KRAKOWIE_ZTP_KRAK_W_2598
   continent: eu
   region: Małopolskie
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: TBM
   continent: eu
@@ -1215,13 +1215,13 @@ agencies:
   region: null
   types:
   - commuter_rail
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: DONOSTIABUS
   continent: eu
   region: Gipuzkoa
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: GRUPPO_TORINESE_TRASPORTI
   continent: eu
@@ -1229,7 +1229,7 @@ agencies:
   types:
   - subway_metro
   - light_rail_streetcar
-  - bus_rta
+  - bus
   - ferry_other
   types_source: gtfs
 - agency_id: URBAN_MOBILITY_CENTER_SOFIA_TRAFFIC
@@ -1238,13 +1238,13 @@ agencies:
   types:
   - subway_metro
   - light_rail_streetcar
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: CARRIS_2929
   continent: eu
   region: Lisbon
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
 - agency_id: METRO_BILBAO
   continent: eu
@@ -1256,5 +1256,5 @@ agencies:
   continent: eu
   region: Lazio
   types:
-  - bus_rta
+  - bus
   types_source: gtfs
