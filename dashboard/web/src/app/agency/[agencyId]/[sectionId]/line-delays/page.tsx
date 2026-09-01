@@ -8,6 +8,7 @@ import { MetricBarChart } from "@/components/MetricBarChart";
 import { StatTile, type StatDelta } from "@/components/StatTile";
 import { api } from "@/lib/apiClient";
 import { dayBefore } from "@/lib/dates";
+import { delayTypeLabel } from "@/lib/delayTypes";
 import { useApiData } from "@/lib/useApiData";
 import { useSection } from "@/lib/useSection";
 
@@ -43,12 +44,12 @@ export default function LineDelaysPage() {
 
   const minutesByType = summary
     ? Object.entries(summary.delay_by_type)
-        .map(([type, minutes]) => ({ type, minutes }))
+        .map(([type, minutes]) => ({ type: delayTypeLabel(type), minutes }))
         .sort((a, b) => b.minutes - a.minutes)
     : null;
   const countByType = summary
     ? Object.entries(summary.count_by_type)
-        .map(([type, count]) => ({ type, count }))
+        .map(([type, count]) => ({ type: delayTypeLabel(type), count }))
         .sort((a, b) => b.count - a.count)
     : null;
 
