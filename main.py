@@ -127,10 +127,13 @@ async def run(args):
 
         inflight: set[asyncio.Task] = set()
         sem = asyncio.Semaphore(args.workers)
+        polling_now: set[str] = set()  # feed names with an in-flight archive_one() call
 
         def _on_done(feed: Feed, task: asyncio.Task) -> None:
             inflight.discard(task)
+            polling_now.discard(feed.name)
             sem.release()
+
             response = task.result()  # archive_one is self-protecting; never raises
             if response is None:
                 return  # archiver-side error (already logged) — don't blame the feed
@@ -178,20 +181,21 @@ async def run(args):
                 # gets skipped stays quarantined.
                 base_interval = feed.poll_interval_seconds or args.frequency
                 interval = health.next_interval(feed.name, base_interval)
-
                 if sem.locked():  # concurrency gate: no free slot → shed this cycle
                     archiver.telemetry.incr("poll.skipped", tags={"feed": feed.name})
+                elif feed.name in polling_now:
+                    archiver.telemetry.incr("poll.overrun", tags={"feed": feed.name})
                 elif not archiver.clients[feed.agency_id].limiter.try_acquire():
-                    # per-agency rate gate
                     archiver.telemetry.incr(
                         "poll.rate_limited", tags={"feed": feed.name}
                     )
                 else:
                     await sem.acquire()  # can't block: we just checked locked()
+                    polling_now.add(feed.name)
                     task = asyncio.create_task(archiver.archive_one(feed))
                     inflight.add(task)
                     task.add_done_callback(functools.partial(_on_done, feed))
-                scheduler.mark_polled(feed, interval=interval)  # reschedule
+                scheduler.mark_polled(feed, interval=interval)
 
                 # Wall-clock (NOT the monotonic `now` above): window keys are unix
                 # seconds. Flush only when crossing into a new window.

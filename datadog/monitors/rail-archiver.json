@@ -125,6 +125,21 @@
     }
   },
   {
+    "name": "[rail-archiver] Feed poll overrunning its interval",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:poll.overrun{env:prod, service:rail-archiver} by {feed}.as_count() > 5",
+    "message": "Feed `{{feed.name}}` is still processing a previous poll when its next one comes due (`poll.overrun`) -- {{value}} times in the last 15 min. The per-feed concurrency guard (main.py) sheds these cycles rather than letting a second `archive_one()` for the same feed start while the first is still in flight, so no duplicate work happens -- but it does mean this feed is effectively polling slower than its configured `poll_interval_seconds`.\n\nThis is exactly the signature the DELFI feed (`GTFS_DE_DELFI_REALTIME_DATA`, currently disabled in feeds.yaml) produced before it started OOM-crash-looping the EU box: an unusually large or slow feed whose fetch+decode+write routinely outruns its own poll interval.\n\nThis is a NEW metric (added alongside the guard) with no baseline yet -- tune the threshold (5/15m) once you've watched normal load.\n\nLevers:\n- Raise the feed's `poll_interval_seconds` in `config/feeds.yaml` to something it can actually keep up with\n- Give it its own shard via `shard_pin` if it's dragging down other feeds sharing its worker pool (see `archiver/shard.py`)\n- Investigate why the poll itself is slow: payload size, decode cost, the BatchingWriter's per-window buffer, or the hourly S3 merge\n\n@<your-notification-target>",
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
+    "options": {
+      "notify_no_data": false,
+      "renotify_interval": 120,
+      "thresholds": { "critical": 5, "warning": 2 },
+      "include_tags": true,
+      "require_full_window": false,
+      "new_group_delay": 300
+    }
+  },
+  {
     "name": "[rail-archiver] TLS cert expiring or expired",
     "type": "metric alert",
     "query": "min(last_2d):min:cert.days_remaining{env:prod, service:rail-archiver} by {agency} < 3",
