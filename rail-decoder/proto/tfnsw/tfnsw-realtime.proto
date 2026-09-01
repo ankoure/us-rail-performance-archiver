@@ -1,0 +1,291 @@
+// Transport for New South Wales GTFS-realtime schema.
+//
+// DERIVED ARTIFACT -- do not diff against a TfNSW release. See README.md for
+// the pristine copy (UPSTREAM.proto), the edits applied here, and the list of
+// divergences from canonical GTFS-RT.
+//
+// This is its own permutation of GTFS-RT, not an extension of it: TfNSW uses
+// StopTimeUpdate field 6 for departure_occupancy_status (varint) where the
+// canonical spec uses it for stop_time_properties (length-delimited). The two
+// schemas disagree about the wire meaning of that field, so a canonical parser
+// cannot read a TfNSW payload correctly. Keep the types distinct.
+
+syntax = "proto2";
+package tfnsw_realtime;
+
+message FeedMessage {
+  required FeedHeader header = 1;
+  repeated FeedEntity entity = 2;
+}
+
+message FeedHeader {
+  required string gtfs_realtime_version = 1;
+  enum Incrementality {
+    FULL_DATASET = 0;
+    DIFFERENTIAL = 1;
+  }
+  optional Incrementality incrementality = 2 [default = FULL_DATASET];
+  optional uint64 timestamp = 3;
+}
+
+message FeedEntity {
+  required string id = 1;
+  optional bool is_deleted = 2 [default = false];
+  optional TripUpdate trip_update = 3;
+  optional VehiclePosition vehicle = 4;
+  optional Alert alert = 5;
+
+  // TfNSW-only. Was `extend FeedEntity { optional UpdateBundle update = 1007; }`.
+  optional UpdateBundle update = 1007;
+}
+
+message TripUpdate {
+  required TripDescriptor trip = 1;
+  optional VehicleDescriptor vehicle = 3;
+
+  message StopTimeEvent {
+    optional int32 delay = 1;
+    optional int64 time = 2;
+    optional int32 uncertainty = 3;
+  }
+
+  message StopTimeUpdate {
+    optional uint32 stop_sequence = 1;
+    optional string stop_id = 4;
+    optional StopTimeEvent arrival = 2;
+    optional StopTimeEvent departure = 3;
+
+    enum ScheduleRelationship {
+      SCHEDULED = 0;
+      SKIPPED = 1;
+      NO_DATA = 2;
+      UNSCHEDULED = 3;
+    }
+    optional ScheduleRelationship schedule_relationship = 5
+        [default = SCHEDULED];
+
+    enum OccupancyStatus {
+      EMPTY = 0;
+      MANY_SEATS_AVAILABLE = 1;
+      FEW_SEATS_AVAILABLE = 2;
+      STANDING_ROOM_ONLY = 3;
+      CRUSHED_STANDING_ROOM_ONLY = 4;
+      FULL = 5;
+      NOT_ACCEPTING_PASSENGERS = 6;
+    }
+    // DIVERGENCE: canonical GTFS-RT uses field 6 for `stop_time_properties`
+    // (a submessage) and puts departure_occupancy_status at 7. Wire types
+    // differ, so this field is unreadable by a canonical parser.
+    optional OccupancyStatus departure_occupancy_status = 6;
+
+    // TfNSW-only. Predicted per-carriage occupancy at this stop -- same
+    // payload as VehiclePosition.consist but a different grain (future stop,
+    // not current observation). Was `extend TripUpdate.StopTimeUpdate { ... }`.
+    repeated CarriageDescriptor carriage_seq_predictive_occupancy = 1007;
+  }
+  repeated StopTimeUpdate stop_time_update = 2;
+  optional uint64 timestamp = 4;
+  optional int32 delay = 5;
+}
+
+message VehiclePosition {
+  optional TripDescriptor trip = 1;
+  optional VehicleDescriptor vehicle = 8;
+  optional Position position = 2;
+  optional uint32 current_stop_sequence = 3;
+  optional string stop_id = 7;
+  enum VehicleStopStatus {
+    INCOMING_AT = 0;
+    STOPPED_AT = 1;
+    IN_TRANSIT_TO = 2;
+  }
+  optional VehicleStopStatus current_status = 4 [default = IN_TRANSIT_TO];
+  optional uint64 timestamp = 5;
+  enum CongestionLevel {
+    UNKNOWN_CONGESTION_LEVEL = 0;
+    RUNNING_SMOOTHLY = 1;
+    STOP_AND_GO = 2;
+    CONGESTION = 3;
+    SEVERE_CONGESTION = 4;
+  }
+  optional CongestionLevel congestion_level = 6;
+  // DIVERGENCE: canonical adds NO_DATA_AVAILABLE = 7 and NOT_BOARDABLE = 8.
+  enum OccupancyStatus {
+    EMPTY = 0;
+    MANY_SEATS_AVAILABLE = 1;
+    FEW_SEATS_AVAILABLE = 2;
+    STANDING_ROOM_ONLY = 3;
+    CRUSHED_STANDING_ROOM_ONLY = 4;
+    FULL = 5;
+    NOT_ACCEPTING_PASSENGERS = 6;
+  }
+  optional OccupancyStatus occupancy_status = 9;
+
+  // TfNSW-only. Observed consist. Canonical carries this as
+  // `multi_carriage_details = 11` with a different payload shape.
+  // Was `extend VehiclePosition { repeated CarriageDescriptor consist = 1007; }`.
+  repeated CarriageDescriptor consist = 1007;
+}
+
+message Alert {
+  repeated TimeRange active_period = 1;
+  repeated EntitySelector informed_entity = 5;
+
+  enum Cause {
+    UNKNOWN_CAUSE = 1;
+    OTHER_CAUSE = 2;
+    TECHNICAL_PROBLEM = 3;
+    STRIKE = 4;
+    DEMONSTRATION = 5;
+    ACCIDENT = 6;
+    HOLIDAY = 7;
+    WEATHER = 8;
+    MAINTENANCE = 9;
+    CONSTRUCTION = 10;
+    POLICE_ACTIVITY = 11;
+    MEDICAL_EMERGENCY = 12;
+  }
+  optional Cause cause = 6 [default = UNKNOWN_CAUSE];
+
+  enum Effect {
+    NO_SERVICE = 1;
+    REDUCED_SERVICE = 2;
+    SIGNIFICANT_DELAYS = 3;
+    DETOUR = 4;
+    ADDITIONAL_SERVICE = 5;
+    MODIFIED_SERVICE = 6;
+    OTHER_EFFECT = 7;
+    UNKNOWN_EFFECT = 8;
+    STOP_MOVED = 9;
+    NO_EFFECT = 10;
+    ACCESSIBILITY_ISSUE = 11;
+  }
+  optional Effect effect = 7 [default = UNKNOWN_EFFECT];
+  optional TranslatedString url = 8;
+  optional TranslatedString header_text = 10;
+  optional TranslatedString description_text = 11;
+  optional TranslatedString tts_header_text = 12;
+  optional TranslatedString tts_description_text = 13;
+  // DIVERGENCE: canonical declares [default = UNKNOWN_SEVERITY]; TfNSW has no
+  // default, so an absent field is absent rather than UNKNOWN_SEVERITY.
+  enum SeverityLevel {
+    UNKNOWN_SEVERITY = 1;
+    INFO = 2;
+    WARNING = 3;
+    SEVERE = 4;
+  }
+  optional SeverityLevel severity_level = 14;
+}
+
+// TfNSW-only. An addition to the GTFS static bundle.
+message UpdateBundle {
+  // Name of the bundle to update, so consumers update the correct one.
+  required string GTFSStaticBundle = 1;
+  // Update sequence ID. Starts at 1 for a bundle's first update and increments
+  // by 1 per successive update, so consumers can skip ones already processed.
+  required int32 update_sequence = 2;
+  // trip_ids to cancel in the bundle.
+  repeated string cancelled_trip = 4;
+}
+
+message TimeRange {
+  optional uint64 start = 1;
+  optional uint64 end = 2;
+}
+
+message Position {
+  required float latitude = 1;
+  required float longitude = 2;
+  optional float bearing = 3;
+  optional double odometer = 4;
+  optional float speed = 5;
+
+  // TfNSW-only. Was `extend Position { optional TrackDirection ... = 1007; }`.
+  optional TrackDirection track_direction = 1007;
+}
+
+message TripDescriptor {
+  optional string trip_id = 1;
+  optional string route_id = 5;
+  optional uint32 direction_id = 6;
+  optional string start_time = 2;
+  optional string start_date = 3;
+  // DIVERGENCE: keeps REPLACEMENT = 5 (dropped from canonical); lacks
+  // canonical's DUPLICATED = 6.
+  enum ScheduleRelationship {
+    SCHEDULED = 0;
+    ADDED = 1;
+    UNSCHEDULED = 2;
+    CANCELED = 3;
+    REPLACEMENT = 5;
+  }
+  optional ScheduleRelationship schedule_relationship = 4;
+}
+
+message VehicleDescriptor {
+  optional string id = 1;
+  optional string label = 2;
+  optional string license_plate = 3;
+
+  // TfNSW-only. Was `extend VehicleDescriptor { ... = 1007; }`.
+  optional TfnswVehicleDescriptor tfnsw_vehicle_descriptor = 1007;
+}
+
+// TfNSW-only.
+message TfnswVehicleDescriptor {
+  optional bool air_conditioned = 1 [default = false];
+  optional int32 wheelchair_accessible = 2 [default = 0];
+  optional string vehicle_model = 3;
+  optional bool performing_prior_trip = 4 [default = false];
+  optional int32 special_vehicle_attributes = 5 [default = 0];
+}
+
+// TfNSW-only. Carried by both VehiclePosition.consist (observed) and
+// StopTimeUpdate.carriage_seq_predictive_occupancy (predicted).
+message CarriageDescriptor {
+  optional string name = 1;
+  required int32 position_in_consist = 2;
+  // Note: no NOT_ACCEPTING_PASSENGERS here, unlike the other OccupancyStatus
+  // enums in this file.
+  enum OccupancyStatus {
+    EMPTY = 0;
+    MANY_SEATS_AVAILABLE = 1;
+    FEW_SEATS_AVAILABLE = 2;
+    STANDING_ROOM_ONLY = 3;
+    CRUSHED_STANDING_ROOM_ONLY = 4;
+    FULL = 5;
+  }
+  optional OccupancyStatus occupancy_status = 3;
+  optional bool quiet_carriage = 4 [default = false];
+  enum ToiletStatus {
+    NONE = 0;
+    NORMAL = 1;
+    ACCESSIBLE = 2;
+  }
+  optional ToiletStatus toilet = 5;
+  optional bool luggage_rack = 6 [default = false];
+  optional OccupancyStatus departure_occupancy_status = 7;
+}
+
+message EntitySelector {
+  optional string agency_id = 1;
+  optional string route_id = 2;
+  optional int32 route_type = 3;
+  optional TripDescriptor trip = 4;
+  optional string stop_id = 5;
+  optional uint32 direction_id = 6;
+}
+
+message TranslatedString {
+  message Translation {
+    required string text = 1;
+    optional string language = 2;
+  }
+  repeated Translation translation = 1;
+}
+
+// TfNSW-only.
+enum TrackDirection {
+  UP = 0;
+  DOWN = 1;
+}

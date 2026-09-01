@@ -7,6 +7,7 @@ use trip_update::{StopTimeUpdateRow, StopTimeUpdateRowBuilder, decode_trip_updat
 use vehicle::{VehicleRow, VehicleRowBuilder, decode_vehicle};
 
 mod alert;
+mod tfnsw_realtime;
 mod transit_realtime;
 mod trip_update;
 mod vehicle;

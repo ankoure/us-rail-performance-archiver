@@ -1,0 +1,5 @@
+# UPSTREAM.proto is vendored byte-for-byte as published by TfNSW (CRLF line
+# endings). Git must not normalise it, or `curl <url> | diff - UPSTREAM.proto`
+# stops being a clean no-op and the next-release diff becomes unreadable.
+UPSTREAM.proto -text
+UPSTREAM-carriage.proto -text
