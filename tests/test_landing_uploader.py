@@ -35,29 +35,29 @@ class FakeUploader:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, Path]] = []  # (bucket, key, path)
-        self.put_bytes_calls: list[tuple[str, str, bytes]] = []  # (bucket, key, data)
+        self.bodies: dict[str, bytes] = {}  # key -> file contents at upload time
         self.fail: dict[str, Exception] = {}  # key -> exception to raise
         self.block: threading.Event | None = None  # if set, upload() waits on it
 
     def upload(self, bucket: str, key: str, path: Path) -> None:
         if self.block is not None:
             self.block.wait()
+        # Read NOW, not at assertion time: the hourly merge stages its output in
+        # a TemporaryDirectory that is removed before _merge_and_ship returns,
+        # so the recorded path is dangling by the time a test looks at it.
+        # Reading here also means a path that was never written fails loudly in
+        # the fake instead of passing silently.
+        try:
+            self.bodies[key] = Path(path).read_bytes()
+        except OSError:
+            pass
         self.calls.append((bucket, key, Path(path)))
-        if key in self.fail:
-            raise self.fail[key]
-
-    def put_bytes(self, bucket: str, key: str, data: bytes, **_kw) -> None:
-        self.put_bytes_calls.append((bucket, key, data))
         if key in self.fail:
             raise self.fail[key]
 
     @property
     def keys(self) -> list[str]:
         return [k for _, k, _ in self.calls]
-
-    @property
-    def put_bytes_keys(self) -> list[str]:
-        return [k for _, k, _ in self.put_bytes_calls]
 
 
 class FakeTelemetry:
@@ -507,6 +507,13 @@ def make_hourly_uploader(tmp_path, **kw):
     return make_uploader(tmp_path, merge_to_hourly=True, **kw)
 
 
+def _scratch_dirs(landing: Path) -> list[Path]:
+    """Staging directories left behind under the landing dir, if any."""
+    return [
+        p for p in landing.iterdir() if p.name.startswith(mod._MERGE_SCRATCH_PREFIX)
+    ]
+
+
 def test_group_by_hour_partitions_correctly(tmp_path):
     lu, _, _ = make_hourly_uploader(tmp_path)
     b0 = _window_bin(tmp_path, "feedA", _HOUR0)
@@ -533,7 +540,7 @@ def test_merge_and_ship_uploads_hourly_keys_and_deletes_windows(tmp_path):
 
     lu._merge_and_ship("feedA", _HOUR0, bins, jsonls)
 
-    assert up.put_bytes_keys == [
+    assert up.keys == [
         "landing/feedA/raw/year=2025/month=6/day=25/hour=1750809600.bin",
         "landing/feedA/metadata/year=2025/month=6/day=25/hour=1750809600.jsonl",
     ]
@@ -549,8 +556,7 @@ def test_merge_and_ship_bin_is_valid_framed_file(tmp_path):
 
     lu._merge_and_ship("feedA", _HOUR0, bins, [])
 
-    _, _, merged = up.put_bytes_calls[0]
-    frames = list(FrameReader(io.BytesIO(merged)))
+    frames = list(FrameReader(io.BytesIO(up.bodies[up.keys[0]])))
     assert [f[0] for f in frames] == payloads
 
 
@@ -563,8 +569,58 @@ def test_merge_and_ship_jsonl_concatenates_in_window_order(tmp_path):
 
     lu._merge_and_ship("feedA", _HOUR0, [], jsonls)
 
-    _, _, merged = up.put_bytes_calls[0]
-    assert merged == b'{"w":0}\n{"w":1}\n{"w":2}\n'
+    assert up.bodies[up.keys[0]] == b'{"w":0}\n{"w":1}\n{"w":2}\n'
+
+
+def test_merge_and_ship_orders_frames_by_window_not_argument_order(tmp_path):
+    """_pending sorts by mtime, so the caller's order is not window order."""
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    payloads = [b"first", b"second", b"third"]
+    bins = [
+        _window_bin(tmp_path, "feedA", _HOUR0 + i * 300, payloads[i]) for i in range(3)
+    ]
+
+    lu._merge_and_ship("feedA", _HOUR0, list(reversed(bins)), [])
+
+    frames = list(FrameReader(io.BytesIO(up.bodies[up.keys[0]])))
+    assert [f[0] for f in frames] == payloads
+
+
+def test_merge_and_ship_removes_scratch_dir_on_success(tmp_path):
+    lu, _, _ = make_hourly_uploader(tmp_path, prefix="")
+    bins = [_window_bin(tmp_path, "feedA", _HOUR0)]
+
+    lu._merge_and_ship("feedA", _HOUR0, bins, [])
+
+    assert _scratch_dirs(tmp_path) == []
+
+
+def test_merge_and_ship_removes_scratch_dir_on_upload_failure(tmp_path, caplog):
+    """A failed attempt must not leak a 150-200MB staging file per retry."""
+    lu, up, _ = make_hourly_uploader(tmp_path, prefix="")
+    bins = [_window_bin(tmp_path, "feedA", _HOUR0)]
+    up.fail["feedA/raw/year=2025/month=6/day=25/hour=1750809600.bin"] = RuntimeError(
+        "S3 down"
+    )
+
+    with caplog.at_level(logging.ERROR):
+        lu._merge_and_ship("feedA", _HOUR0, bins, [])
+
+    assert _scratch_dirs(tmp_path) == []
+    assert bins[0].exists()  # sources kept for the retry
+
+
+def test_scratch_dir_is_invisible_to_the_scanner(tmp_path, caplog):
+    """Staging lives two levels above the glob depth and is named hour=*, so
+    neither _pending nor the rglob("window=*") sentinel can see it."""
+    lu, _, _ = make_hourly_uploader(tmp_path, prefix="")
+    scratch = tmp_path / f"{mod._MERGE_SCRATCH_PREFIX}abc123"
+    scratch.mkdir()
+    (scratch / f"hour={_HOUR0}.bin").write_bytes(_make_bin(b"staged"))
+
+    with caplog.at_level(logging.ERROR):
+        assert lu._pending() == []
+    assert not any("layout mismatch" in r.message for r in caplog.records)
 
 
 def test_scan_once_hourly_skips_incomplete_hours(tmp_path, monkeypatch):
@@ -575,7 +631,7 @@ def test_scan_once_hourly_skips_incomplete_hours(tmp_path, monkeypatch):
 
     lu._scan_once_hourly(ignore_stop=False)
 
-    assert up.put_bytes_calls == []
+    assert up.calls == []
 
 
 def test_scan_once_hourly_ships_completed_hours(tmp_path, monkeypatch):
@@ -587,7 +643,7 @@ def test_scan_once_hourly_ships_completed_hours(tmp_path, monkeypatch):
 
     lu._scan_once_hourly(ignore_stop=False)
 
-    assert len(up.put_bytes_calls) == 2
+    assert len(up.calls) == 2
 
 
 def test_scan_once_hourly_ignore_stop_ships_incomplete_hour(tmp_path, monkeypatch):
@@ -597,7 +653,7 @@ def test_scan_once_hourly_ignore_stop_ships_incomplete_hour(tmp_path, monkeypatc
 
     lu._scan_once_hourly(ignore_stop=True)
 
-    assert len(up.put_bytes_calls) == 1
+    assert len(up.calls) == 1
 
 
 def test_merge_and_ship_keeps_files_on_upload_failure(tmp_path, caplog):
@@ -614,6 +670,8 @@ def test_merge_and_ship_keeps_files_on_upload_failure(tmp_path, caplog):
 
 
 def test_merge_bins_helper_round_trips_frames(tmp_path):
+    # Covers the deprecated in-memory wrapper. Delete alongside
+    # writer.merge_bins once nothing imports it.
     from archiver.writer import merge_bins
 
     payloads = [b"one", b"two", b"three"]

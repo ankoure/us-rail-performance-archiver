@@ -3,9 +3,10 @@ from datetime import timezone, datetime
 import hashlib
 import io
 from pathlib import Path
+import shutil
 import struct
 import threading
-from typing import Iterable
+from typing import BinaryIO, Iterable
 
 from archiver.response import FeedResponse
 from archiver.logger import logger
@@ -89,21 +90,6 @@ VERSION = 0x01
 HEADER = MAGIC + bytes([VERSION])
 
 
-def merge_bins(paths: Iterable[Path]) -> bytes:
-    """Concatenate frames from multiple window .bin files into one.
-
-    Writes one header then appends the raw frame bytes from each file in
-    ascending window-timestamp order (oldest frames first).  The caller is
-    responsible for ensuring all paths share the same feed and hour bucket.
-    """
-    buf = io.BytesIO()
-    buf.write(HEADER)
-    for path in sorted(paths, key=lambda p: int(p.stem.split("=")[1])):
-        data = path.read_bytes()
-        buf.write(data[5:])  # skip the per-file 5-byte header
-    return buf.getvalue()
-
-
 class FrameError(Exception):
     """Base class for all frame errors. Catching this means the object is untrustworthy."""
 
@@ -127,6 +113,85 @@ class CorruptFrameError(FrameError):
         )
 
 
+def _consume_header(stream: BinaryIO) -> None:
+    """Read and validate the 5-byte header, leaving stream positioned at frame 0.
+
+    Shared by FrameReader and the merge path so the magic/version check can't
+    drift between them.
+    """
+    header = stream.read(5)
+    if len(header) < 5:
+        raise EOFError("Stream too short to contain a header")
+    magic, version = header[:4], header[4]
+    if magic != MAGIC:
+        raise BadHeaderError(f"Bad magic: expected {MAGIC!r}, got {magic!r}")
+    if version != VERSION:
+        raise BadHeaderError(f"Unsupported version: 0x{version:02x}")
+
+
+def _window_order(paths: Iterable[Path]) -> list[Path]:
+    """Sort window objects by their window= timestamp, oldest first."""
+    return sorted(paths, key=lambda p: int(p.stem.split("=")[1]))
+
+
+def merge_frames_into(
+    dest: BinaryIO, paths: Iterable[Path], *, chunk: int = 1 << 20
+) -> int:
+    """Stream frames from multiple window .bin files into dest.
+
+    Writes one header then appends the raw frame bytes from each file in
+    ascending window-timestamp order (oldest frames first), never holding more
+    than `chunk` bytes of any source in memory.  Returns bytes written.  The
+    caller is responsible for ensuring all paths share the same feed and hour
+    bucket.
+
+    Each source's own 5-byte header is validated and consumed rather than
+    blindly skipped, so a source with bad magic or an unknown version raises
+    BadHeaderError here instead of producing an object that only fails when
+    something later tries to read it back.
+
+    `dest` must be seekable (the return value is computed from tell()).
+    """
+    start = dest.tell()
+    dest.write(HEADER)
+    for path in _window_order(paths):
+        with path.open("rb") as fh:
+            _consume_header(fh)
+            shutil.copyfileobj(fh, dest, chunk)
+    return dest.tell() - start
+
+
+def merge_lines_into(
+    dest: BinaryIO, paths: Iterable[Path], *, chunk: int = 1 << 20
+) -> int:
+    """Stream multiple window .jsonl files into dest.
+
+    Plain end-to-end concatenation in ascending window-timestamp order — unlike
+    the .bin path there is no container header to write or strip, since each
+    source is already newline-terminated records.  Returns bytes written.
+
+    `dest` must be seekable (the return value is computed from tell()).
+    """
+    start = dest.tell()
+    for path in _window_order(paths):
+        with path.open("rb") as fh:
+            shutil.copyfileobj(fh, dest, chunk)
+    return dest.tell() - start
+
+
+def merge_bins(paths: Iterable[Path]) -> bytes:
+    """Concatenate frames from multiple window .bin files into one.
+
+    DEPRECATED: materialises the whole merged object in memory, which is what
+    the streaming path exists to avoid.  Kept only until the _merge_and_ship
+    call site moves to merge_frames_into; delete both this and its two tests
+    then.  Implemented as a wrapper so the two paths cannot diverge.
+    """
+    buf = io.BytesIO()
+    merge_frames_into(buf, paths)
+    return buf.getvalue()
+
+
 class FrameWriter:
     def __init__(self, stream):
         self._stream = stream
@@ -143,17 +208,7 @@ class FrameWriter:
 class FrameReader:
     def __init__(self, stream):
         self._stream = stream
-        self._read_header()
-
-    def _read_header(self):
-        header = self._stream.read(5)
-        if len(header) < 5:
-            raise EOFError("Stream too short to contain a header")
-        magic, version = header[:4], header[4]
-        if magic != MAGIC:
-            raise BadHeaderError(f"Bad magic: expected {MAGIC!r}, got {magic!r}")
-        if version != VERSION:
-            raise BadHeaderError(f"Unsupported version: 0x{version:02x}")
+        _consume_header(self._stream)
 
     def _read_exact(self, n):
         buf = self._stream.read(n)

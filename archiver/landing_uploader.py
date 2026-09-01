@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -10,7 +11,7 @@ from archiver.landing_layout import hour_s3_key, iter_window_objects, window_obj
 from archiver.logger import logger
 from archiver.telemetry import Telemetry
 from archiver.uploader import Uploader
-from archiver.writer import merge_bins
+from archiver.writer import merge_frames_into, merge_lines_into
 
 # How long __aexit__ waits for the worker to finish its in-flight upload before
 # giving up. The thread is a daemon, so process exit reaps a stuck one; any
@@ -21,6 +22,14 @@ _JOIN_TIMEOUT_S = 60.0
 # merge it.  One extra window (300 s) gives the writer time to flush the last
 # window of the hour before we read the files.
 _HOUR_GRACE_S = 300.0
+
+# Prefix for the scratch directory the hourly merge stages its output in. Lives
+# under the landing dir (not TMPDIR) because that volume is provably sized for
+# this data — it is already holding the window files being merged — whereas
+# /tmp is tmpfs on most container and VM images, which would put the merged
+# object straight back into RAM. Two levels above the window-object glob depth,
+# so the scanner cannot pick the staging file up and try to ship it.
+_MERGE_SCRATCH_PREFIX = ".merge-"
 
 
 class LandingUploader:
@@ -34,8 +43,14 @@ class LandingUploader:
     file individually the uploader waits until an hour is complete (wall-clock
     hour boundary + grace period), merges the 12 window ``.bin`` files into one
     ``hour=*.bin`` and similarly for ``.jsonl``, then ships just those two
-    objects.  This reduces S3 PUT count by ~12× while keeping the 5-minute
+    objects.  This reduces S3 PUT count by ~12x while keeping the 5-minute
     local flush for crash safety.
+
+    The merge streams through a scratch file on the landing volume rather than
+    building the hourly object in memory: 12 windows of raw payload is 150-200
+    MB each in the worst case, and Uploader.upload() already hands the path to
+    boto3's transfer manager, which reads off disk and never buffers the whole
+    object in Python.
     """
 
     def __init__(
@@ -251,25 +266,39 @@ class LandingUploader:
         bin_paths: list[Path],
         jsonl_paths: list[Path],
     ) -> None:
-        """Merge window files for one hour and upload as two hourly objects."""
+        """Merge window files for one hour and upload as two hourly objects.
+
+        The merged object is staged in a scratch directory and streamed there a
+        chunk at a time, so peak memory is bounded by the copy buffer rather
+        than by the size of the hour.  The scratch directory is removed on every
+        exit path; the source windows are removed only after a successful
+        upload, so a failure anywhere leaves them for the next scan to retry.
+        """
         if not bin_paths and not jsonl_paths:
             return
 
         try:
-            if bin_paths:
-                merged_bin = merge_bins(bin_paths)
-                bin_key = hour_s3_key(self._prefix, feed, hour_unix, "raw", "bin")
-                self._uploader.put_bytes(self._bucket, bin_key, merged_bin)
+            with tempfile.TemporaryDirectory(
+                dir=self._landing_dir, prefix=_MERGE_SCRATCH_PREFIX
+            ) as scratch:
+                scratch_dir = Path(scratch)
 
-            if jsonl_paths:
-                sorted_jsonl = sorted(
-                    jsonl_paths, key=lambda p: int(p.stem.split("=")[1])
-                )
-                merged_jsonl = b"".join(p.read_bytes() for p in sorted_jsonl)
-                jsonl_key = hour_s3_key(
-                    self._prefix, feed, hour_unix, "metadata", "jsonl"
-                )
-                self._uploader.put_bytes(self._bucket, jsonl_key, merged_jsonl)
+                if bin_paths:
+                    staged = scratch_dir / f"hour={hour_unix}.bin"
+                    with staged.open("wb") as fh:
+                        written = merge_frames_into(fh, bin_paths)
+                    bin_key = hour_s3_key(self._prefix, feed, hour_unix, "raw", "bin")
+                    self._uploader.upload(self._bucket, bin_key, staged)
+                    self._tel.gauge("landing.merged_bin_bytes", written)
+
+                if jsonl_paths:
+                    staged = scratch_dir / f"hour={hour_unix}.jsonl"
+                    with staged.open("wb") as fh:
+                        merge_lines_into(fh, jsonl_paths)
+                    jsonl_key = hour_s3_key(
+                        self._prefix, feed, hour_unix, "metadata", "jsonl"
+                    )
+                    self._uploader.upload(self._bucket, jsonl_key, staged)
 
         except Exception:
             logger.exception(
