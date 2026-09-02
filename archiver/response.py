@@ -36,6 +36,7 @@ class FeedResponse(ArchivableEvent):
     def __init__(self, http_response):
         super().__init__()
         self._http = http_response
+        self._digest: str | None = None
 
     @property
     def status_code(self):
@@ -49,14 +50,14 @@ class FeedResponse(ArchivableEvent):
         return self._http.content
 
     def content_digest(self) -> str:
-        return hashlib.sha256(self._http.content).hexdigest()
+        if self._digest is not None:
+            return self._digest
+        else:
+            digest = hashlib.sha256(self._http.content).hexdigest()
+            self._digest = digest
+            return digest
 
     def _extra_metadata(self) -> dict:
-        """Subclasses override to add extra fields. Default none
-
-        Returns:
-            dict: _description_
-        """
         return {
             "content_type": self.content_type,
             "status_code": self.status_code,
@@ -115,13 +116,10 @@ class DuplicateResponse(FeedResponse):
 class NotModifiedResponse(FeedResponse):
     def __init__(self, http_response, prior_digest):
         super().__init__(http_response)
-        self._prior_digest = prior_digest
+        self._digest = prior_digest  # pre-seed the cache; content_digest() never touches the 304 body
 
     def raw_payload(self) -> None:
         return None
-
-    def _extra_metadata(self) -> dict:
-        return super()._extra_metadata() | {"digest": self._prior_digest}
 
 
 class UnknownResponse(FeedResponse):
