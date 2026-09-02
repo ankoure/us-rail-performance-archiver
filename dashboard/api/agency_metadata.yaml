@@ -303,6 +303,26 @@ agencies:
   region: New South Wales
   types: []
   types_source: unresolved
+- agency_id: TFNSW_NEWCASTLE_LIGHT_RAIL
+  continent: au
+  region: New South Wales
+  types: []
+  types_source: unresolved
+- agency_id: TFNSW_BUSES
+  continent: au
+  region: New South Wales
+  types: []
+  types_source: unresolved
+- agency_id: TFNSW_NSW_TRAINS
+  continent: au
+  region: New South Wales
+  types: []
+  types_source: unresolved
+- agency_id: TFNSW_FERRIES
+  continent: au
+  region: New South Wales
+  types: []
+  types_source: unresolved
 - agency_id: OCTA
   continent: us
   region: California

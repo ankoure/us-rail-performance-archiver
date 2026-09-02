@@ -1045,55 +1045,45 @@ agencies:
   # The following agencies have developer portals or use third-party providers
   # but lack direct GTFS-RT feed URLs in the source data.
   # Feed URLs must be retrieved from their respective portals.
-
   # - agency_id: CTA
   #   name: Chicago Transit Authority
   #   region: Chicago
   #   developer_portal: https://www.transitchicago.com/developers/
   #   notes: API key required; obtain feeds from developer portal.
-
   # - agency_id: DART
   #   name: Dallas Area Rapid Transit
   #   region: Dallas
   #   developer_portal: https://developer.dart.org
-
   # - agency_id: MBTA
   #   name: Massachusetts Bay Transportation Authority
   #   region: Greater Boston
   #   notes: Feed URLs not provided in source; check https://api.mbta.com
-
   # - agency_id: MIAMI_DADE
   #   name: Miami-Dade Transit (Metrorail)
   #   region: Miami
   #   notes: Uses Swiftly. Obtain feeds from Transit Open Data portal.
-
   # - agency_id: BALT_MTA
   #   name: Baltimore MTA (Metro SubwayLink)
   #   region: Baltimore
   #   notes: Uses Swiftly.
-
   # - agency_id: NCTD
   #   name: North County Transit District (SPRINTER)
   #   region: San Diego
   #   notes: Uses Swiftly.
-
   # - agency_id: EMBARK
   #   name: EMBARK (Oklahoma City Streetcar)
   #   region: Oklahoma City
   #   developer_portal: https://embarkok.com/transit-data
-
   # Agencies with no feeds found or discontinued feeds:
   # ATI (Tren Urbano), HART (TECO Line), KCSA (KC Streetcar),
   # M-1 Rail (Q-Line), NFTA (Buffalo Metro Rail), PATCO,
   # DDOT (DC Streetcar - discontinued)
-
   # ---- API key obtained, not yet wired in (github issue tracker "Key Ready") ----
   # Each block below is otherwise complete (base_url/auth/feeds from the MDB
   # catalog) -- uncomment and set the env var once the key exists. Left
   # commented rather than live: an agency whose auth env var isn't set raises
   # at startup and crashes the WHOLE poller process, not just that agency
   # (archiver/loader.py's _read_env), so these must not go live key-less.
-
   - agency_id: METLINK
     name: Metlink (Wellington)
     region: Wellington
@@ -1225,23 +1215,39 @@ agencies:
         poll_interval_seconds: 60
     # github #84. Portal https://apidevelopers.metroinfo.co.nz/. No
     # vehicle-positions feed found in the MDB catalog for this one.
-
   # Transport for New South Wales -- github #51. Portal
   # https://opendata.transport.nsw.gov.au/data/user/register. One shared
-  # credential covers all 4 agencies below.
+  # credential covers all 8 agencies below.
+  #
+  # base_url is the bare host and each feed's `path` carries its API version.
+  # This is deliberate: the v1/v2 split is per-line, not legacy-vs-current, and
+  # it cuts across agencies -- Inner West light rail is v2 while CBD/SE and
+  # Newcastle are v1 -- so a versioned base_url cannot express one agency
+  # spanning both. Host-only base_url is also what scripts/gen_feeds_from_mdb.py
+  # generates for every machine-derived agency; the versioned form these blocks
+  # used to have was the outlier.
+  #
+  # Endpoint survey 2026-09-01. Deliberately NOT configured:
+  #   - v2 ferries (/v2/gtfs/{realtime,vehiclepos}/ferries/sydneyferries):
+  #     responds 200 but is dead -- byte-identical across fetches, zero
+  #     entities, header frozen at 2025-10-24. The v1 endpoints are live and
+  #     are what TFNSW_FERRIES below uses.
+  #   - per-mode alerts (/v2/gtfs/alerts/{sydneytrains,metro,lightrail,
+  #     ferries,buses,nswtrains}): all verified strict subsets of alerts/all
+  #     by entity id, so adding them would double-archive the same alerts.
 
   - agency_id: TFNSW
     name: Transport for New South Wales
     region: New South Wales
     timezone: Australia/Sydney
-    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    base_url: https://api.transport.nsw.gov.au
     auth:
       type: api_key
       header: Authorization
       env: TFNSW_API_KEY
     feeds:
       - name: tfnsw-alerts
-        path: /alerts/all
+        path: /v2/gtfs/alerts/all
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 60
@@ -1250,19 +1256,19 @@ agencies:
     name: Transport for New South Wales - Sydney Trains
     region: New South Wales
     timezone: Australia/Sydney
-    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    base_url: https://api.transport.nsw.gov.au
     auth:
       type: api_key
       header: Authorization
       env: TFNSW_API_KEY
     feeds:
       - name: tfnsw-sydney-trains-trips
-        path: /realtime/sydneytrains
+        path: /v2/gtfs/realtime/sydneytrains
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 30
       - name: tfnsw-sydney-trains-vehicles
-        path: /vehiclepos/sydneytrains
+        path: /v2/gtfs/vehiclepos/sydneytrains
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 30
@@ -1271,66 +1277,154 @@ agencies:
     name: Transport for New South Wales - Metro
     region: New South Wales
     timezone: Australia/Sydney
-    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    base_url: https://api.transport.nsw.gov.au
     auth:
       type: api_key
       header: Authorization
       env: TFNSW_API_KEY
     feeds:
       - name: tfnsw-metro-trips
-        path: /realtime/metro
+        path: /v2/gtfs/realtime/metro
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 30
       - name: tfnsw-metro-vehicles
-        path: /vehiclepos/metro
+        path: /v2/gtfs/vehiclepos/metro
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 30
 
+  # Sydney Light Rail: Inner West (v2) and CBD & South East (v1) are the same
+  # operator on different API versions -- the case the host-only base_url above
+  # exists to allow. The Inner West feed names predate the discovery of the
+  # other lines and are archive path segments (archiver/writer.py), so they are
+  # NOT renamed; the new lines get their own names instead.
   - agency_id: TFNSW_LIGHT_RAIL
     name: Transport for New South Wales - Light Rail
     region: New South Wales
     timezone: Australia/Sydney
-    base_url: https://api.transport.nsw.gov.au/v2/gtfs
+    base_url: https://api.transport.nsw.gov.au
     auth:
       type: api_key
       header: Authorization
       env: TFNSW_API_KEY
     feeds:
-      # NB: both feeds below are the Inner West line only. The names predate
-      # the discovery of the other two lines and are archive path segments
-      # (see archiver/writer.py), so they are NOT renamed -- adding CBD/SE or
-      # Newcastle means new feed names, not a rename of these.
       - name: tfnsw-light-rail-trips
-        path: /realtime/lightrail/innerwest
+        path: /v2/gtfs/realtime/lightrail/innerwest
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 30
       - name: tfnsw-light-rail-vehicles
-        path: /vehiclepos/lightrail/innerwest
+        path: /v2/gtfs/vehiclepos/lightrail/innerwest
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: tfnsw-light-rail-cbd-trips
+        path: /v1/gtfs/realtime/lightrail/cbdandsoutheast
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: tfnsw-light-rail-cbd-vehicles
+        path: /v1/gtfs/vehiclepos/lightrail/cbdandsoutheast
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 30
 
-  # TfNSW endpoint survey, 2026-09-01 (resolves the old "check the portal once
-  # the key's in hand" TODO). The v1/v2 split is per-line, not legacy-vs-
-  # current, and it cuts across agencies -- Inner West light rail is v2 while
-  # CBD/SE and Newcastle light rail are v1, so one base_url per agency cannot
-  # express it. Everything reachable on v2 is now configured. Still missing,
-  # all v1-only, pending that base_url decision:
-  #   /v1/gtfs/{realtime,vehiclepos}/lightrail/cbdandsoutheast
-  #   /v1/gtfs/{realtime,vehiclepos}/lightrail/newcastle
-  #   /v1/gtfs/{realtime,vehiclepos}/buses
-  #   /v1/gtfs/{realtime,vehiclepos}/nswtrains        (NSW TrainLink regional)
-  #   /v1/gtfs/{realtime,vehiclepos}/ferries/sydneyferries
-  # Deliberately NOT added:
-  #   - v2 ferries: responds 200 but is dead. Byte-identical across fetches,
-  #     zero entities, header frozen at 2025-10-24. The v1 ferries endpoint is
-  #     live (7 vehicles, seconds old), so use that one if ferries are wanted.
-  #   - per-mode alerts (/v2/gtfs/alerts/{sydneytrains,metro,lightrail,ferries,
-  #     buses,nswtrains}): all verified strict subsets of alerts/all by entity
-  #     id, so adding them would double-archive the same alerts.
+  # Newcastle is a separate system ~160km from Sydney, so it gets its own
+  # agency rather than a third line under TFNSW_LIGHT_RAIL.
+  - agency_id: TFNSW_NEWCASTLE_LIGHT_RAIL
+    name: Transport for New South Wales - Newcastle Light Rail
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-newcastle-light-rail-trips
+        path: /v1/gtfs/realtime/lightrail/newcastle
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: tfnsw-newcastle-light-rail-vehicles
+        path: /v1/gtfs/vehiclepos/lightrail/newcastle
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  # NB: tfnsw-buses-trips is by far the largest feed in this config -- ~4.7MB
+  # and ~3350 entities per poll, i.e. ~6.8 GB/day at the 60s interval below
+  # (~13.5 GB/day if dropped to 30s like the rest). For scale, metro-houston-
+  # trips is ~1.7 GB/day. The 60s interval is a deliberate cost decision, not
+  # an oversight -- check landing-zone growth before lowering it.
+  - agency_id: TFNSW_BUSES
+    name: Transport for New South Wales - Buses
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-buses-trips
+        path: /v1/gtfs/realtime/buses
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 60
+      - name: tfnsw-buses-vehicles
+        path: /v1/gtfs/vehiclepos/buses
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  - agency_id: TFNSW_NSW_TRAINS
+    name: Transport for New South Wales - NSW TrainLink
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-nsw-trains-trips
+        path: /v1/gtfs/realtime/nswtrains
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: tfnsw-nsw-trains-vehicles
+        path: /v1/gtfs/vehiclepos/nswtrains
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  # v1 only -- the v2 ferries endpoints are dead (see survey note above).
+  # tfnsw-ferries-vehicles is intermittent: observed 7 vehicles at one poll and
+  # 0 entities across four consecutive polls 20 minutes later, both with fresh
+  # header timestamps, while the trips feed reported 133 entities throughout.
+  # Candidate for the silent-vehicle-feeds list if it stays empty.
+  - agency_id: TFNSW_FERRIES
+    name: Transport for New South Wales - Sydney Ferries
+    region: New South Wales
+    timezone: Australia/Sydney
+    base_url: https://api.transport.nsw.gov.au
+    auth:
+      type: api_key
+      header: Authorization
+      env: TFNSW_API_KEY
+    feeds:
+      - name: tfnsw-ferries-trips
+        path: /v1/gtfs/realtime/ferries/sydneyferries
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+      - name: tfnsw-ferries-vehicles
+        path: /v1/gtfs/vehiclepos/ferries/sydneyferries
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
 
   # Trafiklab (Sweden) -- github #45. Portal
   # https://developer.trafiklab.se/register. ONE shared key (param `key`,
@@ -2916,27 +3010,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: london-transit-commission-vehicles-1561
-      path: /Vehicle/VehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1561
-      method: GET
-    - name: london-transit-commission-alerts-1562
-      path: /Alert/Alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1562
-      method: GET
-    - name: london-transit-commission-trips-1563
-      path: /TripUpdate/TripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1563
-      method: GET
+      - name: london-transit-commission-vehicles-1561
+        path: /Vehicle/VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1561
+        method: GET
+      - name: london-transit-commission-alerts-1562
+        path: /Alert/Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1562
+        method: GET
+      - name: london-transit-commission-trips-1563
+        path: /TripUpdate/TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1563
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2
     tls_verify: true
@@ -2948,27 +3042,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: barrie-transit-vehicles-1382
-      path: /gtfs/GTFS_VehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1382
-      method: GET
-    - name: barrie-transit-alerts-1383
-      path: /gtfs/GTFS_ServiceAlerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1383
-      method: GET
-    - name: barrie-transit-trips-1384
-      path: /gtfs/GTFS_TripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1384
-      method: GET
+      - name: barrie-transit-vehicles-1382
+        path: /gtfs/GTFS_VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1382
+        method: GET
+      - name: barrie-transit-alerts-1383
+        path: /gtfs/GTFS_ServiceAlerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1383
+        method: GET
+      - name: barrie-transit-trips-1384
+        path: /gtfs/GTFS_TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1384
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-3
     tls_verify: true
@@ -2980,13 +3074,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: nassau-inter-county-express-nice-bus-alerts-1623
-      path: /downloads/gtfs/NYC_NICE.proto
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1623
-      method: GET
+      - name: nassau-inter-county-express-nice-bus-alerts-1623
+        path: /downloads/gtfs/NYC_NICE.proto
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1623
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-521
     tls_verify: true
@@ -2998,27 +3092,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: connecticut-transit-vehicles-2422
-      path: /TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2422
-      method: GET
-    - name: connecticut-transit-trips-2423
-      path: /TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2423
-      method: GET
-    - name: connecticut-transit-alerts-2424
-      path: /TMGTFSRealTimeWebService/Alert/Alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2424
-      method: GET
+      - name: connecticut-transit-vehicles-2422
+        path: /TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2422
+        method: GET
+      - name: connecticut-transit-trips-2423
+        path: /TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2423
+        method: GET
+      - name: connecticut-transit-alerts-2424
+        path: /TMGTFSRealTimeWebService/Alert/Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2424
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-553
     tls_verify: true
@@ -3030,27 +3124,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: adelaide-metro-vehicles-1772
-      path: /v1/realtime/vehicle_positions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1772
-      method: GET
-    - name: adelaide-metro-trips-1773
-      path: /v1/realtime/trip_updates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1773
-      method: GET
-    - name: adelaide-metro-alerts-1774
-      path: /v1/realtime/service_alerts
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1774
-      method: GET
+      - name: adelaide-metro-vehicles-1772
+        path: /v1/realtime/vehicle_positions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1772
+        method: GET
+      - name: adelaide-metro-trips-1773
+        path: /v1/realtime/trip_updates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1773
+        method: GET
+      - name: adelaide-metro-alerts-1774
+        path: /v1/realtime/service_alerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1774
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-660
     tls_verify: true
@@ -3062,27 +3156,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: translink-south-east-queensland-translink-seq-alerts-1699
-      path: /api/realtime/SEQ/Alerts
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1699
-      method: GET
-    - name: translink-south-east-queensland-translink-seq-vehicles-1700
-      path: /api/realtime/SEQ/VehiclePositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1700
-      method: GET
-    - name: translink-south-east-queensland-translink-seq-trips-1701
-      path: /api/realtime/SEQ/TripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1701
-      method: GET
+      - name: translink-south-east-queensland-translink-seq-alerts-1699
+        path: /api/realtime/SEQ/Alerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1699
+        method: GET
+      - name: translink-south-east-queensland-translink-seq-vehicles-1700
+        path: /api/realtime/SEQ/VehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1700
+        method: GET
+      - name: translink-south-east-queensland-translink-seq-trips-1701
+        path: /api/realtime/SEQ/TripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1701
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-668
     tls_verify: true
@@ -3094,27 +3188,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: translink-sunbus-cairns-trips-1702
-      path: /api/realtime/CNS/TripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1702
-      method: GET
-    - name: translink-sunbus-cairns-alerts-1703
-      path: /api/realtime/CNS/Alerts
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1703
-      method: GET
-    - name: translink-sunbus-cairns-vehicles-1704
-      path: /api/realtime/CNS/VehiclePositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1704
-      method: GET
+      - name: translink-sunbus-cairns-trips-1702
+        path: /api/realtime/CNS/TripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1702
+        method: GET
+      - name: translink-sunbus-cairns-alerts-1703
+        path: /api/realtime/CNS/Alerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1703
+        method: GET
+      - name: translink-sunbus-cairns-vehicles-1704
+        path: /api/realtime/CNS/VehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1704
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-674
     tls_verify: true
@@ -3126,27 +3220,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-dawson-creek-alerts-2540
-      path: /gtfs-realtime/alerts.pb?operatorIds=27
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2540
-      method: GET
-    - name: bc-transit-dawson-creek-trips-2541
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=27
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2541
-      method: GET
-    - name: bc-transit-dawson-creek-vehicles-2542
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=27
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2542
-      method: GET
+      - name: bc-transit-dawson-creek-alerts-2540
+        path: /gtfs-realtime/alerts.pb?operatorIds=27
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2540
+        method: GET
+      - name: bc-transit-dawson-creek-trips-2541
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=27
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2541
+        method: GET
+      - name: bc-transit-dawson-creek-vehicles-2542
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=27
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2542
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-710
     tls_verify: true
@@ -3158,27 +3252,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: edmonton-transit-system-vehicles-1496
-      path: /TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1496
-      method: GET
-    - name: edmonton-transit-system-alerts-1497
-      path: /TMGTFSRealTimeWebService/Alert/Alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1497
-      method: GET
-    - name: edmonton-transit-system-trips-1498
-      path: /TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1498
-      method: GET
+      - name: edmonton-transit-system-vehicles-1496
+        path: /TMGTFSRealTimeWebService/Vehicle/VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1496
+        method: GET
+      - name: edmonton-transit-system-alerts-1497
+        path: /TMGTFSRealTimeWebService/Alert/Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1497
+        method: GET
+      - name: edmonton-transit-system-trips-1498
+        path: /TMGTFSRealTimeWebService/TripUpdate/TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1498
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-714
     tls_verify: true
@@ -3190,20 +3284,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: york-region-transit-trips-1749
-      path: /gtfsrealtime/TripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1749
-      method: GET
-    - name: york-region-transit-vehicles-1750
-      path: /gtfsrealtime/VehiclePositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1750
-      method: GET
+      - name: york-region-transit-trips-1749
+        path: /gtfsrealtime/TripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1749
+        method: GET
+      - name: york-region-transit-vehicles-1750
+        path: /gtfsrealtime/VehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1750
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-728
     tls_verify: true
@@ -3215,20 +3309,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: miway-trips-1611
-      path: /GTFS_RT/TripUpdate/TripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1611
-      method: GET
-    - name: miway-vehicles-1612
-      path: /GTFS_RT/Vehicle/VehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1612
-      method: GET
+      - name: miway-trips-1611
+        path: /GTFS_RT/TripUpdate/TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1611
+        method: GET
+      - name: miway-vehicles-1612
+        path: /GTFS_RT/Vehicle/VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1612
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-730
     tls_verify: true
@@ -3240,27 +3334,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: kingston-transit-vehicles-1433
-      path: /gtfs-realtime/vehicleupdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1433
-      method: GET
-    - name: kingston-transit-alerts-1434
-      path: /gtfs-realtime/alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1434
-      method: GET
-    - name: kingston-transit-trips-1435
-      path: /gtfs-realtime/tripupdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1435
-      method: GET
+      - name: kingston-transit-vehicles-1433
+        path: /gtfs-realtime/vehicleupdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1433
+        method: GET
+      - name: kingston-transit-alerts-1434
+        path: /gtfs-realtime/alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1434
+        method: GET
+      - name: kingston-transit-trips-1435
+        path: /gtfs-realtime/tripupdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1435
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-733
     tls_verify: true
@@ -3272,27 +3366,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: halifax-transit-trips-1605
-      path: /realtime/TripUpdate/TripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1605
-      method: GET
-    - name: halifax-transit-alerts-1606
-      path: /realtime/Alert/Alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1606
-      method: GET
-    - name: halifax-transit-vehicles-1607
-      path: /realtime/Vehicle/VehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1607
-      method: GET
+      - name: halifax-transit-trips-1605
+        path: /realtime/TripUpdate/TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1605
+        method: GET
+      - name: halifax-transit-alerts-1606
+        path: /realtime/Alert/Alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1606
+        method: GET
+      - name: halifax-transit-vehicles-1607
+        path: /realtime/Vehicle/VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1607
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-734
     tls_verify: true
@@ -3304,27 +3398,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: thunder-bay-transit-vehicles-1690
-      path: /gtfs-realtime/vehicleupdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1690
-      method: GET
-    - name: thunder-bay-transit-alerts-1691
-      path: /gtfs-realtime/alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1691
-      method: GET
-    - name: thunder-bay-transit-trips-1692
-      path: /gtfs-realtime/tripupdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1692
-      method: GET
+      - name: thunder-bay-transit-vehicles-1690
+        path: /gtfs-realtime/vehicleupdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1690
+        method: GET
+      - name: thunder-bay-transit-alerts-1691
+        path: /gtfs-realtime/alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1691
+        method: GET
+      - name: thunder-bay-transit-trips-1692
+        path: /gtfs-realtime/tripupdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1692
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-736
     tls_verify: true
@@ -3336,27 +3430,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: port-alberni-vehicles-1405
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=11
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1405
-      method: GET
-    - name: port-alberni-alerts-1406
-      path: /gtfs-realtime/alerts.pb?operatorIds=11
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1406
-      method: GET
-    - name: port-alberni-trips-1407
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=11
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1407
-      method: GET
+      - name: port-alberni-vehicles-1405
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=11
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1405
+        method: GET
+      - name: port-alberni-alerts-1406
+        path: /gtfs-realtime/alerts.pb?operatorIds=11
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1406
+        method: GET
+      - name: port-alberni-trips-1407
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=11
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1407
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-761
     tls_verify: true
@@ -3368,27 +3462,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: prazska-integrovana-doprava-pid-alerts-2388
-      path: /v2/vehiclepositions/gtfsrt/alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2388
-      method: GET
-    - name: prazska-integrovana-doprava-pid-vehicles-2391
-      path: /v2/vehiclepositions/gtfsrt/vehicle_positions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2391
-      method: GET
-    - name: prazska-integrovana-doprava-pid-trips-2392
-      path: /v2/vehiclepositions/gtfsrt/trip_updates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2392
-      method: GET
+      - name: prazska-integrovana-doprava-pid-alerts-2388
+        path: /v2/vehiclepositions/gtfsrt/alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2388
+        method: GET
+      - name: prazska-integrovana-doprava-pid-vehicles-2391
+        path: /v2/vehiclepositions/gtfsrt/vehicle_positions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2391
+        method: GET
+      - name: prazska-integrovana-doprava-pid-trips-2392
+        path: /v2/vehiclepositions/gtfsrt/trip_updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2392
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-767
     tls_verify: true
@@ -3400,13 +3494,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: verkehrsverbund-berlin-brandenburg-vbb-trips-2378
-      path: /data
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2378
-      method: GET
+      - name: verkehrsverbund-berlin-brandenburg-vbb-trips-2378
+        path: /data
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2378
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-782
     tls_verify: true
@@ -3418,13 +3512,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: empresa-municipal-de-transportes-de-madrid-emt-madrid-alerts-3102
-      path: /v1/bus/servicealerts/proto
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3102
-      method: GET
+      - name: empresa-municipal-de-transportes-de-madrid-emt-madrid-alerts-3102
+        path: /v1/bus/servicealerts/proto
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3102
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-793
     tls_verify: true
@@ -3436,27 +3530,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: helsingin-seudun-liikenne-alerts-3227
-      path: /realtime/service-alerts/v2/hsl
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3227
-      method: GET
-    - name: helsingin-seudun-liikenne-trips-3228
-      path: /realtime/trip-updates/v2/hsl
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3228
-      method: GET
-    - name: helsingin-seudun-liikenne-vehicles-3229
-      path: /realtime/vehicle-positions/v2/hsl
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3229
-      method: GET
+      - name: helsingin-seudun-liikenne-alerts-3227
+        path: /realtime/service-alerts/v2/hsl
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3227
+        method: GET
+      - name: helsingin-seudun-liikenne-trips-3228
+        path: /realtime/trip-updates/v2/hsl
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3228
+        method: GET
+      - name: helsingin-seudun-liikenne-vehicles-3229
+        path: /realtime/vehicle-positions/v2/hsl
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3229
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-865
     tls_verify: true
@@ -3468,20 +3562,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: rea-metropolitana-de-barcelona-amb-trips-2368
-      path: /transit/trips-updates/trips.bin
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2368
-      method: GET
-    - name: rea-metropolitana-de-barcelona-amb-alerts-2369
-      path: /transit/alerts/alerts.bin
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2369
-      method: GET
+      - name: rea-metropolitana-de-barcelona-amb-trips-2368
+        path: /transit/trips-updates/trips.bin
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2368
+        method: GET
+      - name: rea-metropolitana-de-barcelona-amb-alerts-2369
+        path: /transit/alerts/alerts.bin
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2369
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-892
     tls_verify: true
@@ -3493,13 +3587,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: canberra-metro-operations-vehicles-alerts-trips-1423
-      path: /feeds/lightrail.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1423
-      method: GET
+      - name: canberra-metro-operations-vehicles-alerts-trips-1423
+        path: /feeds/lightrail.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1423
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-935
     tls_verify: true
@@ -3617,27 +3711,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-trips-1966
-      path: /storage/gtfs/gtfs-rt-trips.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1966
-      method: GET
-    - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-alerts-1967
-      path: /storage/gtfs/gtfs-rt-alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1967
-      method: GET
-    - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-vehicles-1968
-      path: /storage/gtfs/gtfs-rt-vehicles.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1968
-      method: GET
+      - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-trips-1966
+        path: /storage/gtfs/gtfs-rt-trips.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1966
+        method: GET
+      - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-alerts-1967
+        path: /storage/gtfs/gtfs-rt-alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1967
+        method: GET
+      - name: zarz-d-dr-g-i-transportu-miejskiego-zditm-vehicles-1968
+        path: /storage/gtfs/gtfs-rt-vehicles.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1968
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-981
     tls_verify: true
@@ -3649,20 +3743,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: zarz-d-transportu-miejskiego-pozna-ztm-pozna-trips-2334
-      path: /pl/dla-deweloperow/getGtfsRtFile/?file=trip_updates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2334
-      method: GET
-    - name: zarz-d-transportu-miejskiego-pozna-ztm-pozna-vehicles-2335
-      path: /pl/dla-deweloperow/getGtfsRtFile/?file=vehicle_positions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2335
-      method: GET
+      - name: zarz-d-transportu-miejskiego-pozna-ztm-pozna-trips-2334
+        path: /pl/dla-deweloperow/getGtfsRtFile/?file=trip_updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2334
+        method: GET
+      - name: zarz-d-transportu-miejskiego-pozna-ztm-pozna-vehicles-2335
+        path: /pl/dla-deweloperow/getGtfsRtFile/?file=vehicle_positions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2335
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-982
     tls_verify: true
@@ -3674,13 +3768,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: carris-vehicles-2058
-      path: /gateway/gtfs/api/v2.8/GTFS/realtime/vehiclepositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2058
-      method: GET
+      - name: carris-vehicles-2058
+        path: /gateway/gtfs/api/v2.8/GTFS/realtime/vehiclepositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2058
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1032
     tls_verify: true
@@ -3692,27 +3786,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: s-susisiekimo-paslaugos-trips-2382
-      path: /vilnius/trip_updates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2382
-      method: GET
-    - name: s-susisiekimo-paslaugos-vehicles-2383
-      path: /vilnius/vehicle_positions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2383
-      method: GET
-    - name: s-susisiekimo-paslaugos-alerts-2384
-      path: /vilnius/service_alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2384
-      method: GET
+      - name: s-susisiekimo-paslaugos-trips-2382
+        path: /vilnius/trip_updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2382
+        method: GET
+      - name: s-susisiekimo-paslaugos-vehicles-2383
+        path: /vilnius/vehicle_positions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2383
+        method: GET
+      - name: s-susisiekimo-paslaugos-alerts-2384
+        path: /vilnius/service_alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2384
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1044
     tls_verify: true
@@ -3724,27 +3818,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: ovapi-trips-1644
-      path: /nl/tripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1644
-      method: GET
-    - name: ovapi-alerts-1645
-      path: /nl/alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1645
-      method: GET
-    - name: ovapi-vehicles-1646
-      path: /nl/vehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1646
-      method: GET
+      - name: ovapi-trips-1644
+        path: /nl/tripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1644
+        method: GET
+      - name: ovapi-alerts-1645
+        path: /nl/alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1645
+        method: GET
+      - name: ovapi-vehicles-1646
+        path: /nl/vehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1646
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1077
     tls_verify: true
@@ -3756,62 +3850,62 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: go-ahead-vehicles-1797
-      path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=GOA
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1797
-      method: GET
-    - name: go-ahead-trips-1798
-      path: /realtime/v1/gtfs-rt/trip-updates?datasource=RUT
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1798
-      method: GET
-    - name: go-ahead-alerts-1799
-      path: /realtime/v1/gtfs-rt/alerts?datasource=RUT
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1799
-      method: GET
-    - name: go-ahead-trips-1800
-      path: /realtime/v1/gtfs-rt/trip-updates?datasource=VYB
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1800
-      method: GET
-    - name: go-ahead-vehicles-1801
-      path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=VYB
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1801
-      method: GET
-    - name: go-ahead-vehicles-1803
-      path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=VYX
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1803
-      method: GET
-    - name: go-ahead-alerts-1804
-      path: /realtime/v1/gtfs-rt/alerts?datasource=VYX
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1804
-      method: GET
-    - name: go-ahead-trips-1805
-      path: /realtime/v1/gtfs-rt/trip-updates?datasource=VYX
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1805
-      method: GET
+      - name: go-ahead-vehicles-1797
+        path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=GOA
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1797
+        method: GET
+      - name: go-ahead-trips-1798
+        path: /realtime/v1/gtfs-rt/trip-updates?datasource=RUT
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1798
+        method: GET
+      - name: go-ahead-alerts-1799
+        path: /realtime/v1/gtfs-rt/alerts?datasource=RUT
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1799
+        method: GET
+      - name: go-ahead-trips-1800
+        path: /realtime/v1/gtfs-rt/trip-updates?datasource=VYB
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1800
+        method: GET
+      - name: go-ahead-vehicles-1801
+        path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=VYB
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1801
+        method: GET
+      - name: go-ahead-vehicles-1803
+        path: /realtime/v1/gtfs-rt/vehicle-positions?datasource=VYX
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1803
+        method: GET
+      - name: go-ahead-alerts-1804
+        path: /realtime/v1/gtfs-rt/alerts?datasource=VYX
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1804
+        method: GET
+      - name: go-ahead-trips-1805
+        path: /realtime/v1/gtfs-rt/trip-updates?datasource=VYX
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1805
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1078
     tls_verify: true
@@ -3852,13 +3946,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: dpn-avl-cfl-cflbus-rgtr-tice-tram-trips-1640
-      path: /gtfs-rt/tripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1640
-      method: GET
+      - name: dpn-avl-cfl-cflbus-rgtr-tice-tram-trips-1640
+        path: /gtfs-rt/tripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1640
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1091
     tls_verify: true
@@ -3870,13 +3964,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: il-via-m-tropole-europ-enne-de-lille-trips-1792
-      path: /resource/ilevia-lille-gtfs-rt
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1792
-      method: GET
+      - name: il-via-m-tropole-europ-enne-de-lille-trips-1792
+        path: /resource/ilevia-lille-gtfs-rt
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1792
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1201
     tls_verify: true
@@ -3888,27 +3982,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-alerts-2338
-      path: /ServiceAlerts_T.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2338
-      method: GET
-    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-trips-2339
-      path: /TripUpdates_T.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2339
-      method: GET
-    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-vehicles-2340
-      path: /VehiclePositions_T.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2340
-      method: GET
+      - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-alerts-2338
+        path: /ServiceAlerts_T.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2338
+        method: GET
+      - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-trips-2339
+        path: /TripUpdates_T.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2339
+        method: GET
+      - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-vehicles-2340
+        path: /VehiclePositions_T.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2340
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1270
     tls_verify: true
@@ -3920,27 +4014,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: roma-servizi-per-la-mobilit-vehicles-1776
-      path: /sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1776
-      method: GET
-    - name: roma-servizi-per-la-mobilit-alerts-1777
-      path: /sites/default/files/rome_rtgtfs_service_alerts_feed.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1777
-      method: GET
-    - name: roma-servizi-per-la-mobilit-trips-1778
-      path: /sites/default/files/rome_rtgtfs_trip_updates_feed.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1778
-      method: GET
+      - name: roma-servizi-per-la-mobilit-vehicles-1776
+        path: /sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1776
+        method: GET
+      - name: roma-servizi-per-la-mobilit-alerts-1777
+        path: /sites/default/files/rome_rtgtfs_service_alerts_feed.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1777
+        method: GET
+      - name: roma-servizi-per-la-mobilit-trips-1778
+        path: /sites/default/files/rome_rtgtfs_trip_updates_feed.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1778
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1294
     tls_verify: true
@@ -3952,13 +4046,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: r-seau-urbain-cap-cotentin-vehicles-alerts-trips-1841
-      path: /api/v2/groups/transdev-cotentin/gtfs-rt
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1841
-      method: GET
+      - name: r-seau-urbain-cap-cotentin-vehicles-alerts-trips-1841
+        path: /api/v2/groups/transdev-cotentin/gtfs-rt
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1841
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1840
     tls_verify: true
@@ -3970,27 +4064,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-alerts-2507
-      path: /gtfs-realtime/alerts.pb?operatorIds=13
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2507
-      method: GET
-    - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-trips-2516
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=13
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2516
-      method: GET
-    - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-vehicles-2517
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=13
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2517
-      method: GET
+      - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-alerts-2507
+        path: /gtfs-realtime/alerts.pb?operatorIds=13
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2507
+        method: GET
+      - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-trips-2516
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=13
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2516
+        method: GET
+      - name: bc-transit-central-fraser-valley-chilliwack-agassiz-harrison-hope-vehicles-2517
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=13
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2517
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-1991
     tls_verify: true
@@ -4002,20 +4096,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: carris-metropolitana-vehicles-2028
-      path: /vehicles.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2028
-      method: GET
-    - name: carris-metropolitana-alerts-2029
-      path: /alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2029
-      method: GET
+      - name: carris-metropolitana-vehicles-2028
+        path: /vehicles.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2028
+        method: GET
+      - name: carris-metropolitana-alerts-2029
+        path: /alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2029
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2027
     tls_verify: true
@@ -4027,13 +4121,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: polskie-koleje-pa-stwowe-intercity-pkp-intercity-trips-2924
-      path: /rt/pkpic.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2924
-      method: GET
+      - name: polskie-koleje-pa-stwowe-intercity-pkp-intercity-trips-2924
+        path: /rt/pkpic.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2924
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2088
     tls_verify: true
@@ -4045,27 +4139,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-trips-2103
-      path: /api/gtfs-rt/tripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2103
-      method: GET
-    - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-vehicles-2104
-      path: /api/gtfs-rt/vehiclePositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2104
-      method: GET
-    - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-alerts-2105
-      path: /api/gtfs-rt/serviceAlerts
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2105
-      method: GET
+      - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-trips-2103
+        path: /api/gtfs-rt/tripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2103
+        method: GET
+      - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-vehicles-2104
+        path: /api/gtfs-rt/vehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2104
+        method: GET
+      - name: asocia-ia-de-dezvoltare-intercomunitar-pentru-transport-public-bucure-ti-ilfov-tpbi-alerts-2105
+        path: /api/gtfs-rt/serviceAlerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2105
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2098
     tls_verify: true
@@ -4077,20 +4171,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: transbus-buz-u-trips-2112
-      path: /transbus/tripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2112
-      method: GET
-    - name: transbus-buz-u-vehicles-2113
-      path: /transbus/vehiclePositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2113
-      method: GET
+      - name: transbus-buz-u-trips-2112
+        path: /transbus/tripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2112
+        method: GET
+      - name: transbus-buz-u-vehicles-2113
+        path: /transbus/vehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2113
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2106
     tls_verify: true
@@ -4102,20 +4196,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: compania-de-transport-public-ia-i-trips-2117
-      path: /tripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2117
-      method: GET
-    - name: compania-de-transport-public-ia-i-vehicles-2118
-      path: /vehiclePositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2118
-      method: GET
+      - name: compania-de-transport-public-ia-i-trips-2117
+        path: /tripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2117
+        method: GET
+      - name: compania-de-transport-public-ia-i-vehicles-2118
+        path: /vehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2118
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2116
     tls_verify: true
@@ -4127,13 +4221,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: trolleybus-transport-pleven-trips-2120
-      path: /tripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2120
-      method: GET
+      - name: trolleybus-transport-pleven-trips-2120
+        path: /tripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2120
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2119
     tls_verify: true
@@ -4145,27 +4239,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: compania-de-transport-public-cluj-napoca-trips-2612
-      path: /tripUpdates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2612
-      method: GET
-    - name: compania-de-transport-public-cluj-napoca-alerts-2613
-      path: /serviceAlerts
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2613
-      method: GET
-    - name: compania-de-transport-public-cluj-napoca-vehicles-2614
-      path: /vehiclePositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2614
-      method: GET
+      - name: compania-de-transport-public-cluj-napoca-trips-2612
+        path: /tripUpdates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2612
+        method: GET
+      - name: compania-de-transport-public-cluj-napoca-alerts-2613
+        path: /serviceAlerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2613
+        method: GET
+      - name: compania-de-transport-public-cluj-napoca-vehicles-2614
+        path: /vehiclePositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2614
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2121
     tls_verify: true
@@ -4177,27 +4271,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: empresa-malague-a-de-transportes-emt-vehicles-2213
-      path: /GTFSRTapi/api/vehicleposition
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2213
-      method: GET
-    - name: empresa-malague-a-de-transportes-emt-trips-2214
-      path: /GTFSRTapi/api/tripupdate
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2214
-      method: GET
-    - name: empresa-malague-a-de-transportes-emt-alerts-2215
-      path: /GTFSRTapi/api/alert
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2215
-      method: GET
+      - name: empresa-malague-a-de-transportes-emt-vehicles-2213
+        path: /GTFSRTapi/api/vehicleposition
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2213
+        method: GET
+      - name: empresa-malague-a-de-transportes-emt-trips-2214
+        path: /GTFSRTapi/api/tripupdate
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2214
+        method: GET
+      - name: empresa-malague-a-de-transportes-emt-alerts-2215
+        path: /GTFSRTapi/api/alert
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2215
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2212
     tls_verify: true
@@ -4209,13 +4303,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: toronto-transit-commission-ttc-vehicles-2140
-      path: /gtfsrt/vehicles
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2140
-      method: GET
+      - name: toronto-transit-commission-ttc-vehicles-2140
+        path: /gtfsrt/vehicles
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2140
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2253
     tls_verify: true
@@ -4227,27 +4321,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-trips-2401
-      path: /opendata/v1/gtfs-rt/trip-updates?uid=c-5cfcd2d1
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2401
-      method: GET
-    - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-vehicles-2402
-      path: /opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2402
-      method: GET
-    - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-alerts-2403
-      path: /opendata/v1/gtfs-rt/alerts?uid=c-5cfcd2d1
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2403
-      method: GET
+      - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-trips-2401
+        path: /opendata/v1/gtfs-rt/trip-updates?uid=c-5cfcd2d1
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2401
+        method: GET
+      - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-vehicles-2402
+        path: /opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2402
+        method: GET
+      - name: empresa-municipal-de-transportes-de-fuenlabrada-emtf-alerts-2403
+        path: /opendata/v1/gtfs-rt/alerts?uid=c-5cfcd2d1
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2403
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2400
     tls_verify: true
@@ -4259,20 +4353,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: rlv-mobilit-s-vehicles-2405
-      path: /resource/riom-rlv-mobilites-gtfs-rt-vehicle-position
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2405
-      method: GET
-    - name: rlv-mobilit-s-trips-2406
-      path: /resource/riom-rlv-mobilites-gtfs-rt-trip-update
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2406
-      method: GET
+      - name: rlv-mobilit-s-vehicles-2405
+        path: /resource/riom-rlv-mobilites-gtfs-rt-vehicle-position
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2405
+        method: GET
+      - name: rlv-mobilit-s-trips-2406
+        path: /resource/riom-rlv-mobilites-gtfs-rt-trip-update
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2406
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2404
     tls_verify: true
@@ -4284,13 +4378,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: car-jaune-trips-vehicles-alerts-2459
-      path: /api/v2/groups/car-jaune/gtfs-rt
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2459
-      method: GET
+      - name: car-jaune-trips-vehicles-alerts-2459
+        path: /api/v2/groups/car-jaune/gtfs-rt
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2459
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2458
     tls_verify: true
@@ -4302,27 +4396,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-hazelton-kitimat-terrace-vehicles-2477
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=26
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2477
-      method: GET
-    - name: bc-transit-hazelton-kitimat-terrace-trips-2478
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=26
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2478
-      method: GET
-    - name: bc-transit-hazelton-kitimat-terrace-alerts-2479
-      path: /gtfs-realtime/alerts.pb?operatorIds=26
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2479
-      method: GET
+      - name: bc-transit-hazelton-kitimat-terrace-vehicles-2477
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=26
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2477
+        method: GET
+      - name: bc-transit-hazelton-kitimat-terrace-trips-2478
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=26
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2478
+        method: GET
+      - name: bc-transit-hazelton-kitimat-terrace-alerts-2479
+        path: /gtfs-realtime/alerts.pb?operatorIds=26
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2479
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2462
     tls_verify: true
@@ -4334,27 +4428,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-quesnel-alerts-2480
-      path: /gtfs-realtime/alerts.pb?operatorIds=32
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2480
-      method: GET
-    - name: bc-transit-quesnel-trips-2481
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=32
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2481
-      method: GET
-    - name: bc-transit-quesnel-vehicles-2482
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=32
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2482
-      method: GET
+      - name: bc-transit-quesnel-alerts-2480
+        path: /gtfs-realtime/alerts.pb?operatorIds=32
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2480
+        method: GET
+      - name: bc-transit-quesnel-trips-2481
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=32
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2481
+        method: GET
+      - name: bc-transit-quesnel-vehicles-2482
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=32
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2482
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2463
     tls_verify: true
@@ -4366,27 +4460,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-revelstoke-alerts-2483
-      path: /gtfs-realtime/alerts.pb?operatorIds=36
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2483
-      method: GET
-    - name: bc-transit-revelstoke-trips-2484
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=36
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2484
-      method: GET
-    - name: bc-transit-revelstoke-vehicles-2485
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=36
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2485
-      method: GET
+      - name: bc-transit-revelstoke-alerts-2483
+        path: /gtfs-realtime/alerts.pb?operatorIds=36
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2483
+        method: GET
+      - name: bc-transit-revelstoke-trips-2484
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=36
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2484
+        method: GET
+      - name: bc-transit-revelstoke-vehicles-2485
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=36
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2485
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2464
     tls_verify: true
@@ -4398,27 +4492,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-salt-spring-island-alerts-2486
-      path: /gtfs-realtime/alerts.pb?operatorIds=39
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2486
-      method: GET
-    - name: bc-transit-salt-spring-island-trips-2487
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=39
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2487
-      method: GET
-    - name: bc-transit-salt-spring-island-vehicles-2488
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=39
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2488
-      method: GET
+      - name: bc-transit-salt-spring-island-alerts-2486
+        path: /gtfs-realtime/alerts.pb?operatorIds=39
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2486
+        method: GET
+      - name: bc-transit-salt-spring-island-trips-2487
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=39
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2487
+        method: GET
+      - name: bc-transit-salt-spring-island-vehicles-2488
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=39
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2488
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2466
     tls_verify: true
@@ -4430,27 +4524,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-mount-waddington-alerts-2489
-      path: /gtfs-realtime/alerts.pb?operatorIds=17
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2489
-      method: GET
-    - name: bc-transit-mount-waddington-trips-2490
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=17
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2490
-      method: GET
-    - name: bc-transit-mount-waddington-vehicles-2491
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=17
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2491
-      method: GET
+      - name: bc-transit-mount-waddington-alerts-2489
+        path: /gtfs-realtime/alerts.pb?operatorIds=17
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2489
+        method: GET
+      - name: bc-transit-mount-waddington-trips-2490
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=17
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2490
+        method: GET
+      - name: bc-transit-mount-waddington-vehicles-2491
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=17
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2491
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2467
     tls_verify: true
@@ -4462,27 +4556,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-ashcroft-cache-creek-clinton-alerts-2492
-      path: /gtfs-realtime/alerts.pb?operatorIds=38
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2492
-      method: GET
-    - name: bc-transit-ashcroft-cache-creek-clinton-trips-2493
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=38
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2493
-      method: GET
-    - name: bc-transit-ashcroft-cache-creek-clinton-vehicles-2494
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=38
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2494
-      method: GET
+      - name: bc-transit-ashcroft-cache-creek-clinton-alerts-2492
+        path: /gtfs-realtime/alerts.pb?operatorIds=38
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2492
+        method: GET
+      - name: bc-transit-ashcroft-cache-creek-clinton-trips-2493
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=38
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2493
+        method: GET
+      - name: bc-transit-ashcroft-cache-creek-clinton-vehicles-2494
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=38
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2494
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2468
     tls_verify: true
@@ -4494,27 +4588,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-100-mile-house-alerts-2495
-      path: /gtfs-realtime/alerts.pb?operatorIds=34
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2495
-      method: GET
-    - name: bc-transit-100-mile-house-trips-2496
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=34
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2496
-      method: GET
-    - name: bc-transit-100-mile-house-vehicles-2497
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=34
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2497
-      method: GET
+      - name: bc-transit-100-mile-house-alerts-2495
+        path: /gtfs-realtime/alerts.pb?operatorIds=34
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2495
+        method: GET
+      - name: bc-transit-100-mile-house-trips-2496
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=34
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2496
+        method: GET
+      - name: bc-transit-100-mile-house-vehicles-2497
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=34
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2497
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2469
     tls_verify: true
@@ -4526,27 +4620,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-pemberton-valley-alerts-2498
-      path: /gtfs-realtime/alerts.pb?operatorIds=50
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2498
-      method: GET
-    - name: bc-transit-pemberton-valley-trips-2499
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=50
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2499
-      method: GET
-    - name: bc-transit-pemberton-valley-vehicles-2500
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=50
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2500
-      method: GET
+      - name: bc-transit-pemberton-valley-alerts-2498
+        path: /gtfs-realtime/alerts.pb?operatorIds=50
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2498
+        method: GET
+      - name: bc-transit-pemberton-valley-trips-2499
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=50
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2499
+        method: GET
+      - name: bc-transit-pemberton-valley-vehicles-2500
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=50
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2500
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2470
     tls_verify: true
@@ -4558,27 +4652,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-merritt-alerts-2501
-      path: /gtfs-realtime/alerts.pb?operatorIds=37
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2501
-      method: GET
-    - name: bc-transit-merritt-trips-2502
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=37
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2502
-      method: GET
-    - name: bc-transit-merritt-vehicles-2503
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=37
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2503
-      method: GET
+      - name: bc-transit-merritt-alerts-2501
+        path: /gtfs-realtime/alerts.pb?operatorIds=37
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2501
+        method: GET
+      - name: bc-transit-merritt-trips-2502
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=37
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2502
+        method: GET
+      - name: bc-transit-merritt-vehicles-2503
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=37
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2503
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2471
     tls_verify: true
@@ -4590,27 +4684,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-smithers-vehicles-2465
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=31
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2465
-      method: GET
-    - name: bc-transit-smithers-alerts-2504
-      path: /gtfs-realtime/alerts.pb?operatorIds=31
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2504
-      method: GET
-    - name: bc-transit-smithers-trips-2505
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=31
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2505
-      method: GET
+      - name: bc-transit-smithers-vehicles-2465
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=31
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2465
+        method: GET
+      - name: bc-transit-smithers-alerts-2504
+        path: /gtfs-realtime/alerts.pb?operatorIds=31
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2504
+        method: GET
+      - name: bc-transit-smithers-trips-2505
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=31
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2505
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2472
     tls_verify: true
@@ -4622,27 +4716,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-nanaimo-alerts-2474
-      path: /gtfs-realtime/alerts.pb?operatorIds=41
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2474
-      method: GET
-    - name: bc-transit-nanaimo-trips-2475
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=41
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2475
-      method: GET
-    - name: bc-transit-nanaimo-vehicles-2476
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=41
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2476
-      method: GET
+      - name: bc-transit-nanaimo-alerts-2474
+        path: /gtfs-realtime/alerts.pb?operatorIds=41
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2474
+        method: GET
+      - name: bc-transit-nanaimo-trips-2475
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=41
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2475
+        method: GET
+      - name: bc-transit-nanaimo-vehicles-2476
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=41
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2476
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2473
     tls_verify: true
@@ -4654,27 +4748,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-shuswap-vernon-alerts-2533
-      path: /gtfs-realtime/alerts.pb?operatorIds=14
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2533
-      method: GET
-    - name: bc-transit-shuswap-vernon-trips-2534
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=14
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2534
-      method: GET
-    - name: bc-transit-shuswap-vernon-vehicles-2535
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=14
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2535
-      method: GET
+      - name: bc-transit-shuswap-vernon-alerts-2533
+        path: /gtfs-realtime/alerts.pb?operatorIds=14
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2533
+        method: GET
+      - name: bc-transit-shuswap-vernon-trips-2534
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=14
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2534
+        method: GET
+      - name: bc-transit-shuswap-vernon-vehicles-2535
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=14
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2535
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2508
     tls_verify: true
@@ -4686,27 +4780,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-bulkley-nechako-prince-george-alerts-2511
-      path: /gtfs-realtime/alerts.pb?operatorIds=22
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2511
-      method: GET
-    - name: bc-transit-bulkley-nechako-prince-george-trips-2512
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=22
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2512
-      method: GET
-    - name: bc-transit-bulkley-nechako-prince-george-vehicles-2513
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=22
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2513
-      method: GET
+      - name: bc-transit-bulkley-nechako-prince-george-alerts-2511
+        path: /gtfs-realtime/alerts.pb?operatorIds=22
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2511
+        method: GET
+      - name: bc-transit-bulkley-nechako-prince-george-trips-2512
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=22
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2512
+        method: GET
+      - name: bc-transit-bulkley-nechako-prince-george-vehicles-2513
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=22
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2513
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2510
     tls_verify: true
@@ -4718,27 +4812,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-campbell-river-transit-alerts-1376
-      path: /gtfs-realtime/alerts.pb?operatorIds=12
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1376
-      method: GET
-    - name: bc-transit-campbell-river-transit-trips-1377
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=12
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1377
-      method: GET
-    - name: bc-transit-campbell-river-transit-vehicles-1378
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=12
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1378
-      method: GET
+      - name: bc-transit-campbell-river-transit-alerts-1376
+        path: /gtfs-realtime/alerts.pb?operatorIds=12
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1376
+        method: GET
+      - name: bc-transit-campbell-river-transit-trips-1377
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=12
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1377
+        method: GET
+      - name: bc-transit-campbell-river-transit-vehicles-1378
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=12
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1378
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2514
     tls_verify: true
@@ -4750,27 +4844,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-clearwater-trips-2506
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=35
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2506
-      method: GET
-    - name: bc-transit-clearwater-alerts-2509
-      path: /gtfs-realtime/alerts.pb?operatorIds=35
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2509
-      method: GET
-    - name: bc-transit-clearwater-vehicles-2518
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=35
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2518
-      method: GET
+      - name: bc-transit-clearwater-trips-2506
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=35
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2506
+        method: GET
+      - name: bc-transit-clearwater-alerts-2509
+        path: /gtfs-realtime/alerts.pb?operatorIds=35
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2509
+        method: GET
+      - name: bc-transit-clearwater-vehicles-2518
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=35
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2518
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2515
     tls_verify: true
@@ -4782,27 +4876,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-alerts-2521
-      path: /gtfs-realtime/alerts.pb?operatorIds=21
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2521
-      method: GET
-    - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-trips-2522
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=21
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2522
-      method: GET
-    - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-vehicles-2523
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=21
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2523
-      method: GET
+      - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-alerts-2521
+        path: /gtfs-realtime/alerts.pb?operatorIds=21
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2521
+        method: GET
+      - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-trips-2522
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=21
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2522
+        method: GET
+      - name: bc-transit-columbia-valley-cranbrook-elk-valley-kimberley-vehicles-2523
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=21
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2523
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2520
     tls_verify: true
@@ -4814,27 +4908,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-comox-valley-transit-system-alerts-2525
-      path: /gtfs-realtime/alerts.pb?operatorIds=45
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2525
-      method: GET
-    - name: bc-transit-comox-valley-transit-system-trips-2526
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=45
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2526
-      method: GET
-    - name: bc-transit-comox-valley-transit-system-vehicles-2527
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=45
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2527
-      method: GET
+      - name: bc-transit-comox-valley-transit-system-alerts-2525
+        path: /gtfs-realtime/alerts.pb?operatorIds=45
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2525
+        method: GET
+      - name: bc-transit-comox-valley-transit-system-trips-2526
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=45
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2526
+        method: GET
+      - name: bc-transit-comox-valley-transit-system-vehicles-2527
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=45
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2527
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2524
     tls_verify: true
@@ -4846,27 +4940,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-cowichan-valley-regional-transit-system-vehicles-1379
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=10
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1379
-      method: GET
-    - name: bc-transit-cowichan-valley-regional-transit-system-alerts-1380
-      path: /gtfs-realtime/alerts.pb?operatorIds=10
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1380
-      method: GET
-    - name: bc-transit-cowichan-valley-regional-transit-system-trips-1381
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=10
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-1381
-      method: GET
+      - name: bc-transit-cowichan-valley-regional-transit-system-vehicles-1379
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=10
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1379
+        method: GET
+      - name: bc-transit-cowichan-valley-regional-transit-system-alerts-1380
+        path: /gtfs-realtime/alerts.pb?operatorIds=10
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1380
+        method: GET
+      - name: bc-transit-cowichan-valley-regional-transit-system-trips-1381
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=10
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-1381
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2528
     tls_verify: true
@@ -4878,27 +4972,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-powell-river-alerts-2530
-      path: /gtfs-realtime/alerts.pb?operatorIds=29
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2530
-      method: GET
-    - name: bc-transit-powell-river-trips-2531
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=29
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2531
-      method: GET
-    - name: bc-transit-powell-river-vehicles-2559
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=29
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2559
-      method: GET
+      - name: bc-transit-powell-river-alerts-2530
+        path: /gtfs-realtime/alerts.pb?operatorIds=29
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2530
+        method: GET
+      - name: bc-transit-powell-river-trips-2531
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=29
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2531
+        method: GET
+      - name: bc-transit-powell-river-vehicles-2559
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=29
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2559
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2529
     tls_verify: true
@@ -4910,27 +5004,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-south-okanagan-similkameen-alerts-2560
-      path: /gtfs-realtime/alerts.pb?operatorIds=15
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2560
-      method: GET
-    - name: bc-transit-south-okanagan-similkameen-trips-2561
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=15
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2561
-      method: GET
-    - name: bc-transit-south-okanagan-similkameen-vehicles-2562
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=15
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2562
-      method: GET
+      - name: bc-transit-south-okanagan-similkameen-alerts-2560
+        path: /gtfs-realtime/alerts.pb?operatorIds=15
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2560
+        method: GET
+      - name: bc-transit-south-okanagan-similkameen-trips-2561
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=15
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2561
+        method: GET
+      - name: bc-transit-south-okanagan-similkameen-vehicles-2562
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=15
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2562
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2532
     tls_verify: true
@@ -4942,27 +5036,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-creston-valley-alerts-2537
-      path: /gtfs-realtime/alerts.pb?operatorIds=16
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2537
-      method: GET
-    - name: bc-transit-creston-valley-trips-2538
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=16
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2538
-      method: GET
-    - name: bc-transit-creston-valley-vehicles-2539
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=16
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2539
-      method: GET
+      - name: bc-transit-creston-valley-alerts-2537
+        path: /gtfs-realtime/alerts.pb?operatorIds=16
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2537
+        method: GET
+      - name: bc-transit-creston-valley-trips-2538
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=16
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2538
+        method: GET
+      - name: bc-transit-creston-valley-vehicles-2539
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=16
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2539
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2536
     tls_verify: true
@@ -4974,27 +5068,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-port-edward-prince-rupert-alerts-2544
-      path: /gtfs-realtime/alerts.pb?operatorIds=23
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2544
-      method: GET
-    - name: bc-transit-port-edward-prince-rupert-trips-2545
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=23
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2545
-      method: GET
-    - name: bc-transit-port-edward-prince-rupert-vehicles-2546
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=23
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2546
-      method: GET
+      - name: bc-transit-port-edward-prince-rupert-alerts-2544
+        path: /gtfs-realtime/alerts.pb?operatorIds=23
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2544
+        method: GET
+      - name: bc-transit-port-edward-prince-rupert-trips-2545
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=23
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2545
+        method: GET
+      - name: bc-transit-port-edward-prince-rupert-vehicles-2546
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=23
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2546
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2543
     tls_verify: true
@@ -5006,27 +5100,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-fort-st-john-alerts-2548
-      path: /gtfs-realtime/alerts.pb?operatorIds=28
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2548
-      method: GET
-    - name: bc-transit-fort-st-john-trips-2549
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=28
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2549
-      method: GET
-    - name: bc-transit-fort-st-john-vehicles-2550
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=28
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2550
-      method: GET
+      - name: bc-transit-fort-st-john-alerts-2548
+        path: /gtfs-realtime/alerts.pb?operatorIds=28
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2548
+        method: GET
+      - name: bc-transit-fort-st-john-trips-2549
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=28
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2549
+        method: GET
+      - name: bc-transit-fort-st-john-vehicles-2550
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=28
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2550
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2547
     tls_verify: true
@@ -5038,27 +5132,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-kamloops-transit-system-alerts-2552
-      path: /gtfs-realtime/alerts.pb?operatorIds=46
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2552
-      method: GET
-    - name: bc-transit-kamloops-transit-system-trips-2553
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=46
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2553
-      method: GET
-    - name: bc-transit-kamloops-transit-system-vehicles-2554
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=46
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2554
-      method: GET
+      - name: bc-transit-kamloops-transit-system-alerts-2552
+        path: /gtfs-realtime/alerts.pb?operatorIds=46
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2552
+        method: GET
+      - name: bc-transit-kamloops-transit-system-trips-2553
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=46
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2553
+        method: GET
+      - name: bc-transit-kamloops-transit-system-vehicles-2554
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=46
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2554
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2551
     tls_verify: true
@@ -5070,27 +5164,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-kelowna-regional-transit-system-alerts-2556
-      path: /gtfs-realtime/alerts.pb?operatorIds=47
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2556
-      method: GET
-    - name: bc-transit-kelowna-regional-transit-system-trips-2557
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=47
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2557
-      method: GET
-    - name: bc-transit-kelowna-regional-transit-system-vehicles-2558
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=47
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2558
-      method: GET
+      - name: bc-transit-kelowna-regional-transit-system-alerts-2556
+        path: /gtfs-realtime/alerts.pb?operatorIds=47
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2556
+        method: GET
+      - name: bc-transit-kelowna-regional-transit-system-trips-2557
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=47
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2557
+        method: GET
+      - name: bc-transit-kelowna-regional-transit-system-vehicles-2558
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=47
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2558
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2555
     tls_verify: true
@@ -5102,27 +5196,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-squamish-alerts-2564
-      path: /gtfs-realtime/alerts.pb?operatorIds=43
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2564
-      method: GET
-    - name: bc-transit-squamish-trips-2565
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=43
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2565
-      method: GET
-    - name: bc-transit-squamish-vehicles-2566
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=43
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2566
-      method: GET
+      - name: bc-transit-squamish-alerts-2564
+        path: /gtfs-realtime/alerts.pb?operatorIds=43
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2564
+        method: GET
+      - name: bc-transit-squamish-trips-2565
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=43
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2565
+        method: GET
+      - name: bc-transit-squamish-vehicles-2566
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=43
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2566
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2563
     tls_verify: true
@@ -5134,27 +5228,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-sunshine-coast-transit-system-alerts-2568
-      path: /gtfs-realtime/alerts.pb?operatorIds=18
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2568
-      method: GET
-    - name: bc-transit-sunshine-coast-transit-system-trips-2569
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=18
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2569
-      method: GET
-    - name: bc-transit-sunshine-coast-transit-system-vehicles-2570
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=18
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2570
-      method: GET
+      - name: bc-transit-sunshine-coast-transit-system-alerts-2568
+        path: /gtfs-realtime/alerts.pb?operatorIds=18
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2568
+        method: GET
+      - name: bc-transit-sunshine-coast-transit-system-trips-2569
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=18
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2569
+        method: GET
+      - name: bc-transit-sunshine-coast-transit-system-vehicles-2570
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=18
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2570
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2567
     tls_verify: true
@@ -5166,27 +5260,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-victoria-regional-transit-system-alerts-2572
-      path: /gtfs-realtime/alerts.pb?operatorIds=48
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2572
-      method: GET
-    - name: bc-transit-victoria-regional-transit-system-trips-2573
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=48
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2573
-      method: GET
-    - name: bc-transit-victoria-regional-transit-system-vehicles-2574
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=48
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2574
-      method: GET
+      - name: bc-transit-victoria-regional-transit-system-alerts-2572
+        path: /gtfs-realtime/alerts.pb?operatorIds=48
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2572
+        method: GET
+      - name: bc-transit-victoria-regional-transit-system-trips-2573
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=48
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2573
+        method: GET
+      - name: bc-transit-victoria-regional-transit-system-vehicles-2574
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=48
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2574
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2571
     tls_verify: true
@@ -5198,27 +5292,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-west-coast-alerts-2576
-      path: /gtfs-realtime/alerts.pb?operatorIds=51
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2576
-      method: GET
-    - name: bc-transit-west-coast-trips-2577
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=51
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2577
-      method: GET
-    - name: bc-transit-west-coast-vehicles-2578
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=51
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2578
-      method: GET
+      - name: bc-transit-west-coast-alerts-2576
+        path: /gtfs-realtime/alerts.pb?operatorIds=51
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2576
+        method: GET
+      - name: bc-transit-west-coast-trips-2577
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=51
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2577
+        method: GET
+      - name: bc-transit-west-coast-vehicles-2578
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=51
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2578
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2575
     tls_verify: true
@@ -5230,27 +5324,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-west-kootenay-transit-system-alerts-2580
-      path: /gtfs-realtime/alerts.pb?operatorIds=20
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2580
-      method: GET
-    - name: bc-transit-west-kootenay-transit-system-trips-2581
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=20
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2581
-      method: GET
-    - name: bc-transit-west-kootenay-transit-system-vehicles-2582
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=20
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2582
-      method: GET
+      - name: bc-transit-west-kootenay-transit-system-alerts-2580
+        path: /gtfs-realtime/alerts.pb?operatorIds=20
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2580
+        method: GET
+      - name: bc-transit-west-kootenay-transit-system-trips-2581
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=20
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2581
+        method: GET
+      - name: bc-transit-west-kootenay-transit-system-vehicles-2582
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=20
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2582
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2579
     tls_verify: true
@@ -5262,27 +5356,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-whistler-alerts-2584
-      path: /gtfs-realtime/alerts.pb?operatorIds=44
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2584
-      method: GET
-    - name: bc-transit-whistler-trips-2585
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=44
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2585
-      method: GET
-    - name: bc-transit-whistler-vehicles-2586
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=44
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2586
-      method: GET
+      - name: bc-transit-whistler-alerts-2584
+        path: /gtfs-realtime/alerts.pb?operatorIds=44
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2584
+        method: GET
+      - name: bc-transit-whistler-trips-2585
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=44
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2585
+        method: GET
+      - name: bc-transit-whistler-vehicles-2586
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=44
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2586
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2583
     tls_verify: true
@@ -5294,27 +5388,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: bc-transit-williams-lake-alerts-2588
-      path: /gtfs-realtime/alerts.pb?operatorIds=33
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2588
-      method: GET
-    - name: bc-transit-williams-lake-trips-2589
-      path: /gtfs-realtime/tripupdates.pb?operatorIds=33
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2589
-      method: GET
-    - name: bc-transit-williams-lake-vehicles-2590
-      path: /gtfs-realtime/vehicleupdates.pb?operatorIds=33
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2590
-      method: GET
+      - name: bc-transit-williams-lake-alerts-2588
+        path: /gtfs-realtime/alerts.pb?operatorIds=33
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2588
+        method: GET
+      - name: bc-transit-williams-lake-trips-2589
+        path: /gtfs-realtime/tripupdates.pb?operatorIds=33
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2589
+        method: GET
+      - name: bc-transit-williams-lake-vehicles-2590
+        path: /gtfs-realtime/vehicleupdates.pb?operatorIds=33
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2590
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2587
     tls_verify: true
@@ -5326,27 +5420,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-alerts-2599
-      path: /ServiceAlerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2599
-      method: GET
-    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-trips-2600
-      path: /TripUpdates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2600
-      method: GET
-    - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-vehicles-2601
-      path: /VehiclePositions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2601
-      method: GET
+      - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-alerts-2599
+        path: /ServiceAlerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2599
+        method: GET
+      - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-trips-2600
+        path: /TripUpdates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2600
+        method: GET
+      - name: zarz-d-transportu-publicznego-w-krakowie-ztp-krak-w-vehicles-2601
+        path: /VehiclePositions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2601
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2598
     tls_verify: true
@@ -5358,27 +5452,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: transports-bordeaux-m-tropole-tbm-alerts-2623
-      path: /utw/ws/gtfsfeed/alerts/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2623
-      method: GET
-    - name: transports-bordeaux-m-tropole-tbm-trips-2624
-      path: /utw/ws/gtfsfeed/realtime/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2624
-      method: GET
-    - name: transports-bordeaux-m-tropole-tbm-vehicles-2625
-      path: /utw/ws/gtfsfeed/vehicles/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2625
-      method: GET
+      - name: transports-bordeaux-m-tropole-tbm-alerts-2623
+        path: /utw/ws/gtfsfeed/alerts/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2623
+        method: GET
+      - name: transports-bordeaux-m-tropole-tbm-trips-2624
+        path: /utw/ws/gtfsfeed/realtime/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2624
+        method: GET
+      - name: transports-bordeaux-m-tropole-tbm-vehicles-2625
+        path: /utw/ws/gtfsfeed/vehicles/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2625
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2622
     tls_verify: true
@@ -5390,27 +5484,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-alerts-2629
-      path: /ProfilGtfsRt2_0RSProducer-TCAT/Alert.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2629
-      method: GET
-    - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-trips-2630
-      path: /ProfilGtfsRt2_0RSProducer-TCAT/TripUpdate.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2630
-      method: GET
-    - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-vehicles-2631
-      path: /ProfilGtfsRt2_0RSProducer-TCAT/VehiclePosition.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2631
-      method: GET
+      - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-alerts-2629
+        path: /ProfilGtfsRt2_0RSProducer-TCAT/Alert.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2629
+        method: GET
+      - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-trips-2630
+        path: /ProfilGtfsRt2_0RSProducer-TCAT/TripUpdate.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2630
+        method: GET
+      - name: transports-en-commun-de-l-agglom-ration-troyenne-tcat-vehicles-2631
+        path: /ProfilGtfsRt2_0RSProducer-TCAT/VehiclePosition.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2631
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2627
     tls_verify: true
@@ -5422,27 +5516,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: renfe-commuter-trains-cercanias-alerts-2833
-      path: /alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2833
-      method: GET
-    - name: renfe-commuter-trains-cercanias-trips-2834
-      path: /trip_updates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2834
-      method: GET
-    - name: renfe-commuter-trains-cercanias-vehicles-2835
-      path: /vehicle_positions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2835
-      method: GET
+      - name: renfe-commuter-trains-cercanias-alerts-2833
+        path: /alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2833
+        method: GET
+      - name: renfe-commuter-trains-cercanias-trips-2834
+        path: /trip_updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2834
+        method: GET
+      - name: renfe-commuter-trains-cercanias-vehicles-2835
+        path: /vehicle_positions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2835
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2653
     tls_verify: true
@@ -5454,27 +5548,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: dbus-donostiabus-alerts-3064
-      path: /transport/moveuskadi/dbus/gtfsrt_dbus_alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3064
-      method: GET
-    - name: dbus-donostiabus-trips-3065
-      path: /transport/moveuskadi/dbus/gtfsrt_dbus_trip_updates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3065
-      method: GET
-    - name: dbus-donostiabus-vehicles-3066
-      path: /transport/moveuskadi/dbus/gtfsrt_dbus_vehicle_positions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3066
-      method: GET
+      - name: dbus-donostiabus-alerts-3064
+        path: /transport/moveuskadi/dbus/gtfsrt_dbus_alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3064
+        method: GET
+      - name: dbus-donostiabus-trips-3065
+        path: /transport/moveuskadi/dbus/gtfsrt_dbus_trip_updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3065
+        method: GET
+      - name: dbus-donostiabus-vehicles-3066
+        path: /transport/moveuskadi/dbus/gtfsrt_dbus_vehicle_positions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3066
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2682
     tls_verify: true
@@ -5486,20 +5580,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: gruppo-torinese-trasporti-vehicles-2696
-      path: /das_gtfsrt/vehicle_position.aspx
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2696
-      method: GET
-    - name: gruppo-torinese-trasporti-alerts-2705
-      path: /das_gtfsrt/alerts.aspx
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2705
-      method: GET
+      - name: gruppo-torinese-trasporti-vehicles-2696
+        path: /das_gtfsrt/vehicle_position.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2696
+        method: GET
+      - name: gruppo-torinese-trasporti-alerts-2705
+        path: /das_gtfsrt/alerts.aspx
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2705
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2687
     tls_verify: true
@@ -5511,27 +5605,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: urban-mobility-center-sofia-traffic-vehicles-2847
-      path: /api/v1/vehicle-positions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2847
-      method: GET
-    - name: urban-mobility-center-sofia-traffic-alerts-2849
-      path: /api/v1/alerts
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2849
-      method: GET
-    - name: urban-mobility-center-sofia-traffic-trips-2850
-      path: /api/v1/trip-updates
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2850
-      method: GET
+      - name: urban-mobility-center-sofia-traffic-vehicles-2847
+        path: /api/v1/vehicle-positions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2847
+        method: GET
+      - name: urban-mobility-center-sofia-traffic-alerts-2849
+        path: /api/v1/alerts
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2849
+        method: GET
+      - name: urban-mobility-center-sofia-traffic-trips-2850
+        path: /api/v1/trip-updates
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2850
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2848
     tls_verify: true
@@ -5543,13 +5637,13 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: carris-vehicles-2930
-      path: /gateway/gtfs/api/v2.11/GTFS/realtime/vehiclepositions
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-2930
-      method: GET
+      - name: carris-vehicles-2930
+        path: /gateway/gtfs/api/v2.11/GTFS/realtime/vehiclepositions
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-2930
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-2929
     tls_verify: true
@@ -5561,27 +5655,27 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: metro-bilbao-alerts-3056
-      path: /metro-bilbao-service-alerts.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3056
-      method: GET
-    - name: metro-bilbao-trips-3057
-      path: /metro-bilbao-trip-updates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3057
-      method: GET
-    - name: metro-bilbao-vehicles-3058
-      path: /metro-bilbao-vehicle-positions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3058
-      method: GET
+      - name: metro-bilbao-alerts-3056
+        path: /metro-bilbao-service-alerts.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3056
+        method: GET
+      - name: metro-bilbao-trips-3057
+        path: /metro-bilbao-trip-updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3057
+        method: GET
+      - name: metro-bilbao-vehicles-3058
+        path: /metro-bilbao-vehicle-positions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3058
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-3052
     tls_verify: true
@@ -5593,20 +5687,20 @@ agencies:
     auth:
       type: none
     feeds:
-    - name: cotral-busone-vehicles-3387
-      path: /cotral/gtfs-rt/vehicle-positions.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3387
-      method: GET
-    - name: cotral-busone-trips-3388
-      path: /cotral/gtfs-rt/trip-updates.pb
-      expected_format: protobuf
-      decoder: standard
-      poll_interval_seconds: 30
-      mdb_feed_id: mdb-3388
-      method: GET
+      - name: cotral-busone-vehicles-3387
+        path: /cotral/gtfs-rt/vehicle-positions.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3387
+        method: GET
+      - name: cotral-busone-trips-3388
+        path: /cotral/gtfs-rt/trip-updates.pb
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+        mdb_feed_id: mdb-3388
+        method: GET
     default_headers: {}
     mdb_feed_id: mdb-3386
     tls_verify: true
