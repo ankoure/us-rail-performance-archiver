@@ -31,11 +31,11 @@ def get_route_shape(
         raise HTTPException(
             status_code=404, detail=f"Agency {agency.agency_id!r} has no feeds"
         )
-    feed = agency.feed_names[0]
+    feeds = agency.feed_names
     points = _filter_to_route(
-        data.read_latest_version_mart("route_shapes", feed), route_id
+        data.read_latest_version_mart("route_shapes", feeds), route_id
     )
     stops = _filter_to_route(
-        data.read_latest_version_mart("route_shape_stops", feed), route_id
+        data.read_latest_version_mart("route_shape_stops", feeds), route_id
     )
     return RouteShapeResponse(points=points.to_pylist(), stops=stops.to_pylist())

@@ -262,7 +262,7 @@ def build_segment_speed_map(
     used to be three separate fetches (segment_day, route_shape, stops) plus
     client-side aggregation/slicing/bucketing into one call -- see
     SegmentSpeedMap.tsx."""
-    feed = agency.feed_names[0]
+    feeds = agency.feed_names
 
     segment_rows = data.read_kind(
         "segment_day",
@@ -276,16 +276,16 @@ def build_segment_speed_map(
     bucket_by_key, legend = _assign_speed_buckets(qualifying)
 
     shape_points = _filter_to_route(
-        data.read_latest_version_mart("route_shapes", feed), route_id
+        data.read_latest_version_mart("route_shapes", feeds), route_id
     ).to_pylist()
     shape_stops = _filter_to_route(
-        data.read_latest_version_mart("route_shape_stops", feed), route_id
+        data.read_latest_version_mart("route_shape_stops", feeds), route_id
     ).to_pylist()
     points_by_shape = _group_points_by_shape(shape_points)
     stop_offsets_by_shape = _group_stop_offsets_by_shape(shape_stops)
     shape_ids_by_direction = _shapes_by_direction(shape_points)
 
-    stop_rows = data.read_latest_version_mart("gtfs_stops", feed).to_pylist()
+    stop_rows = data.read_latest_version_mart("gtfs_stops", feeds).to_pylist()
     stop_name_by_id = {s["stop_id"]: s["stop_name"] or s["stop_id"] for s in stop_rows}
     stop_coords: dict[str, tuple[float, float]] = {
         s["stop_id"]: (s["stop_lon"], s["stop_lat"])
@@ -294,7 +294,7 @@ def build_segment_speed_map(
     }
 
     direction_rows = _filter_to_route(
-        data.read_latest_version_mart("gtfs_directions", feed), route_id
+        data.read_latest_version_mart("gtfs_directions", feeds), route_id
     ).to_pylist()
     direction_label_by_id: dict[int, str] = {
         d["direction_id"]: f"{d['direction']} to {d['direction_destination']}"
