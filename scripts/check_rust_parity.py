@@ -1,5 +1,6 @@
 import argparse
 import base64
+from collections import defaultdict
 import json
 from pathlib import Path
 import sys
@@ -10,7 +11,7 @@ import rail_decoder
 # fixture files are named after the Python Row dataclasses. This bridges the two.
 ROW_TYPES = {
     "VehicleRow": "vehicles",
-    "StopTimeUpdateRow": "stop_time_updates",
+    "StopTimeUpdateRow": "trip_updates",
     "AlertRow": "alerts",
 }
 
@@ -24,24 +25,12 @@ def load_payloads(fixture_dir: Path) -> list[dict]:
 
 
 def decode_all(payloads: list[dict]) -> dict[str, list]:
-    """Run every payload's bytes through rail_decoder.decode_arrow, converting
-    each RecordBatch to a list of dicts via .to_pylist() and concatenating
-    across all payloads in order."""
-    vehicles, stop_time_updates, alerts = [], [], []
+    out: dict[str, list] = defaultdict(list)
     for payload in payloads:
-        payload_bytes = base64.b64decode(payload["payload"])
-        v_batch, stu_batch, a_batch = rail_decoder.decode_arrow(payload_bytes)
-        vehicles.extend(v_batch.to_pylist())
-        stop_time_updates.extend(stu_batch.to_pylist())
-        alerts.extend(a_batch.to_pylist())
-    return {
-        "vehicles": vehicles,
-        "stop_time_updates": stop_time_updates,
-        "alerts": alerts,
-    }
-
-
-# row_to_dict is no longer needed at all — delete it, .to_pylist() replaces its job.
+        batches = rail_decoder.decode_arrow(base64.b64decode(payload["payload"]))
+        for name, batch in batches.items():
+            out[name].extend(batch.to_pylist())
+    return out
 
 
 def diff_rows(actual: list[dict], expected: list[dict]) -> list[str]:

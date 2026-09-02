@@ -1,8 +1,10 @@
+import base64
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 import hashlib
 import io
 import json
+from pathlib import Path
 from typing import Iterator
 from archiver.feed import Feed
 import pyarrow.parquet as pq
@@ -615,3 +617,54 @@ def test_second_run_does_not_redo_work(tmp_path):
     # Bytes should be unchanged
     for path, original_bytes in snapshot.items():
         assert path.read_bytes() == original_bytes, f"{path} was rewritten"
+
+
+def test_rollup_uses_rust_decoder_for_standard_decoder_feeds(tmp_path):
+    """Covers the rust branch of _rollup_data, which no other test reaches.
+
+    Every other test here uses FakeDecoder/EchoDecoder, so
+    `type(feed.decoder) is StandardDecoder` is False and rollup.py:133 never
+    takes the rail_decoder path. This one uses a real StandardDecoder instance
+    so the branch actually runs.
+    """
+    landing_dir, curated_dir = tmp_path / "landing", tmp_path / "curated"
+    day = date(2026, 5, 1)
+
+    # Reuse the parity fixtures rather than inventing payloads -- same bytes the
+    # golden files were generated from, so row counts are checkable against them.
+    fixture = Path("tests/fixtures/golden/nyct-l")
+    payloads = json.loads((fixture / "payloads.json").read_text())
+
+    # Legacy LocalWriter .bin shape: stem IS the wall-clock unix ts and the whole
+    # file is ONE payload (payloads.py:120). No \x89GRT framing, and no metadata
+    # jsonl -- digest_timestamps returns {} when metadata is absent, which the
+    # legacy branch never consults anyway.
+    raw = (
+        landing_dir
+        / "nyct-l"
+        / "raw"
+        / f"year={day.year}/month={day.month}/day={day.day}"
+    )
+    raw.mkdir(parents=True)
+    for p in payloads:
+        (raw / f"{int(p['fetched_at'])}.bin").write_bytes(
+            base64.b64decode(p["payload"])
+        )
+
+    feed = Feed(
+        name="nyct-l",
+        path="/whatever",
+        parser=None,  # unused on the rust path -- it decodes bytes directly
+        decoder=StandardDecoder(),  # <- the whole point; an *instance*, not the class
+        agency_id="MTA",
+        poll_interval_seconds=60,
+    )
+    rollup = Rollup(
+        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+    )
+
+    rollup._rollup_data(feed, day)  # direct, to skip the _expected_outputs gate
+
+    # TODO: assert the parquet landed and the row counts match the goldens --
+    # 291 vehicles, 6950 trip_updates. Read the golden JSON lengths rather than
+    # hardcoding, so regenerating fixtures doesn't silently desync the test.

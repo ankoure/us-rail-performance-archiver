@@ -3,20 +3,19 @@ use arrow::pyarrow::ToPyArrow;
 use prost::Message;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use trip_update::{StopTimeUpdateRow, StopTimeUpdateRowBuilder, decode_trip_update};
 use vehicle::{VehicleRow, VehicleRowBuilder, decode_vehicle};
 
 mod alert;
+mod tfnsw;
 mod tfnsw_realtime;
 mod transit_realtime;
 mod trip_update;
 mod vehicle;
 
 #[pyfunction]
-fn decode_arrow<'a>(
-    bytes: &'a [u8],
-    py: Python<'a>,
-) -> PyResult<(Bound<'a, PyAny>, Bound<'a, PyAny>, Bound<'a, PyAny>)> {
+fn decode_arrow<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyDict>> {
     let feed = transit_realtime::FeedMessage::decode(bytes)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
@@ -39,12 +38,15 @@ fn decode_arrow<'a>(
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
     }
-
-    Ok((
-        vehicles.finish().to_pyarrow(py)?,
-        trip_updates.finish().to_pyarrow(py)?,
-        alerts.finish().to_pyarrow(py)?,
-    ))
+    let out = PyDict::new(py);
+    for (name, batch) in [
+        ("vehicles", vehicles.finish()),
+        ("trip_updates", trip_updates.finish()),
+        ("alerts", alerts.finish()),
+    ] {
+        out.set_item(name, batch.to_pyarrow(py)?)?;
+    }
+    Ok(out)
 }
 
 #[pyclass(skip_from_py_object)]

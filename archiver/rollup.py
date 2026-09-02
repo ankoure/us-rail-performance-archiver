@@ -11,12 +11,9 @@ import pyarrow.json as paj
 import pyarrow.parquet as pq
 from datetime import date, datetime, timezone
 from archiver.decoder import (
-    AlertRow,
     DecodeFailure,
     StandardDecoder,
-    StopTimeUpdateRow,
     TableSpec,
-    VehicleRow,
 )
 from archiver.feed import Feed
 from archiver.parser import ParseFailure
@@ -143,11 +140,12 @@ class Rollup:
                     continue
                 schema = _schema_for_spec(row_class, spec)
                 if use_rust_decoder:
-                    batch_writers[row_class] = (
+                    batch_writers[spec.name] = (
                         stack.enter_context(self._batch_streaming_writer(path, schema)),
                         schema,
                         spec.column_names,
                     )
+
                 else:
                     writers[row_class] = stack.enter_context(
                         self._streaming_writer(
@@ -166,15 +164,9 @@ class Rollup:
                 try:
                     for payload, fetched_at in iter_payloads(name, blob, digest_ts):
                         if use_rust_decoder:
-                            v_batch, stu_batch, a_batch = rail_decoder.decode_arrow(
-                                payload
-                            )
-                            for row_class, rust_batch in (
-                                (VehicleRow, v_batch),
-                                (StopTimeUpdateRow, stu_batch),
-                                (AlertRow, a_batch),
-                            ):
-                                entry = batch_writers.get(row_class)
+                            batches = rail_decoder.decode_arrow(payload)
+                            for table_name, rust_batch in batches.items():
+                                entry = batch_writers.get(table_name)
                                 if entry is None or rust_batch.num_rows == 0:
                                     continue
                                 write_batch, schema, column_names = entry
@@ -183,6 +175,7 @@ class Rollup:
                                         rust_batch, schema, column_names
                                     )
                                 )
+
                         else:
                             parsed = feed.parser.parse(payload)
                             rows = feed.decoder.decode(parsed, fetched_at=fetched_at)
