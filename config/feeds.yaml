@@ -1298,13 +1298,39 @@ agencies:
       header: Authorization
       env: TFNSW_API_KEY
     feeds:
+      # NB: both feeds below are the Inner West line only. The names predate
+      # the discovery of the other two lines and are archive path segments
+      # (see archiver/writer.py), so they are NOT renamed -- adding CBD/SE or
+      # Newcastle means new feed names, not a rename of these.
       - name: tfnsw-light-rail-trips
         path: /realtime/lightrail/innerwest
         expected_format: protobuf
         decoder: standard
         poll_interval_seconds: 30
-      # MDB lists only the Inner West line -- other lines (CBD/Newcastle
-      # etc.) may need their own path, check the portal once the key's in hand.
+      - name: tfnsw-light-rail-vehicles
+        path: /vehiclepos/lightrail/innerwest
+        expected_format: protobuf
+        decoder: standard
+        poll_interval_seconds: 30
+
+  # TfNSW endpoint survey, 2026-09-01 (resolves the old "check the portal once
+  # the key's in hand" TODO). The v1/v2 split is per-line, not legacy-vs-
+  # current, and it cuts across agencies -- Inner West light rail is v2 while
+  # CBD/SE and Newcastle light rail are v1, so one base_url per agency cannot
+  # express it. Everything reachable on v2 is now configured. Still missing,
+  # all v1-only, pending that base_url decision:
+  #   /v1/gtfs/{realtime,vehiclepos}/lightrail/cbdandsoutheast
+  #   /v1/gtfs/{realtime,vehiclepos}/lightrail/newcastle
+  #   /v1/gtfs/{realtime,vehiclepos}/buses
+  #   /v1/gtfs/{realtime,vehiclepos}/nswtrains        (NSW TrainLink regional)
+  #   /v1/gtfs/{realtime,vehiclepos}/ferries/sydneyferries
+  # Deliberately NOT added:
+  #   - v2 ferries: responds 200 but is dead. Byte-identical across fetches,
+  #     zero entities, header frozen at 2025-10-24. The v1 ferries endpoint is
+  #     live (7 vehicles, seconds old), so use that one if ferries are wanted.
+  #   - per-mode alerts (/v2/gtfs/alerts/{sydneytrains,metro,lightrail,ferries,
+  #     buses,nswtrains}): all verified strict subsets of alerts/all by entity
+  #     id, so adding them would double-archive the same alerts.
 
   # Trafiklab (Sweden) -- github #45. Portal
   # https://developer.trafiklab.se/register. ONE shared key (param `key`,
