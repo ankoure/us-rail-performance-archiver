@@ -1,13 +1,10 @@
 # dashboard/api/__init__.py
 #
 # `api` submodules import repo-root packages directly (e.g. `from
-# analysis.alert_classifier import ...` in services/alerts.py). Vercel's
-# FastAPI auto-detection picks dashboard/api/main.py as the entrypoint
-# because it matches the built-in `api/main.py` convention — that happens
-# *before* Vercel even looks at the `tool.vercel.entrypoint` override in
-# pyproject.toml, so dashboard/api/_vercel_app.py's sys.path setup never
-# runs. Doing it here instead guarantees it runs on any entry into the
-# package, regardless of which file Vercel (or `fastapi dev`) chooses.
+# analysis.alert_classifier import ...` in services/alerts.py), which only
+# resolves if the repo root is on sys.path. Doing it in the package __init__
+# guarantees it runs on any entry into the package, whichever module the
+# server (`fastapi dev`, uvicorn, the container's CMD) imports first.
 import sys
 from pathlib import Path
 

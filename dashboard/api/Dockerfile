@@ -4,12 +4,10 @@
 # stack + Rust decoder build) — dashboard/api doesn't touch archiver/, so it
 # doesn't need botocore[crt], gtfs-realtime-bindings, pandas, datadog, etc.
 #
-# Build context is the repo root (needs config/feeds.yaml + analysis/
-# alongside dashboard/api/ itself, same reason Vercel's Root Directory is
-# also the repo root — see [tool.vercel] in pyproject.toml). Dependencies
-# come from requirements.txt (the same file Vercel's build uses) plus
-# uvicorn, which Vercel's own ASGI runtime provides but a plain container
-# doesn't.
+# Build context is the repo root: the service needs config/feeds.yaml and
+# analysis/ alongside dashboard/api/ itself. Dependencies come from the root
+# requirements.txt — deliberately NOT [project.dependencies] in pyproject.toml,
+# which is the poller stack the API doesn't need — plus uvicorn to serve it.
 # Mirrors the root `dockerfile`'s builder pattern: an explicit `uv python
 # install` into a known dir that gets copied wholesale to the final stage.
 # (An earlier attempt used the `uv:python3.13-bookworm-slim` base and a bare
@@ -49,6 +47,6 @@ EXPOSE 8000
 # dashboard/api's own modules import each other as `api.xxx` (e.g. `from
 # api.config import settings`), which only resolves with dashboard/ (the
 # parent of the `api` package) on the import path — hence --app-dir here
-# instead of WORKDIR, mirroring what _vercel_app.py does for Vercel and what
-# the FastAPI CLI's package-root detection does for `fastapi dev` locally.
+# instead of WORKDIR, mirroring what the FastAPI CLI's package-root detection
+# does for `fastapi dev` locally.
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/app/dashboard"]
