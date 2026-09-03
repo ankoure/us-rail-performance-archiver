@@ -23,8 +23,26 @@ jobs:
         uses: astral-sh/setup-uv@v5
       - name: Install dependencies
         run: uv sync --group dev --group dashboard-api
+      # rail_decoder is a maturin-built extension, not a declared dependency, so
+      # `uv sync` never brings it in. Without the four steps below, the tests that
+      # import it (test_decoder.py, the rust branch of test_rollup.py) fail with
+      # ModuleNotFoundError. Must come AFTER the sync above: an explicit
+      # `uv sync` prunes anything absent from the lock file, the wheel included.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rail-decoder
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build rail_decoder into the project venv
+        run: make rust-dev
+      # --no-sync so pytest can't re-sync the wheel back out from under itself.
       - name: test code with pytest
-        run: uv run pytest
+        run: uv run --no-sync pytest
 
   rust:
     runs-on: ubuntu-latest
