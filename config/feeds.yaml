@@ -1249,7 +1249,7 @@ agencies:
       - name: tfnsw-alerts
         path: /v2/gtfs/alerts/all
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 60
 
   - agency_id: TFNSW_SYDNEY_TRAINS
@@ -1265,12 +1265,12 @@ agencies:
       - name: tfnsw-sydney-trains-trips
         path: /v2/gtfs/realtime/sydneytrains
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-sydney-trains-vehicles
         path: /v2/gtfs/vehiclepos/sydneytrains
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
 
   - agency_id: TFNSW_METRO
@@ -1286,12 +1286,12 @@ agencies:
       - name: tfnsw-metro-trips
         path: /v2/gtfs/realtime/metro
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-metro-vehicles
         path: /v2/gtfs/vehiclepos/metro
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
 
   # Sydney Light Rail: Inner West (v2) and CBD & South East (v1) are the same
@@ -1312,22 +1312,22 @@ agencies:
       - name: tfnsw-light-rail-trips
         path: /v2/gtfs/realtime/lightrail/innerwest
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-light-rail-vehicles
         path: /v2/gtfs/vehiclepos/lightrail/innerwest
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-light-rail-cbd-trips
         path: /v1/gtfs/realtime/lightrail/cbdandsoutheast
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-light-rail-cbd-vehicles
         path: /v1/gtfs/vehiclepos/lightrail/cbdandsoutheast
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
 
   # Newcastle is a separate system ~160km from Sydney, so it gets its own
@@ -1345,12 +1345,12 @@ agencies:
       - name: tfnsw-newcastle-light-rail-trips
         path: /v1/gtfs/realtime/lightrail/newcastle
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-newcastle-light-rail-vehicles
         path: /v1/gtfs/vehiclepos/lightrail/newcastle
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
 
   # NB: tfnsw-buses-trips is by far the largest feed in this config -- ~4.7MB
@@ -1371,12 +1371,12 @@ agencies:
       - name: tfnsw-buses-trips
         path: /v1/gtfs/realtime/buses
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 60
       - name: tfnsw-buses-vehicles
         path: /v1/gtfs/vehiclepos/buses
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
 
   - agency_id: TFNSW_NSW_TRAINS
@@ -1392,12 +1392,12 @@ agencies:
       - name: tfnsw-nsw-trains-trips
         path: /v1/gtfs/realtime/nswtrains
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-nsw-trains-vehicles
         path: /v1/gtfs/vehiclepos/nswtrains
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
 
   # v1 only -- the v2 ferries endpoints are dead (see survey note above).
@@ -1418,12 +1418,12 @@ agencies:
       - name: tfnsw-ferries-trips
         path: /v1/gtfs/realtime/ferries/sydneyferries
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
       - name: tfnsw-ferries-vehicles
         path: /v1/gtfs/vehiclepos/ferries/sydneyferries
         expected_format: protobuf
-        decoder: standard
+        decoder: tfnsw
         poll_interval_seconds: 30
 
   # Trafiklab (Sweden) -- github #45. Portal
