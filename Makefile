@@ -1,4 +1,4 @@
-.PHONY: test deadcode feeds-generate feeds-validate feeds-merge feeds-onboard shard-dirs dashboard-dev
+.PHONY: test deadcode feeds-generate feeds-validate feeds-merge feeds-onboard shard-dirs dashboard-dev rust-dev rust-parity
 
 # Number of poller shards (must match --shard-count in compose.prod.yml).
 SHARDS ?= 2
@@ -36,6 +36,37 @@ feeds-onboard: feeds-generate feeds-validate feeds-merge
 shard-dirs:
 	@for i in $$(seq 0 $$(($(SHARDS) - 1))); do mkdir -p data/poll_state/shard-$$i; done
 	@echo "created data/poll_state/shard-0..$$(($(SHARDS) - 1)) (chown to 1000:1000 if needed)"
+
+# --- rail-decoder (Rust/PyO3) -----------------------------------------------
+
+# Build the extension and install it into THIS project's .venv.
+#
+# Three things this exists to get right, all of which fail silently otherwise:
+#   * `maturin develop` targets rail-decoder/.venv, which is NOT the venv
+#     `uv run` uses -- you get ModuleNotFoundError from the project root.
+#   * `--python 3.13` pins the interpreter. Without it uv picks its newest
+#     (3.14), and the wheel won't install against the project's 3.13.
+#   * `--reinstall-package` is mandatory: the version is hard-coded 0.1.0 and
+#     never changes, so uv sees "already satisfied" and skips the install --
+#     leaving you testing the PREVIOUS build with no indication.
+#
+# The wheel is NOT a declared dependency, so `uv run` (and therefore `make
+# test`) leaves it alone -- verified. What DOES evict it is an explicit
+# `uv sync`, which prunes anything not in the lock file. Re-run this target
+# after any `uv sync`. Note plain `uv sync` also drops the dashboard-api and
+# dev groups; use `uv sync --all-groups` to keep them.
+RUST_WHEEL_DIR ?= target/wheel
+
+rust-dev:
+	cd rail-decoder && uvx --python 3.13 maturin build --out $(CURDIR)/$(RUST_WHEEL_DIR)
+	uv pip install --python .venv --reinstall-package rail-decoder $(RUST_WHEEL_DIR)/*.whl
+	@echo "rail_decoder installed into .venv -- use 'uv run --no-sync' from here"
+
+# Golden-fixture parity: the Rust decoder's output vs the committed goldens.
+# Depends on rust-dev so it can never check a stale build.
+rust-parity: rust-dev
+	uv run --no-sync python scripts/check_rust_parity.py tests/fixtures/golden/nyct-l
+	uv run --no-sync python scripts/check_rust_parity.py tests/fixtures/golden/wmata-alerts
 
 # --- Dashboard (dashboard/api + dashboard/web) ------------------------------
 

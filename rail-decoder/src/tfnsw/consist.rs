@@ -81,11 +81,6 @@ impl ConsistRowBuilder {
     /// `stop_sequence`/`stop_id` are passed as None by the VehiclePosition
     /// caller and Some(..) by the StopTimeUpdate caller, which is why they are
     /// parameters rather than read off `car`.
-    ///
-    /// TODO: append each column. The enum columns follow the same shape as
-    /// `vehicle.rs` -- `.map(|raw| Enum::try_from(raw).map(|v| v.as_str_name())).transpose()?`
-    /// -- using `tfnsw_realtime::carriage_descriptor::{OccupancyStatus, ToiletStatus}`.
-    /// Note `position_in_consist` is the one non-Option field here.
     pub fn append(
         &mut self,
         car: &tfnsw_realtime::CarriageDescriptor,
@@ -96,16 +91,50 @@ impl ConsistRowBuilder {
         stop_sequence: Option<u32>,
         stop_id: Option<&str>,
     ) -> Result<(), prost::UnknownEnumValue> {
-        let _ = (
-            car,
-            origin,
-            header,
-            vehicle_id,
-            trip_id,
-            stop_sequence,
-            stop_id,
-        );
-        todo!("append one carriage row")
+        use tfnsw_realtime::carriage_descriptor::{OccupancyStatus, ToiletStatus};
+
+        // Every fallible decode happens before the first append. This call
+        // writes exactly one row across thirteen columns, so bailing partway
+        // through would leave those columns at unequal lengths with no way to
+        // un-append -- the builder would be permanently desynced and the
+        // failure would only surface later, in RecordBatch::try_new.
+        //
+        // Reading the raw Option instead of prost's accessors is also what
+        // keeps absent distinct from the zero variant.
+        let occupancy_status = car
+            .occupancy_status
+            .map(OccupancyStatus::try_from)
+            .transpose()?
+            .map(|v| v.as_str_name());
+        let departure_occupancy_status = car
+            .departure_occupancy_status
+            .map(OccupancyStatus::try_from)
+            .transpose()?
+            .map(|v| v.as_str_name());
+        let toilet = car
+            .toilet
+            .map(ToiletStatus::try_from)
+            .transpose()?
+            .map(|v| v.as_str_name());
+
+        self.feed_timestamp
+            .append_value(header.timestamp.unwrap_or_default());
+        self.origin.append_value(origin.as_str());
+        self.vehicle_id.append_option(vehicle_id);
+        self.trip_id.append_option(trip_id);
+        self.stop_sequence.append_option(stop_sequence);
+        self.stop_id.append_option(stop_id);
+        self.position_in_consist
+            .append_value(car.position_in_consist);
+        self.name.append_option(car.name.as_deref());
+        self.occupancy_status.append_option(occupancy_status);
+        self.departure_occupancy_status
+            .append_option(departure_occupancy_status);
+        self.quiet_carriage.append_option(car.quiet_carriage);
+        self.toilet.append_option(toilet);
+        self.luggage_rack.append_option(car.luggage_rack);
+
+        Ok(())
     }
 
     pub fn schema() -> Schema {
@@ -126,11 +155,26 @@ impl ConsistRowBuilder {
         ])
     }
 
-    /// TODO: mirror `vehicle.rs::finish` -- `RecordBatch::try_new(Arc::new(Self::schema()), vec![...])`
-    /// with one `Arc::new(self.<col>.finish())` per column, in schema order.
-    /// Column order must match `schema()` exactly.
-    pub fn finish(self) -> RecordBatch {
-        todo!("RecordBatch::try_new(Arc::new(Self::schema()), vec![...])")
+    pub fn finish(mut self) -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Self::schema()),
+            vec![
+                Arc::new(self.feed_timestamp.finish()),
+                Arc::new(self.origin.finish()),
+                Arc::new(self.vehicle_id.finish()),
+                Arc::new(self.trip_id.finish()),
+                Arc::new(self.stop_sequence.finish()),
+                Arc::new(self.stop_id.finish()),
+                Arc::new(self.position_in_consist.finish()),
+                Arc::new(self.name.finish()),
+                Arc::new(self.occupancy_status.finish()),
+                Arc::new(self.departure_occupancy_status.finish()),
+                Arc::new(self.quiet_carriage.finish()),
+                Arc::new(self.toilet.finish()),
+                Arc::new(self.luggage_rack.finish()),
+            ],
+        )
+        .expect("columns match ConsistRowBuilder::schema() by construction")
     }
 }
 

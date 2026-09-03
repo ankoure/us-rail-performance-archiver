@@ -1,4 +1,5 @@
 use alert::{AlertRow, AlertRowBuilder, decode_alert};
+use arrow::array::RecordBatch;
 use arrow::pyarrow::ToPyArrow;
 use prost::Message;
 use pyo3::exceptions::PyValueError;
@@ -38,15 +39,14 @@ fn decode_arrow<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyDic
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
     }
-    let out = PyDict::new(py);
-    for (name, batch) in [
-        ("vehicles", vehicles.finish()),
-        ("trip_updates", trip_updates.finish()),
-        ("alerts", alerts.finish()),
-    ] {
-        out.set_item(name, batch.to_pyarrow(py)?)?;
-    }
-    Ok(out)
+    batches_to_pydict(
+        py,
+        vec![
+            ("vehicles", vehicles.finish()),
+            ("trip_updates", trip_updates.finish()),
+            ("alerts", alerts.finish()),
+        ],
+    )
 }
 
 #[pyclass(skip_from_py_object)]
@@ -90,10 +90,30 @@ fn decode(bytes: &[u8]) -> PyResult<DecodedRows> {
     decode_feed_message(&feed).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+fn batches_to_pydict<'py>(
+    py: Python<'py>,
+    batches: Vec<(&'static str, RecordBatch)>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new(py);
+    for (name, batch) in batches {
+        out.set_item(name, batch.to_pyarrow(py)?)?;
+    }
+    Ok(out)
+}
+
+#[pyfunction]
+fn decode_arrow_tfnsw<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+    let feed = tfnsw_realtime::FeedMessage::decode(bytes)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let batches = tfnsw::decode_feed(&feed).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    batches_to_pydict(py, batches)
+}
+
 #[pymodule]
 fn rail_decoder(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode, m)?)?;
     m.add_function(wrap_pyfunction!(decode_arrow, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_arrow_tfnsw, m)?)?;
     m.add_class::<VehicleRow>()?;
     m.add_class::<StopTimeUpdateRow>()?;
     m.add_class::<AlertRow>()?;

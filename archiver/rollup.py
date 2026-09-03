@@ -12,7 +12,6 @@ import pyarrow.parquet as pq
 from datetime import date, datetime, timezone
 from archiver.decoder import (
     DecodeFailure,
-    StandardDecoder,
     TableSpec,
 )
 from archiver.feed import Feed
@@ -127,9 +126,11 @@ class Rollup:
 
     def _rollup_data(self, feed: Feed, day: date, *, force: bool = False) -> None:
         feed_name = feed.name
-        use_rust_decoder = type(feed.decoder) is StandardDecoder
-        if use_rust_decoder:
-            import rail_decoder  # Lazy import — only needed for standard-decoder feeds
+        rust_decode = None
+        if feed.decoder.rust_decode:
+            import rail_decoder  # Lazy — only feeds with a Rust path need the extension
+
+            rust_decode = getattr(rail_decoder, feed.decoder.rust_decode)
 
         with ExitStack() as stack:
             writers = {}
@@ -139,7 +140,7 @@ class Rollup:
                 if not force and path.exists():
                     continue
                 schema = _schema_for_spec(row_class, spec)
-                if use_rust_decoder:
+                if rust_decode:
                     batch_writers[spec.name] = (
                         stack.enter_context(self._batch_streaming_writer(path, schema)),
                         schema,
@@ -163,8 +164,8 @@ class Rollup:
                 count += 1
                 try:
                     for payload, fetched_at in iter_payloads(name, blob, digest_ts):
-                        if use_rust_decoder:
-                            batches = rail_decoder.decode_arrow(payload)
+                        if rust_decode:
+                            batches = rust_decode(payload)
                             for table_name, rust_batch in batches.items():
                                 entry = batch_writers.get(table_name)
                                 if entry is None or rust_batch.num_rows == 0:

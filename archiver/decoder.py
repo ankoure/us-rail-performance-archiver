@@ -421,6 +421,7 @@ class DecodeFailure(Exception):
 
 class Decoder(ABC):
     produces: ClassVar[dict[type[Row], TableSpec]]
+    rust_decode: ClassVar[str | None] = None
 
     # Registration happens as an import side effect — every module defining a
     # @Decoder.register(...) subclass must be imported before from_name() is called.
@@ -562,6 +563,7 @@ class StandardDecoder(GtfsRtDecoder):
         ),
         AlertRow: TableSpec("alerts"),
     }
+    rust_decode: ClassVar[str | None] = "decode_arrow"
 
     def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
         return VehicleRow(

@@ -110,6 +110,7 @@ class TfnswDecoder(GtfsRtDecoder):
             dedup_keys=(),
         ),
     }
+    rust_decode: ClassVar[str | None] = "decode_arrow_tfnsw"
 
     def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
         raise NotImplementedError("see OPEN DESIGN QUESTION in the class docstring")

@@ -1,4 +1,7 @@
+import base64
 from datetime import datetime, timezone
+import json
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -34,6 +37,8 @@ from dataclasses import fields as _dc_fields
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+GOLDEN = Path(__file__).parent / "fixtures" / "golden"
 
 
 def make_feed(
@@ -1324,3 +1329,26 @@ def test_dedup_keys_reference_real_row_fields(name):
         assert not missing, (
             f"{name}: dedup_keys {sorted(missing)} not in {row_cls.__name__} fields"
         )
+
+
+def test_decode_arrow_keys_match_table_specs():
+    """A typo'd key in lib.rs would silently drop a table -- rollup.py looks up
+    batches by TableSpec.name and skips anything it doesn't recognise. Nothing
+    else would fail; the parquet would just come out empty.
+    """
+    import rail_decoder
+
+    payloads = json.loads((GOLDEN / "nyct-l" / "payloads.json").read_text())
+    batches = rail_decoder.decode_arrow(base64.b64decode(payloads[0]["payload"]))
+
+    expected = {spec.name for spec in StandardDecoder.produces.values()}
+    assert set(batches) == expected
+
+
+def test_rust_decode_names_resolve():
+    """A typo in a decoder's rust_decode would only surface mid-rollup."""
+    import rail_decoder
+
+    for name, cls in Decoder._registry.items():
+        if cls.rust_decode:
+            assert hasattr(rail_decoder, cls.rust_decode), f"{name}: {cls.rust_decode}"
