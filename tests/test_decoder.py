@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import typing
 import pytest
 from google.transit import gtfs_realtime_pb2 as gtfs
+import yaml
 
+from archiver.config import ArchiverConfig, FeedConfig
 from archiver.decoder import (
     Decoder,
     GtfsRtDecoder,
@@ -1352,3 +1355,46 @@ def test_rust_decode_names_resolve():
     for name, cls in Decoder._registry.items():
         if cls.rust_decode:
             assert hasattr(rail_decoder, cls.rust_decode), f"{name}: {cls.rust_decode}"
+
+
+def test_config_decoder_literal_matches_registry():
+    """The `decoder` Literal in config.py and Decoder._registry must agree.
+
+    Two failure modes, one test:
+
+    * In the Literal but not the registry -> config accepts a feed that dies at
+      rollup with "no decoder registered". This is the live risk now that tfnsw
+      lives outside decoder.py: it registers only because archiver/__init__.py
+      imports it, and that import carries a `# noqa: F401` that makes it look
+      deletable. Nine decoders register by co-location with Decoder; this one
+      doesn't, and this assertion is the only thing watching that.
+    * In the registry but not the Literal -> a decoder no feed can name.
+      Half-wired, which is what tfnsw was before it was added to the Literal.
+
+    NB: do not import archiver.tfnsw_decoder in tests. The registry is
+    module-global, so a direct import anywhere in the suite would register it
+    and mask the first failure mode entirely.
+    """
+    literal = set(typing.get_args(FeedConfig.model_fields["decoder"].annotation))
+    registry = set(Decoder._registry)
+
+    assert not literal - registry, (
+        f"in the decoder Literal but not registered: {sorted(literal - registry)}"
+    )
+    assert not registry - literal, (
+        f"registered but missing from the decoder Literal: {sorted(registry - literal)}"
+    )
+
+
+def test_tfnsw_agencies_use_the_tfnsw_decoder():
+    """TfNSW publishes its own GTFS-RT permutation; `standard` silently drops
+    departure_occupancy_status (field 6) and all carriage data on these feeds."""
+    cfg = ArchiverConfig.model_validate(yaml.safe_load(open("config/feeds.yaml")))
+    wrong = [
+        f.name
+        for a in cfg.agencies
+        if a.agency_id.startswith("TFNSW")
+        for f in a.feeds
+        if f.decoder != "tfnsw"
+    ]
+    assert not wrong, f"TfNSW feeds not using the tfnsw decoder: {wrong}"

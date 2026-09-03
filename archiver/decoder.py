@@ -424,7 +424,10 @@ class Decoder(ABC):
     rust_decode: ClassVar[str | None] = None
 
     # Registration happens as an import side effect — every module defining a
-    # @Decoder.register(...) subclass must be imported before from_name() is called.
+    # @Decoder.register(...) subclass must be imported before from_name() is
+    # called. Decoders defined in this module are covered automatically; ones in
+    # their own module (tfnsw_decoder) are imported by archiver/__init__.py,
+    # which runs before any `from archiver.decoder import ...` resolves.
     _registry: ClassVar[dict[str, type["Decoder"]]] = {}
 
     @classmethod

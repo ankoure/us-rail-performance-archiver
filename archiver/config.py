@@ -76,6 +76,7 @@ class FeedConfig(BaseModel):
     decoder: Literal[
         "standard",
         "mta_nyct",
+        "tfnsw",
         "marta_json",
         "mta_lirr_json",
         "mwrta_json",

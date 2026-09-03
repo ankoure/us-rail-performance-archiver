@@ -20,10 +20,54 @@ from archiver.decoder import (
     Decoder,
     GtfsRtDecoder,
     Row,
+    StandardDecoder,
     StopTimeUpdateRow,
     TableSpec,
     VehicleRow,
 )
+
+# Mirrored, not retyped: TfNSW writes to the same `vehicles` / `trip_updates`
+# tables as every other feed, and analysis/vehicle_day.py and
+# analysis/trip_updates_day.py read those by the dotted parquet names. Spreading
+# the canonical maps keeps them in lockstep if the canonical ones ever change.
+_STD_VEHICLE = StandardDecoder.produces[VehicleRow]
+_STD_STU = StandardDecoder.produces[StopTimeUpdateRow]
+
+
+@dataclass
+class TfnswVehicleRow(VehicleRow):
+    """VehiclePosition row plus the TfNSW 1007 extension fields.
+
+    Subclasses rather than replaces VehicleRow: every inherited field already
+    has a default, so the four additions cost four lines. Column *order* is
+    irrelevant -- rollup's _batch_to_parquet_table looks columns up by name --
+    so the fact that inheritance appends these at the end doesn't matter.
+
+    `occupancy_percentage` comes along inherited and is written all-null, since
+    TfNSW does not publish it. That is deliberate: analysis/event_export.py
+    names the column, so dropping it would break a downstream reader for the
+    sake of a column that is already null on these feeds today.
+    """
+
+    vehicle_model: str | None = None
+    air_conditioned: bool | None = None
+    wheelchair_accessible: int | None = None
+    track_direction: str | None = None
+
+
+@dataclass
+class TfnswStopTimeUpdateRow(StopTimeUpdateRow):
+    """StopTimeUpdate row plus TfNSW's field-6 departure_occupancy_status.
+
+    This single extra column is the reason TfNSW is modelled as its own
+    permutation rather than an extension. Canonical GTFS-RT uses field 6 for
+    `stop_time_properties` (a submessage) and puts departure_occupancy_status
+    at 7; TfNSW puts it at 6. The wire types differ, so the canonical decoder
+    cannot read it at all -- measured at ~1919 of 4439 stop time updates on a
+    live Sydney Trains payload.
+    """
+
+    departure_occupancy_status: str | None = None
 
 
 @dataclass
@@ -86,31 +130,59 @@ class TfnswDecoder(GtfsRtDecoder):
     `raise NotImplementedError` and moving on.
     """
 
+    rust_decode: ClassVar[str | None] = "decode_arrow_tfnsw"
+
     produces: ClassVar[dict[type[Row], TableSpec]] = {
-        # TODO: VehicleRow / StopTimeUpdateRow specs -- start from
-        # StandardDecoder.produces and drop what TfNSW does not publish
-        # (occupancy_percentage, multi_carriage_details), then add the
-        # TfNSW-only columns (vehicle_model, wheelchair_accessible,
-        # track_direction, and StopTimeUpdate.departure_occupancy_status).
-        # Decide whether these reuse VehicleRow/StopTimeUpdateRow or need
-        # TfNSW-specific row classes -- reuse means adding nullable columns
-        # that every other agency leaves null.
-        VehicleRow: TableSpec(
-            "vehicles", dedup_keys=("vehicle_id", "vehicle_timestamp")
+        TfnswVehicleRow: TableSpec(
+            "vehicles",
+            dedup_keys=("vehicle_id", "vehicle_timestamp"),
+            column_names={
+                **_STD_VEHICLE.column_names,
+                "vehicle_model": "vehicle.vehicle.tfnsw_vehicle_descriptor.vehicle_model",
+                "air_conditioned": "vehicle.vehicle.tfnsw_vehicle_descriptor.air_conditioned",
+                "wheelchair_accessible": "vehicle.vehicle.tfnsw_vehicle_descriptor.wheelchair_accessible",
+                "track_direction": "vehicle.position.track_direction",
+            },
+            # Mirrored from StandardDecoder so a TfNSW `vehicles` file has the
+            # same shape as every other agency's. Note vehicle.vehicle.consist
+            # and vehicle.multi_carriage_details stay all-null here -- TfNSW's
+            # real carriage data lives in the `consist` table below, which has a
+            # grain these list columns cannot express.
+            extra_columns=_STD_VEHICLE.extra_columns,
         ),
-        StopTimeUpdateRow: TableSpec("trip_updates"),
+        TfnswStopTimeUpdateRow: TableSpec(
+            "trip_updates",
+            column_names={
+                **_STD_STU.column_names,
+                "departure_occupancy_status": "trip_update.stop_time_update.departure_occupancy_status",
+            },
+        ),
         AlertRow: TableSpec("alerts"),
         ConsistRow: TableSpec(
             "consist",
-            # TODO: what makes a carriage row unique? Candidate:
-            # (vehicle_id, feed_timestamp, origin, position_in_consist) -- but
-            # position_in_consist is 0 for all Metro carriages, so that key
-            # collapses there. `name` disambiguates on Metro but is absent on
-            # Sydney Trains. Worth checking against real data before choosing.
-            dedup_keys=(),
+            # Verified unique across vehiclepos-sydneytrains (1883 rows),
+            # vehiclepos-metro (174), realtime-sydneytrains (15020) and
+            # newcastle light rail (3). Every component earns its place:
+            #   * position_in_consist alone collapses on Metro, which reports 0
+            #     for every carriage and conveys order via `name`.
+            #   * `name` alone collapses on Sydney Trains, which never sets it.
+            #   * vehicle_id is null on the whole predicted stream (TfNSW trip
+            #     updates carry a VehicleDescriptor with no id), so trip_id and
+            #     stop_id are what separate those rows.
+            #   * stop_sequence is null in every feed sampled so far, but costs
+            #     nothing and covers feeds that do send it.
+            dedup_keys=(
+                "feed_timestamp",
+                "origin",
+                "vehicle_id",
+                "trip_id",
+                "stop_id",
+                "stop_sequence",
+                "position_in_consist",
+                "name",
+            ),
         ),
     }
-    rust_decode: ClassVar[str | None] = "decode_arrow_tfnsw"
 
     def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
         raise NotImplementedError("see OPEN DESIGN QUESTION in the class docstring")
