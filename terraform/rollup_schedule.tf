@@ -68,8 +68,17 @@ resource "aws_iam_role_policy" "rollup_scheduler" {
 }
 
 resource "aws_scheduler_schedule" "rollup" {
-  name  = "rail-archiver-rollup-daily"
-  state = var.rollup_schedule_enabled ? "ENABLED" : "DISABLED"
+  name = "rail-archiver-rollup-daily"
+  # Once the stage split is live, the nightly state machine
+  # (stage_orchestration.tf) is what invokes the rollup task -- it has to, since
+  # it must wait for rollup before starting gold. This schedule must therefore
+  # switch OFF at the same moment, or rollup runs twice a night. Same single
+  # flag as the rest of the handover so the two can't drift apart.
+  state = (
+    var.rollup_schedule_enabled && !var.stage_schedule_enabled
+    ? "ENABLED"
+    : "DISABLED"
+  )
 
   flexible_time_window {
     mode = "OFF"
