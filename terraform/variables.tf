@@ -248,8 +248,11 @@ variable "stage_archive_memory" {
 }
 
 variable "stage_gold_cpu" {
-  type        = string
-  default     = "2048"
+  type = string
+  # 4096, not 2048: Fargate only allows 4096-16384 MiB against 2048 CPU, and
+  # stage_gold_memory is 24576. The memory tier is what's being bought here --
+  # the extra vCPU comes along because Fargate pairs the ranges.
+  default     = "4096"
   description = "Fargate CPU units for the gold stage task."
 }
 
