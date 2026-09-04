@@ -33,6 +33,12 @@ def parse_args():
     parser.add_argument(
         "--day", type=date.fromisoformat, help="Restrict to one day (YYYY-MM-DD)"
     )
+    parser.add_argument(
+        "-c",
+        "--config",
+        default="config/feeds.yaml",
+        help="Path to the feeds config YAML (default: config/feeds.yaml)",
+    )
 
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
@@ -40,7 +46,7 @@ def parse_args():
 
 def main(args):
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
-    config = load_config("config/feeds.yaml")
+    config = load_config(args.config)
     shipper = build_shipper(config)
     shipper.prune_s3(keep_days=args.keep_days, dry_run=args.dry_run, day=args.day)
 

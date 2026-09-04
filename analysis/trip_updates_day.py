@@ -31,6 +31,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from analysis.curated_fs import curated_fs, list_parquet
+
 from analysis.vehicle_day import DEFAULT_CURATED_DIR, Visit, _coerce_date
 
 # Curated trip_updates parquet uses dotted protobuf paths (matching
@@ -81,21 +83,19 @@ class TripUpdatesDay:
     ) -> None:
         self.feed = feed
         self.date = _coerce_date(date)
-        self.base_dir = Path(base_dir)
+        # Local path or s3:// URI -- see analysis/curated_fs.py.
+        self.base_dir = base_dir
+        self._fs, self._base = curated_fs(base_dir)
         self.merge_gap_seconds = merge_gap_seconds
 
     def __repr__(self) -> str:
         return f"TripUpdatesDay(feed={self.feed!r}, date={self.date.isoformat()})"
 
     @property
-    def partition_path(self) -> Path:
+    def partition_path(self) -> str:
         return (
-            self.base_dir
-            / "trip_updates"
-            / f"feed={self.feed}"
-            / f"year={self.date.year}"
-            / f"month={self.date.month}"
-            / f"day={self.date.day}"
+            f"{self._base}/trip_updates/feed={self.feed}"
+            f"/year={self.date.year}/month={self.date.month}/day={self.date.day}"
         )
 
     @cached_property
@@ -111,15 +111,16 @@ class TripUpdatesDay:
              duplicates that crossed row-group boundaries.
         """
         path = self.partition_path
-        if not path.exists():
-            raise FileNotFoundError(f"No trip_updates partition at {path}")
-        files = sorted(path.glob("*.parquet"))
+        files = list_parquet(self._fs, path)
         if not files:
-            raise FileNotFoundError(f"No .parquet files under {path}")
+            raise FileNotFoundError(f"No trip_updates partition at {path}")
 
         partials: list[pa.Table] = []
         for pf_path in files:
-            pf = pq.ParquetFile(pf_path)
+            # open_input_file returns a seekable NativeFile on both backends, so
+            # the row-group loop below keeps issuing ranged reads rather than
+            # pulling the whole file -- the point of batching here at all.
+            pf = pq.ParquetFile(self._fs.open_input_file(pf_path))
             present = [c for c in _TU_COLUMN_MAP if c in pf.schema_arrow.names]
             for i in range(pf.num_row_groups):
                 rg = pf.read_row_group(i, columns=present)

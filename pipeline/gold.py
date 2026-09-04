@@ -75,6 +75,7 @@ from analysis.metrics import (  # noqa: E402
     compute_events,
     compute_marts,
 )
+from analysis.curated_fs import curated_fs, has_any, list_parquet  # noqa: E402
 from analysis.trip_updates_day import TripUpdatesDay  # noqa: E402
 from analysis.vehicle_day import VehicleDay  # noqa: E402
 from archiver.loader import load_config  # noqa: E402
@@ -265,7 +266,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--curated-dir",
         type=Path,
         default=Path("data/curated"),
-        help="Curated root: read silver from here and write metrics under it.",
+        help="Curated root: read silver from here and write metrics under it. "
+        "Must stay a LOCAL path -- marts are written here.",
+    )
+    p.add_argument(
+        "--silver-dir",
+        default=None,
+        help="Read silver (vehicles/trip_updates/swiv_ligne) from here instead "
+        "of --curated-dir. Accepts an s3:// URI, e.g. "
+        "s3://rail-performance-archiver-hot -- the hot bucket IS the curated "
+        "tree (Shipper._hot_key is the curated-relative path), so this lets "
+        "gold run in its own ECS task off rollup's shipped output rather than "
+        "needing shared local disk with it. Marts still go to --curated-dir.",
     )
     p.add_argument(
         "-c",
@@ -404,11 +416,20 @@ def build_one(
     merge_gap_seconds: int,
     force: bool,
     *,
+    silver_dir: Path | str | None = None,
     gtfs_for=None,
     early_threshold_s: int = 60,
     late_threshold_s: int = 300,
 ) -> dict | None:
     """Build the marts for one (feed, day). Returns a counts dict, or None.
+
+    `curated_dir` is where marts are WRITTEN and must stay a local path.
+    `silver_dir` is where silver is READ from and may be an s3:// URI (defaults
+    to curated_dir). Keeping them separate is what lets gold run in its own ECS
+    task, reading rollup's output from the hot bucket while still writing its
+    own marts to local disk for ship.py to upload -- and it keeps an s3:// value
+    from ever reaching the write paths, which would land marts in a local
+    directory literally named "s3:".
 
     Three independent, separately-idempotent steps off a single Visit load: the
     schedule-free marts (stop_day / route_day / events), the on-time-performance
@@ -439,7 +460,10 @@ def build_one(
     day_cls = VehicleDay if source == "vehicles" else TripUpdatesDay
     try:
         vd = day_cls(
-            feed, day, base_dir=curated_dir, merge_gap_seconds=merge_gap_seconds
+            feed,
+            day,
+            base_dir=silver_dir if silver_dir is not None else curated_dir,
+            merge_gap_seconds=merge_gap_seconds,
         )
         visits = [v for veh in vd.vehicles for v in veh.dwells]
     except FileNotFoundError as e:
@@ -836,15 +860,19 @@ def load_swiv_topo_feed_map(config_path: Path) -> dict[str, str]:
     return out
 
 
-def _make_topo_resolver(curated_dir: Path, config_path: Path):
+def _make_topo_resolver(silver_dir: Path | str, config_path: Path):
     """Build `topo_for(agency_id, day) -> {idLigne: nomCommercial} | None`.
 
     Reads the landed Swiv topo table (curated/swiv_ligne/feed=<topo feed>/...),
     with the topo feed name resolved from config. Best-effort: returns None when
-    no topo feed is configured yet, or its partition isn't on disk — so Swiv
+    no topo feed is configured yet, or its partition isn't there — so Swiv
     routes degrade to unresolved, but with a one-time warning per agency rather
     than silently.
+
+    swiv_ligne is silver (rollup writes it), so this reads from `silver_dir` and
+    works over s3:// like the other silver readers.
     """
+    fs, base = curated_fs(silver_dir)
     topo_feeds = load_swiv_topo_feed_map(config_path)
     cache: dict[tuple[str, dt.date], dict[str, str] | None] = {}
     warned: set[str] = set()
@@ -856,9 +884,15 @@ def _make_topo_resolver(curated_dir: Path, config_path: Path):
         topo_feed = topo_feeds.get(agency_id)
         result: dict[str, str] | None = None
         if topo_feed is not None:
-            path = _raw_table_path(curated_dir, _SWIV_LIGNE_TABLE, topo_feed, day)
-            if path.exists():
-                tbl = pq.read_table(path).to_pylist()
+            prefix = (
+                f"{base}/{_SWIV_LIGNE_TABLE}/feed={topo_feed}"
+                f"/year={day.year}/month={day.month}/day={day.day}"
+            )
+            files = list_parquet(fs, prefix)
+            if files:
+                tbl = pa.concat_tables(
+                    [pq.read_table(f, filesystem=fs) for f in files]
+                ).to_pylist()
                 result = {
                     str(r["id_ligne"]): r["nom_commercial"]
                     for r in tbl
@@ -995,10 +1029,58 @@ def _run_normalize(args: argparse.Namespace) -> int:
     return 0
 
 
+def assert_silver_present(silver_dir: Path | str) -> None:
+    """Fail loudly when the silver tree gold reads from isn't there at all.
+
+    Raises FileNotFoundError; main() turns that into a non-zero exit.
+
+    This exists because gold's per-feed behaviour on a missing partition is to
+    print `SKIP — No partition at …` and carry on, which is CORRECT per feed --
+    an alerts-only feed genuinely has no `vehicles/` partition, and agencies
+    routinely skip most of their feeds. But it means a gold process pointed at
+    an empty curated tree skips all ~204 agencies, prints a zero-row summary,
+    and exits 0. That is precisely how the 2026-07-31 Step Functions stage-split
+    failed: gold ran in its own Fargate task with fresh ephemeral disk, saw no
+    silver, and silently no-op'd the whole fleet while reporting success (see
+    the NOTE in terraform/rollup.tf).
+
+    So the check is on the INPUT TREE, not on an aggregate of per-feed results:
+    "every feed skipped" is ambiguous (an alerts-only agency does that legitimately),
+    whereas "the silver root holds no feed partitions at all" is not. Cheap, and
+    it cannot false-positive on a sparse day.
+    """
+    fs, base = curated_fs(silver_dir)
+    if any(has_any(fs, f"{base}/{sub}") for sub in _SOURCE_SUBDIR.values()):
+        return
+    raise FileNotFoundError(
+        f"no silver partitions under {silver_dir} "
+        f"({', '.join(sorted(_SOURCE_SUBDIR.values()))}) — refusing to report "
+        "success for a run that would skip every feed. Did rollup run, and is "
+        "--curated-dir pointing at its output?"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.normalize:
         return _run_normalize(args)
+    silver_dir = args.silver_dir if args.silver_dir is not None else args.curated_dir
+    if args.all_days and "://" in str(silver_dir):
+        # discover_dates_for_dir still globs a local Path. Failing loudly beats
+        # returning an empty date list, which would print a zero-row summary and
+        # exit 0 -- the same silent no-op assert_silver_present exists to stop.
+        print(
+            "[gold] FATAL — --all-days needs a local --silver-dir; remote "
+            f"partition discovery isn't implemented (got {silver_dir}). Pass "
+            "--day instead, which is what the nightly batch uses.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        assert_silver_present(silver_dir)
+    except FileNotFoundError as e:
+        print(f"[gold] FATAL — {e}", file=sys.stderr)
+        return 1
     feed_tz_map = load_feed_tz_map(args.config)
     if args.feed:
         feeds = args.feed
@@ -1042,6 +1124,7 @@ def main(argv: list[str] | None = None) -> int:
                 source,
                 args.merge_gap_seconds,
                 args.force,
+                silver_dir=silver_dir,
                 gtfs_for=gtfs_for,
                 early_threshold_s=args.early_threshold_seconds,
                 late_threshold_s=args.late_threshold_seconds,

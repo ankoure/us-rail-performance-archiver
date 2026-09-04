@@ -23,6 +23,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from analysis.curated_fs import curated_fs, list_parquet
+
 DEFAULT_CURATED_DIR = Path("data/curated")
 
 # Curated parquet uses dotted protobuf paths. Map to the names we use internally.
@@ -323,21 +325,21 @@ class VehicleDay:
     ) -> None:
         self.feed = feed
         self.date = _coerce_date(date)
-        self.base_dir = Path(base_dir)
+        # `base_dir` may be a local path or an s3:// URI -- see analysis/curated_fs.py.
+        # It stays a public attribute for callers that only ever pass a local
+        # path, but reads go through self._fs so both resolve identically.
+        self.base_dir = base_dir
+        self._fs, self._base = curated_fs(base_dir)
         self.merge_gap_seconds = merge_gap_seconds
 
     def __repr__(self) -> str:
         return f"VehicleDay(feed={self.feed!r}, date={self.date.isoformat()})"
 
     @property
-    def partition_path(self) -> Path:
+    def partition_path(self) -> str:
         return (
-            self.base_dir
-            / "vehicles"
-            / f"feed={self.feed}"
-            / f"year={self.date.year}"
-            / f"month={self.date.month}"
-            / f"day={self.date.day}"
+            f"{self._base}/vehicles/feed={self.feed}"
+            f"/year={self.date.year}/month={self.date.month}/day={self.date.day}"
         )
 
     @cached_property
@@ -356,16 +358,16 @@ class VehicleDay:
         self-contained.
         """
         path = self.partition_path
-        if not path.exists():
-            raise FileNotFoundError(f"No partition at {path}")
-        files = sorted(path.glob("*.parquet"))
+        files = list_parquet(self._fs, path)
         if not files:
-            raise FileNotFoundError(f"No .parquet files under {path}")
+            raise FileNotFoundError(f"No partition at {path}")
 
         table = (
-            pq.read_table(files[0])
+            pq.read_table(files[0], filesystem=self._fs)
             if len(files) == 1
-            else pa.concat_tables([pq.read_table(f) for f in files])
+            else pa.concat_tables(
+                [pq.read_table(f, filesystem=self._fs) for f in files]
+            )
         )
 
         present = [c for c in _COLUMN_MAP if c in table.column_names]

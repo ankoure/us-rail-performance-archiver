@@ -1,4 +1,5 @@
-"""Run rollup -> [gtfs] -> gold -> ship per agency, each step a disposable
+"""Run ship --cold-only -> rollup -> [gtfs] -> gold -> [snapshot] -> ship per
+agency (see run_agency for why the cold ship leads), each step a disposable
 `python pipeline/X.py` subprocess, so the OS reclaims pandas/pyarrow allocations
 agency-by-agency instead of one long-lived process accumulating them across all
 ~186 agencies (see terraform/rollup.tf's rollup_memory variable description for
@@ -9,11 +10,19 @@ the resilience philosophy already used for feed-level failures in gtfs.py/gold.p
 own loops. The process exit code is nonzero iff at least one agency failed, so the
 ECS task still surfaces a bad day without losing the other agencies that succeeded.
 
+`--stages` runs only part of that chain, so each stage can live in its own ECS
+task sized for its own bottleneck (rollup is CPU-bound, gtfs/gold/snapshot are
+memory-bound, the ships are I/O-bound) instead of every stage being sized at the
+max of all of them. Stages always execute in canonical STAGES order regardless of
+the order they're passed in.
+
 Examples:
 
     uv run python pipeline/agency_batch.py --day 2026-08-17
     uv run python pipeline/agency_batch.py --day 2026-08-17 --agency BART METRO_STL -v
     uv run python pipeline/agency_batch.py --day 2026-08-17 --exclude-agency GO_AHEAD
+    uv run python pipeline/agency_batch.py --day 2026-08-17 --stages snapshot
+    uv run python pipeline/agency_batch.py --day 2026-08-17 --stages cold-ship
 """
 
 from __future__ import annotations
@@ -41,12 +50,56 @@ from pipeline.agency_map import load_feed_agency_map  # noqa: E402
 load_dotenv()
 
 
+# Canonical execution order. `cold-ship` leads (see run_agency); `hot-ship` is
+# last because it uploads what every other stage produced.
+STAGES: tuple[str, ...] = (
+    "cold-ship",
+    "rollup",
+    "gtfs",
+    "gold",
+    "snapshot",
+    "hot-ship",
+)
+
+# Stages that write to curated_dir and therefore need a hot ship afterwards, or
+# their output never leaves the container's ephemeral disk.
+_PRODUCER_STAGES = frozenset({"rollup", "gtfs", "gold", "snapshot"})
+
+
 @dataclass
 class AgencyResult:
     agency_id: str
     ok: bool
     failed_cmd: list[str] | None = None
     returncode: int = 0
+
+
+def resolve_stages(
+    stages: list[str] | None, *, include_gtfs: bool, include_snapshot: bool
+) -> list[str]:
+    """Canonically-ordered stage list for one run.
+
+    `stages=None` reproduces the pre---stages behaviour exactly, driven by the
+    older --include-gtfs/--include-snapshot booleans, so existing callers (and
+    the combined nightly task) are unaffected.
+
+    Otherwise the selection is honoured, with one correction: selecting any
+    producer stage without `hot-ship` would write parquet to ephemeral disk that
+    nothing ever uploads -- a silent no-op, which is the exact failure mode that
+    sank the earlier stage-split attempt (see terraform/rollup.tf's NOTE). So
+    hot-ship is appended rather than left to the caller to remember.
+    """
+    if stages is None:
+        selected = {"cold-ship", "rollup", "gold", "hot-ship"}
+        if include_gtfs:
+            selected.add("gtfs")
+        if include_snapshot:
+            selected.add("snapshot")
+    else:
+        selected = set(stages)
+        if selected & _PRODUCER_STAGES:
+            selected.add("hot-ship")
+    return [s for s in STAGES if s in selected]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -102,12 +155,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "same allocator-level OOM, cache bug or not.",
     )
     p.add_argument(
+        "--stages",
+        nargs="+",
+        choices=STAGES,
+        default=None,
+        help="Run only these stages, in canonical order regardless of how they're "
+        f"listed here. Choices: {', '.join(STAGES)}. Omit to run the full chain "
+        "driven by --include-gtfs/--include-snapshot (the combined-task default). "
+        "Selecting any stage that writes curated output implies hot-ship, so its "
+        "parquet can't be stranded on ephemeral disk.",
+    )
+    p.add_argument(
         "--curated-dir",
         type=Path,
         default=Path("data/curated"),
-        help="Curated root (default: data/curated) -- cleaned up per-agency after "
-        "ship.py uploads, so local disk doesn't accumulate the whole day's worth "
-        "of every agency's output before the task exits (see clean_agency_curated).",
+        help="Curated root to CLEAN UP after each agency ships, so local disk "
+        "doesn't accumulate the whole day's output before the task exits (see "
+        "clean_agency_curated). NOTE: this does not redirect where the steps "
+        "write -- rollup/snapshot/ship read curated_dir from the config's "
+        "writer.curated_dir, and gold/gtfs default to data/curated. So this must "
+        "MATCH the config value or cleanup silently targets the wrong tree. It "
+        "is not a way to relocate a run's output.",
+    )
+    p.add_argument(
+        "--silver-dir",
+        default=None,
+        help="Passed through to gold.py --silver-dir: where gold reads rollup's "
+        "silver parquet from. Accepts an s3:// URI (the hot bucket IS the "
+        "curated tree), which is what lets `--stages gold` run as its own ECS "
+        "task instead of sharing ephemeral disk with rollup. Marts are still "
+        "written to --curated-dir and shipped from there.",
     )
     p.add_argument(
         "--no-cleanup",
@@ -174,14 +251,27 @@ def _gtfs_cmd(feeds: list[str], day: str, config: str, force: bool) -> list[str]
     return cmd
 
 
-def _gold_cmd(feeds: list[str], day: str, config: str, force: bool) -> list[str]:
+def _gold_cmd(
+    feeds: list[str],
+    day: str,
+    config: str,
+    force: bool,
+    *,
+    silver_dir: str | None = None,
+) -> list[str]:
     # --feed uses nargs="+" and is greedy -- keep it last in the argv.
     cmd = [sys.executable, "pipeline/gold.py", "-c", config, "--day", day]
+    # Only gold reads another stage's output. Pointing it at the hot bucket is
+    # what lets the gold stage run as its own task instead of sharing ephemeral
+    # disk with rollup -- see analysis/curated_fs.py.
+    cmd += ["--silver-dir", silver_dir] if silver_dir else []
     cmd += (["--force"] if force else []) + ["--feed", *feeds]
     return cmd
 
 
-def _ship_cmd(feed: str, day: str, config: str, force: bool) -> list[str]:
+def _ship_cmd(
+    feed: str, day: str, config: str, force: bool, *, cold_only: bool = False
+) -> list[str]:
     cmd = [
         sys.executable,
         "pipeline/ship.py",
@@ -192,6 +282,7 @@ def _ship_cmd(feed: str, day: str, config: str, force: bool) -> list[str]:
         "--day",
         day,
     ]
+    cmd += ["--cold-only"] if cold_only else []
     return cmd + (["--force"] if force else [])
 
 
@@ -202,18 +293,36 @@ def run_agency(
     config: str,
     day: date,
     force: bool,
-    include_gtfs: bool,
-    include_snapshot: bool,
+    stages: list[str],
     curated_dir: Path,
     cleanup: bool,
+    silver_dir: str | None = None,
 ) -> AgencyResult:
-    """[snapshot(all feeds)] -> rollup(each feed) -> [gtfs(all feeds)] ->
-    gold(all feeds) -> ship(each feed).
+    """Run this agency's slice of `stages` (already canonically ordered by
+    resolve_stages): ship --cold-only(each feed) -> rollup(each feed) ->
+    gtfs(all feeds) -> gold(all feeds) -> snapshot(all feeds) -> ship(each feed).
 
-    Stops at the first failing step and skips the rest of THIS agency's steps
-    (e.g. a failed rollup means gold/ship never run against stale or partial
-    curated data for it) but always returns rather than raising -- the caller
-    moves on to the next agency regardless.
+    The leading cold ship is deliberate. The cold DEEP_ARCHIVE tarball is built
+    from the landing zone alone (Shipper._ship_cold -> _build_tarball ->
+    source.iter_bins) and depends on nothing the later steps produce, but it is
+    the only output that can't be rebuilt: terraform/landing.tf expires landing
+    objects after 7 days whether or not they were ever shipped. Running it last
+    -- as this did until 2026-09-03 -- meant any failure in an earlier step
+    silently cost the raw archive. It had: BKK/EDMONTON_TRANSIT_SYSTEM/
+    METRO_HOUSTON lost days to repeated snapshot.py and gold.py SIGKILLs, and a
+    missing TFNSW_API_KEY crashed snapshot.py during config load for the whole
+    fleet on Aug 23-24, costing both days' tarballs for every agency. Archiving
+    first makes a failure downstream cost a mart instead of the data.
+
+    For the same reason snapshot runs at the END of the fail-fast chain rather
+    than the start: nothing reads its output except Shipper._ship_snapshots, so
+    there's no reason for a snapshot OOM to also cost the rollup parquet and
+    gold marts.
+
+    The fail-fast chain stops at the first failing step and skips the rest of
+    THIS agency's steps (e.g. a failed rollup means gold/ship never run against
+    stale or partial curated data for it) but always returns rather than raising
+    -- the caller moves on to the next agency regardless.
 
     Local curated output is cleaned up (unless `cleanup=False`) whether this
     agency succeeded or failed -- disk is shared across every agency still to
@@ -221,14 +330,35 @@ def run_agency(
     once landing (the real source of truth, in S3) can re-roll it on retry.
     """
     day_str = day.isoformat()
+
+    # Non-fatal on purpose: a transient S3 failure here shouldn't skip the whole
+    # agency, and the full ship at the end of the chain retries it -- when this
+    # already succeeded, _ship_cold's exists() check makes that retry a single
+    # HeadObject.
+    if "cold-ship" in stages:
+        for feed in feeds:
+            cmd = _ship_cmd(feed, day_str, config, force, cold_only=True)
+            if subprocess.run(cmd).returncode != 0:
+                logger.error(
+                    "[%s] archive-first cold ship failed for %s, continuing",
+                    agency_id,
+                    feed,
+                )
+
+    # Per-feed stages get one invocation each; whole-agency stages get one
+    # invocation with every feed name (their --feed is nargs="+" and greedy).
+    per_feed = {"rollup": _rollup_cmd, "hot-ship": _ship_cmd}
+    per_agency = {"gtfs": _gtfs_cmd, "gold": _gold_cmd, "snapshot": _snapshot_cmd}
     steps: list[list[str]] = []
-    if include_snapshot:
-        steps.append(_snapshot_cmd(feeds, day_str, config, force))
-    steps += [_rollup_cmd(f, day_str, config, force) for f in feeds]
-    if include_gtfs:
-        steps.append(_gtfs_cmd(feeds, day_str, config, force))
-    steps.append(_gold_cmd(feeds, day_str, config, force))
-    steps += [_ship_cmd(f, day_str, config, force) for f in feeds]
+    for stage in stages:
+        if stage in per_feed:
+            steps += [per_feed[stage](f, day_str, config, force) for f in feeds]
+        elif stage == "gold":
+            steps.append(
+                _gold_cmd(feeds, day_str, config, force, silver_dir=silver_dir)
+            )
+        elif stage in per_agency:
+            steps.append(per_agency[stage](feeds, day_str, config, force))
 
     result_out = AgencyResult(agency_id, True)
     for cmd in steps:
@@ -254,11 +384,11 @@ def run_all(
     config: str,
     day: date,
     force: bool,
-    include_gtfs: bool,
-    include_snapshot: bool,
+    stages: list[str],
     workers: int,
     curated_dir: Path,
     cleanup: bool,
+    silver_dir: str | None = None,
 ) -> list[AgencyResult]:
     results: list[AgencyResult] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -270,10 +400,10 @@ def run_all(
                 config=config,
                 day=day,
                 force=force,
-                include_gtfs=include_gtfs,
-                include_snapshot=include_snapshot,
+                stages=stages,
                 curated_dir=curated_dir,
                 cleanup=cleanup,
+                silver_dir=silver_dir,
             ): agency_id
             for agency_id, feeds in groups.items()
         }
@@ -295,14 +425,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.exclude_agency:
         groups = {a: f for a, f in groups.items() if a not in args.exclude_agency}
 
+    stages = resolve_stages(
+        args.stages,
+        include_gtfs=args.include_gtfs,
+        include_snapshot=args.include_snapshot,
+    )
     logger.info(
-        "agency_batch: %d agencies, day=%s, workers=%d, include_gtfs=%s, "
-        "include_snapshot=%s",
+        "agency_batch: %d agencies, day=%s, workers=%d, stages=%s",
         len(groups),
         args.day,
         args.workers,
-        args.include_gtfs,
-        args.include_snapshot,
+        " ".join(stages),
     )
 
     results = run_all(
@@ -310,11 +443,11 @@ def main(argv: list[str] | None = None) -> int:
         config=args.config,
         day=args.day,
         force=args.force,
-        include_gtfs=args.include_gtfs,
-        include_snapshot=args.include_snapshot,
+        stages=stages,
         workers=args.workers,
         curated_dir=args.curated_dir,
         cleanup=not args.no_cleanup,
+        silver_dir=args.silver_dir,
     )
 
     failed = [r for r in results if not r.ok]
