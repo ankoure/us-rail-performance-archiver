@@ -57,8 +57,12 @@ shard-dirs:
 # dev groups; use `uv sync --all-groups` to keep them.
 RUST_WHEEL_DIR ?= target/wheel
 
+# --interpreter pins the wheel's ABI tag to the venv it's about to be installed
+# into. `--python 3.13` only chooses what maturin ITSELF runs under; maturin
+# still targets whatever interpreter it discovers on PATH, which on CI was
+# setup-python's, producing a cp312 wheel for a cp313 venv.
 rust-dev:
-	cd rail-decoder && uvx --python 3.13 maturin build --out $(CURDIR)/$(RUST_WHEEL_DIR)
+	cd rail-decoder && uvx --python 3.13 maturin build --interpreter $(CURDIR)/.venv/bin/python --out $(CURDIR)/$(RUST_WHEEL_DIR)
 	uv pip install --python .venv --reinstall-package rail-decoder $(RUST_WHEEL_DIR)/*.whl
 	@echo "rail_decoder installed into .venv -- use 'uv run --no-sync' from here"
 

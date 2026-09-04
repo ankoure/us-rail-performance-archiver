@@ -73,6 +73,10 @@ jobs:
           SERVICES: ${{ matrix.services }}
           IMAGE_TAG: ${{ needs.build.outputs.tag }}
           SHA: ${{ github.sha }}
+          # Ceiling for the SSM poll below. Generous on purpose: the cost of
+          # waiting is a few idle runner minutes, the cost of being too short is
+          # a red deploy that actually succeeded.
+          SSM_TIMEOUT_S: "600"
         run: |
           set -euo pipefail
 
@@ -108,13 +112,28 @@ jobs:
 
           echo "SSM command ($BOX_NAME): $CMD_ID"
 
-          aws ssm wait command-executed \
-            --command-id "$CMD_ID" \
-            --instance-id "$INSTANCE_ID" || true
-
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-            --query 'Status' --output text)
+          # Poll explicitly rather than using `aws ssm wait command-executed`:
+          # that waiter is hard-coded to 20 attempts x 5s = 100s with no CLI
+          # flag to change it, and the Sydney box routinely needs longer just to
+          # pull image layers. On 2026-09-04 it timed out at InProgress and
+          # failed the job while the command went on to succeed -- a healthy
+          # deploy reported red, which is worse than useless because it trains
+          # you to ignore the next one.
+          DEADLINE=$(( SECONDS + SSM_TIMEOUT_S ))
+          while :; do
+            # Briefly returns InvocationDoesNotExist right after send-command.
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            if (( SECONDS >= DEADLINE )); then
+              echo "Gave up after ${SSM_TIMEOUT_S}s ($BOX_NAME); last status: $STATUS"
+              break
+            fi
+            sleep 10
+          done
 
           echo "::group::stdout ($BOX_NAME)"
           aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \

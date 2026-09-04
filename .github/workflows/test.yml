@@ -11,7 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12"]
+        # Must satisfy pyproject's `requires-python = ">=3.13"`. It was pinned
+        # to 3.12, which put 3.12 first on PATH for maturin (-> a cp312 wheel)
+        # while `uv sync` still built a 3.13 .venv from requires-python. The
+        # install step then couldn't resolve the wheel and the whole backend job
+        # died before pytest ever ran -- red since 2026-09-03 (a2e0d42).
+        python-version: ["3.13"]
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
