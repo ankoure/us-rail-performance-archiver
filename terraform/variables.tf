@@ -27,15 +27,20 @@ variable "landing_bucket" {
   description = "Prod S3 landing bucket the pollers dual-write to and the rollup reads."
 }
 
-variable "landing_retention_days" {
+variable "landing_prune_keep_days" {
   type = number
-  # Dropped 30->7 on 2026-07-07: prune_s3.py now handles proactive cleanup of
-  # shipped partitions, so the lifecycle is just a backstop for anything missed.
-  default     = 7
+  # Replaced landing_retention_days (a blind 7-day lifecycle expiry) on
+  # 2026-09-03. That variable's own comment claimed "prune_s3.py now handles
+  # proactive cleanup, so the lifecycle is just a backstop" -- but prune_s3.py
+  # was never actually scheduled anywhere, so the "backstop" was doing all the
+  # deleting, including of days that had never been archived. See landing.tf.
+  default     = 3
   description = <<-EOT
-    Days to keep landing objects in S3 before lifecycle expiry. The rollup only
-    needs yesterday; this is a buffer. Landing is ~21 GiB/day, so this caps the
-    transient cost while there's no S3-aware prune yet (that's step 4).
+    Days of landing to retain when the nightly rollup task runs prune_s3.py.
+    The rollup only needs yesterday; the rest is a buffer for re-rolls. Unlike
+    the lifecycle rule this replaced, prune_s3 deletes a day only once its cold
+    tarball is confirmed in S3 -- unshipped days are skipped, never deleted, so
+    lowering this can't cost data.
   EOT
 }
 
@@ -156,13 +161,18 @@ variable "rollup_heavy_memory" {
 }
 
 variable "rollup_heavy_schedule_enabled" {
-  type        = bool
-  default     = false
+  type = bool
+  # Flipped to true 2026-09-03. It had been left at false since the
+  # local.heavy_agencies split was applied on ~2026-08-20, which is exactly the
+  # trap the IMPORTANT note below warns about: GO_AHEAD was excluded from the
+  # main task by an applied --exclude-agency while its own schedule never ran,
+  # so it was processed by NEITHER task for two weeks and has no cold tarball
+  # from that entire period. Verify with a manual run-task if you like, but do
+  # not apply an expanded heavy_agencies list with this still false.
+  default     = true
   description = <<-EOT
     Whether the daily EventBridge schedule for the rollup_heavy task is
-    ENABLED. Same cautious rollout as the other schedule vars: apply
-    disabled, verify local.heavy_agencies succeed with a manual run-task,
-    then flip to true.
+    ENABLED.
 
     IMPORTANT: the main rollup task's --exclude-agency is unconditional (not
     gated by this var) -- once applied, local.heavy_agencies stop being
@@ -176,6 +186,106 @@ variable "rollup_heavy_schedule_expression" {
   type        = string
   default     = "cron(30 3 * * ? *)" # same slot as the main rollup -- independent tasks, no shared disk, safe to run concurrently
   description = "EventBridge Scheduler expression (UTC) for the daily rollup_heavy task."
+}
+
+# --- Per-stage tasks (stages.tf) ------------------------------------------ #
+# Phase 1 of the stage split. Every size here is a generous first guess, NOT a
+# measured value -- the whole point of splitting is that they can now be tuned
+# independently, so watch pipeline.stage_<name>.duration and the task memory
+# graphs for a week before cutting any of them. Fargate constrains which
+# cpu/memory pairs are legal: 2048 CPU allows 4096-16384 MiB.
+
+variable "stage_gtfs_cpu" {
+  type        = string
+  default     = "2048" # gtfs is memory-bound, not CPU-bound: parse + write marts
+  description = "Fargate CPU units for the gtfs stage task."
+}
+
+variable "stage_gtfs_memory" {
+  type        = string
+  default     = "16384"
+  description = <<-EOT
+    Fargate memory (MiB) for the gtfs stage task. GO_AHEAD needs >8 GiB in
+    gtfs.py running ALONE (verified 2026-08-20), but it is in
+    local.heavy_agencies and therefore excluded here -- this ceiling only has to
+    cover the rest of the fleet running --workers wide.
+  EOT
+}
+
+variable "stage_snapshot_cpu" {
+  type        = string
+  default     = "2048"
+  description = "Fargate CPU units for the snapshot stage task."
+}
+
+variable "stage_snapshot_memory" {
+  type        = string
+  default     = "16384"
+  description = <<-EOT
+    Fargate memory (MiB) for the snapshot stage task. snapshot.py accounted for
+    25 of the 42 SIGKILLs in the month to 2026-09-03 because
+    analysis.alert_snapshot.build_alert_snapshot buffers a whole day of raw
+    payloads in one list. The worst offenders (BKK, EDMONTON, LTC, VBB) are in
+    local.heavy_agencies and excluded here, but until that buffer is fixed this
+    stage stays the most likely one to need headroom.
+  EOT
+}
+
+variable "stage_archive_cpu" {
+  type        = string
+  default     = "2048" # gzip during tarball build is the only real CPU here
+  description = "Fargate CPU units for the archive (cold-ship + prune) stage task."
+}
+
+variable "stage_archive_memory" {
+  type        = string
+  default     = "8192"
+  description = <<-EOT
+    Fargate memory (MiB) for the archive stage task. Shipper._build_tarball
+    streams one landing object at a time rather than materializing a day, so
+    peak is roughly (workers x largest single hourly bin), not a day's volume.
+  EOT
+}
+
+variable "stage_gold_cpu" {
+  type        = string
+  default     = "2048"
+  description = "Fargate CPU units for the gold stage task."
+}
+
+variable "stage_gold_memory" {
+  type        = string
+  default     = "24576"
+  description = <<-EOT
+    Fargate memory (MiB) for the gold stage task -- the headroom that motivated
+    the whole split. gold.py accounted for 17 of the 42 SIGKILLs in the month to
+    2026-09-03, and in the combined task it could only be given more memory by
+    giving rollup the same. 24 GiB here costs nothing on the rollup side.
+  EOT
+}
+
+variable "stage_workers" {
+  type        = number
+  default     = 4
+  description = "Agencies processed concurrently within each per-stage task (agency_batch --workers)."
+}
+
+variable "stage_schedule_enabled" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    Whether the daily schedules for the per-stage tasks are ENABLED. Applied
+    disabled on purpose: verify each stage with a manual run-task first, and
+    flip this in the SAME apply that removes the corresponding stages from the
+    main rollup task, or the work is either done twice or not at all. See
+    rollup_heavy_schedule_enabled for what happens when those two drift apart.
+  EOT
+}
+
+variable "stage_schedule_expression" {
+  type        = string
+  default     = "cron(30 3 * * ? *)" # same slot: these stages are independent of each other and of rollup
+  description = "EventBridge Scheduler expression (UTC) for the per-stage tasks."
 }
 
 variable "rollup_ephemeral_storage_gib" {

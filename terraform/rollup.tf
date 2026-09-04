@@ -55,8 +55,11 @@ resource "aws_cloudwatch_log_group" "rollup" {
 # there's no second config to keep in sync), then rollup + ship (hot parquet AND
 # the cold DEEP_ARCHIVE tarball — cold_bucket is already prod in feeds.yaml).
 # ROLLUP_DAY can be set per run (override) to target a specific past day;
-# defaults to yesterday-UTC. No prune: the landing.tf 7-day lifecycle expires S3
-# landing, and the box no longer holds the curated tree.
+# defaults to yesterday-UTC. This task also prunes the S3 landing at the end of
+# its script (2026-09-03): the blind lifecycle rule that used to do it was
+# deleting days that had never been shipped -- see landing.tf. Only THIS task
+# prunes; rollup_heavy must not, since prune_s3 sweeps the whole bucket and the
+# two run in the same 03:30Z slot.
 #
 # NOTE: this WAS split into three separate ECS tasks (rollup/gold/ship) chained
 # by Step Functions, on the theory that a failed stage shouldn't silently
@@ -76,11 +79,70 @@ locals {
   # shared-local-disk problem that killed the earlier Step Functions
   # stage-split (see the NOTE above) doesn't apply here.
   #
-  # Currently just GO_AHEAD: SIGKILLed (exit -9) in the 2026-08-19 run while
-  # sharing the main task's memory with concurrent siblings. Add an agency_id
-  # here (and re-apply) the next time one OOMs instead of just bumping
-  # rollup_memory again.
-  heavy_agencies = ["GO_AHEAD"]
+  # Expanded 2026-09-03 from just GO_AHEAD to every agency with a SIGKILL in the
+  # preceding month. A log sweep of /ecs/rail-archiver-rollup found 42 exit -9
+  # kills, and all of them belong to the seven agencies added here (25 in
+  # snapshot.py, 17 in gold.py); the other ~197 agencies contributed none. The
+  # main task therefore stops containing any known hog, and each of these runs
+  # alone (rollup_heavy passes --workers 1) against rollup_heavy_memory instead
+  # of competing 4-way for the main task's ceiling.
+  #
+  # This is the isolation axis the failure data actually supports. A split by
+  # pipeline STAGE would not help: each agency here fails at the SAME step every
+  # night (BKK/EDMONTON/LTC/VBB in snapshot, HOUSTON/CINCINNATI/SOFIA in gold),
+  # so it's intrinsic per-agency appetite, and putting all 204 golds in one task
+  # would concentrate the hogs rather than separate them.
+  #
+  # CAVEAT on the four snapshot victims: until the 2026-09-03 archive-first
+  # reorder, snapshot was step 1 and run_agency fail-fasts, so on the nights they
+  # died their rollup/gtfs/gold never executed at all -- "rollup never OOMed" is
+  # partly just "rollup never ran". Now that snapshot runs last, those four will
+  # attempt the full chain every night for the first time, which is MORE memory
+  # in flight, not less. That's the main reason they're here now rather than
+  # waiting for them to OOM again.
+  heavy_agencies = [
+    "GO_AHEAD",                            # SIGKILL in gtfs.py at 8 GiB even alone (2026-08-20)
+    "BKK",                                 # snapshot.py, 13 GB/day of raw on bkk-trips alone
+    "EDMONTON_TRANSIT_SYSTEM",             # snapshot.py
+    "LONDON_TRANSIT_COMMISSION",           # snapshot.py, borderline -- died some nights, not others
+    "VBB",                                 # snapshot.py, every night
+    "METRO_HOUSTON",                       # gold.py, every night since 2026-08-10
+    "CINCINNATI_METRO",                    # gold.py
+    "URBAN_MOBILITY_CENTER_SOFIA_TRAFFIC", # gold.py
+  ]
+
+  # Which stages the MAIN task still owns, derived from the same variable that
+  # enables the per-stage tasks (stages.tf) so the two can never drift. This is
+  # deliberate: the GO_AHEAD outage came from exactly that drift -- an applied
+  # --exclude-agency with its companion schedule left DISABLED meant the agency
+  # was processed by NEITHER task for two weeks, silently. Tying both sides to
+  # one flag makes the handover atomic in a single apply.
+  #
+  # cold-ship moves to the archive stage, which is a strict improvement on the
+  # 2026-09-03 archive-first reorder: the raw tarball stops being downstream of
+  # anything at all, rather than merely being first in a chain that could still
+  # die before reaching it. gold stays with rollup until phase 2 teaches it to
+  # read silver from the hot bucket instead of shared local disk.
+  main_stages = (
+    var.stage_schedule_enabled
+    ? "rollup gold"
+    : "cold-ship rollup gtfs gold snapshot hot-ship"
+  )
+
+  # Landing cleanup. This replaced the expire-landing lifecycle rule on
+  # 2026-09-03 (see landing.tf for why a blind time rule was destroying
+  # unshipped data). prune_s3 confirms each day's cold tarball exists before
+  # deleting that day, so it is safe to run even after a partial batch -- the
+  # agencies that just failed simply get skipped, and their bins survive to be
+  # re-shipped once the failure is fixed. `|| true` so a prune problem can never
+  # mask agency_batch's exit code, which is what the alarms key off. Exactly one
+  # task may prune (it sweeps the whole bucket); once the stage tasks are live
+  # that task is `archive`, so this drops out here.
+  main_prune = (
+    var.stage_schedule_enabled
+    ? ""
+    : "python pipeline/prune_s3.py --config /tmp/fargate.yaml --keep-days ${var.landing_prune_keep_days} || true"
+  )
 
   rollup_script = <<-EOT
     set -e
@@ -126,12 +188,13 @@ locals {
     # (see agency_batch.py's own docstring), but the container's own exit code
     # still needs to go nonzero on a bad day so ECS/CloudWatch alarms still fire.
     set +e
-    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs --include-snapshot --exclude-agency ${join(" ", local.heavy_agencies)}
+    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --stages ${local.main_stages} --exclude-agency ${join(" ", local.heavy_agencies)}
     AGENCY_STATUS=$?
     set -e
     if [ "$AGENCY_STATUS" -ne 0 ]; then
       echo "agency_batch: one or more agencies failed for $DAY -- see per-agency log lines above" >&2
     fi
+    ${local.main_prune}
     # cert_check.py and s3_storage_metrics.py used to run here as auxiliary
     # `|| true` steps. Split out 2026-08-06 into their own scheduled ECS tasks
     # (cert_check.tf, aux_schedule.tf) — neither touches curated_dir or takes

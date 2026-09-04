@@ -16,20 +16,30 @@ resource "aws_s3_bucket_public_access_block" "landing" {
   restrict_public_buckets = true
 }
 
-# Expire landing objects after a short buffer. There is no S3-aware prune yet
-# (Shipper.prune still deletes the LOCAL landing); this lifecycle rule is what
-# keeps the S3 landing from accumulating forever until step 4 replaces it.
+# NO object expiry here, on purpose. This bucket used to carry an
+# `expire-landing` rule that deleted everything older than 7 days, and it was
+# the only thing cleaning landing at all -- prune_s3.py existed but was never
+# scheduled. A time rule can't tell a shipped day from an unshipped one, so
+# every night the rollup task OOM-killed an agency, that agency's raw bins were
+# deleted a week later having never reached cold. That cost BKK, Edmonton and
+# Houston multiple days, all of GO_AHEAD, and Aug 23-24 fleet-wide before it was
+# caught (2026-09-03).
+#
+# Cleanup is now Shipper.prune_s3, run at the end of the nightly rollup task
+# (see rollup.tf's rollup_script): it deletes a day only once that day's cold
+# tarball is confirmed in S3, so nothing unarchived is ever removed and a stuck
+# feed piles up visibly instead of silently evaporating. Steady state is
+# ~keep-days rather than 7, so this is also a net storage REDUCTION.
+#
+# The MPU rule stays: aborting interrupted multipart uploads is hygiene, not
+# retention, and it can't touch a completed object.
 resource "aws_s3_bucket_lifecycle_configuration" "landing" {
   bucket = aws_s3_bucket.landing.id
 
   rule {
-    id     = "expire-landing"
+    id     = "landing-abort-mpu"
     status = "Enabled"
     filter {} # whole bucket
-    expiration {
-      days = var.landing_retention_days
-    }
-    # Clean up any interrupted multipart uploads too.
     abort_incomplete_multipart_upload {
       days_after_initiation = 1
     }

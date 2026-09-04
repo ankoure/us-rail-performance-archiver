@@ -46,9 +46,14 @@ resource "aws_iam_role_policy" "rollup_task_s3" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "ReadLanding"
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:ListBucket"]
+        Sid    = "ReadLanding"
+        Effect = "Allow"
+        # DeleteObject added 2026-09-03: this task now runs prune_s3.py at the
+        # end of its nightly script, which is what cleans landing since the
+        # blind expire-landing lifecycle rule was removed (see landing.tf).
+        # Scoped to landing only -- the task must never be able to delete from
+        # hot or cold, which is why this isn't folded into WriteProdHotCold.
+        Action   = ["s3:GetObject", "s3:ListBucket", "s3:DeleteObject"]
         Resource = [aws_s3_bucket.landing.arn, "${aws_s3_bucket.landing.arn}/*"]
       },
       {
