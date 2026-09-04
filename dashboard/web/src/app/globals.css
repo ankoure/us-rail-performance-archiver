@@ -556,3 +556,112 @@ th {
   color: var(--status-critical);
   font-size: 14px;
 }
+
+/* --- Support page --- */
+
+.support-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0;
+}
+
+/* Reads as the page's one primary action; the Ko-fi variant sits a step back. */
+.support-button {
+  padding: 9px 16px;
+  border: 1px solid var(--foreground);
+  border-radius: 6px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.support-button:hover {
+  opacity: 0.85;
+}
+
+.support-button-secondary {
+  border-color: var(--baseline);
+  background: transparent;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.support-button-secondary:hover {
+  border-color: var(--foreground);
+  opacity: 1;
+}
+
+.support-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+}
+
+.support-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.support-list-what {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.support-list-amount {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.support-list-detail {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.support-inline-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--series-1);
+}
+
+.support-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+}
+
+.support-tiers li {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+}
+
+.support-tier-amount {
+  flex: 0 0 72px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.support-tier-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.support-tier-what {
+  font-size: 14px;
+}
+
+.support-tier-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+}

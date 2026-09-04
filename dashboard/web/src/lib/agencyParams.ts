@@ -19,7 +19,7 @@ import { parse } from "yaml";
 const FEEDS_CONFIG = join(process.cwd(), "..", "..", "config", "feeds.yaml");
 
 interface FeedsConfig {
-  agencies?: { agency_id: string }[];
+  agencies?: { agency_id: string; feeds?: unknown[] }[];
 }
 
 export function agencyIds(): string[] {
@@ -29,4 +29,18 @@ export function agencyIds(): string[] {
 
 export function generateStaticParams(): { agencyId: string }[] {
   return agencyIds().map((agencyId) => ({ agencyId }));
+}
+
+/**
+ * Configured agency and feed totals, for the headline stats on /support.
+ * Read from the same build-time config as the routes above so the numbers on
+ * that page can't drift out of date as feeds are onboarded.
+ */
+export function feedCounts(): { agencies: number; feeds: number } {
+  const raw = parse(readFileSync(FEEDS_CONFIG, "utf8")) as FeedsConfig;
+  const agencies = raw.agencies ?? [];
+  return {
+    agencies: agencies.length,
+    feeds: agencies.reduce((n, a) => n + (a.feeds?.length ?? 0), 0),
+  };
 }

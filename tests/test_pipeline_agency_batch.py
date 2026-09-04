@@ -47,6 +47,14 @@ agencies:
 DAY = date(2026, 8, 17)
 
 
+def _stages(*, gtfs: bool = False, snapshot: bool = False) -> list[str]:
+    """The pre---stages default chain, so these tests keep asserting the
+    behaviour the combined nightly task actually gets."""
+    return agency_batch.resolve_stages(
+        None, include_gtfs=gtfs, include_snapshot=snapshot
+    )
+
+
 @pytest.fixture
 def config_path(tmp_path) -> Path:
     p = tmp_path / "feeds.yaml"
@@ -77,8 +85,7 @@ def test_run_agency_command_sequence(monkeypatch):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=True,
-        include_snapshot=False,
+        stages=_stages(gtfs=True),
         curated_dir=Path("unused"),
         cleanup=False,
     )
@@ -86,6 +93,9 @@ def test_run_agency_command_sequence(monkeypatch):
     assert result.ok
     scripts = [c[1] for c in calls]
     assert scripts == [
+        # archive-first: the cold tarball ships before anything can fail
+        "pipeline/ship.py",
+        "pipeline/ship.py",
         "pipeline/rollup.py",
         "pipeline/rollup.py",
         "pipeline/gtfs.py",
@@ -93,18 +103,20 @@ def test_run_agency_command_sequence(monkeypatch):
         "pipeline/ship.py",
         "pipeline/ship.py",
     ]
+    assert all("--cold-only" in c for c in calls[:2])
+    assert all("--cold-only" not in c for c in calls[2:])
 
     # rollup/ship get one feed each, as separate invocations (singular --feed)
-    rollup_feeds = {
-        calls[0][calls[0].index("--feed") + 1],
-        calls[1][calls[1].index("--feed") + 1],
-    }
-    assert rollup_feeds == {"wmata-trips", "wmata-vehicles"}
+    for pair in (calls[:2], calls[2:4], calls[6:]):
+        assert {c[c.index("--feed") + 1] for c in pair} == {
+            "wmata-trips",
+            "wmata-vehicles",
+        }
 
     # gtfs/gold get both feed names in one invocation, with --feed last (nargs="+" is greedy)
-    gtfs_cmd = calls[2]
+    gtfs_cmd = calls[4]
     assert gtfs_cmd[-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
-    gold_cmd = calls[3]
+    gold_cmd = calls[5]
     assert gold_cmd[-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
 
 
@@ -123,8 +135,7 @@ def test_run_agency_without_gtfs_skips_it(monkeypatch):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=False,
-        include_snapshot=False,
+        stages=_stages(),
         curated_dir=Path("unused"),
         cleanup=False,
     )
@@ -147,17 +158,20 @@ def test_run_agency_with_snapshot_included(monkeypatch):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=False,
-        include_snapshot=True,
+        stages=_stages(snapshot=True),
         curated_dir=Path("unused"),
         cleanup=False,
     )
 
-    # snapshot runs first, once, with both feed names, --feed last (nargs="+" is greedy)
+    # snapshot runs once, with both feed names, --feed last (nargs="+" is greedy).
+    # It sits after gold and before the final ship: nothing but the snapshot ship
+    # reads its output, so a snapshot failure shouldn't cost the marts either.
     scripts = [c[1] for c in calls]
-    assert scripts[0] == "pipeline/snapshot.py"
-    assert calls[0][-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
     assert scripts.count("pipeline/snapshot.py") == 1
+    snapshot_at = scripts.index("pipeline/snapshot.py")
+    assert scripts[snapshot_at - 1] == "pipeline/gold.py"
+    assert scripts[snapshot_at + 1] == "pipeline/ship.py"
+    assert calls[snapshot_at][-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
 
 
 def test_run_agency_stops_after_first_failure(monkeypatch):
@@ -176,8 +190,7 @@ def test_run_agency_stops_after_first_failure(monkeypatch):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=False,
-        include_snapshot=False,
+        stages=_stages(),
         curated_dir=Path("unused"),
         cleanup=False,
     )
@@ -185,12 +198,143 @@ def test_run_agency_stops_after_first_failure(monkeypatch):
     assert not result.ok
     assert result.returncode == 1
     assert result.failed_cmd is not None and "pipeline/rollup.py" in result.failed_cmd
-    # gold.py/ship.py must never have been invoked once the first rollup call failed
-    assert all(
-        "pipeline/gold.py" not in c and "pipeline/ship.py" not in c for c in calls
-    )
+    # gold.py and the final (full) ship must never have been invoked once the
+    # first rollup call failed -- but the archive-first cold ships already have.
+    assert all("pipeline/gold.py" not in c for c in calls)
+    ships = [c for c in calls if "pipeline/ship.py" in c]
+    assert len(ships) == 2 and all("--cold-only" in c for c in ships)
     # only one rollup call happened -- the second feed's rollup never ran either
     assert sum(1 for c in calls if "pipeline/rollup.py" in c) == 1
+
+
+def test_run_agency_archive_first_ship_failure_is_not_fatal(monkeypatch):
+    """A failed cold ship must not skip the agency's chain.
+
+    The full ship at the end retries it, so treating a transient S3 failure here
+    as fatal would trade one missing tarball for the whole agency's output.
+    """
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(cmd)
+        rc = 1 if "--cold-only" in cmd else 0
+        return subprocess.CompletedProcess(cmd, rc)
+
+    monkeypatch.setattr(agency_batch.subprocess, "run", fake_run)
+
+    result = agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        stages=_stages(),
+        curated_dir=Path("unused"),
+        cleanup=False,
+    )
+
+    assert result.ok
+    scripts = [c[1] for c in calls]
+    assert scripts == [
+        "pipeline/ship.py",
+        "pipeline/ship.py",
+        "pipeline/rollup.py",
+        "pipeline/rollup.py",
+        "pipeline/gold.py",
+        "pipeline/ship.py",
+        "pipeline/ship.py",
+    ]
+
+
+def test_resolve_stages_defaults_match_the_include_flags():
+    assert agency_batch.resolve_stages(
+        None, include_gtfs=False, include_snapshot=False
+    ) == ["cold-ship", "rollup", "gold", "hot-ship"]
+    assert agency_batch.resolve_stages(
+        None, include_gtfs=True, include_snapshot=True
+    ) == ["cold-ship", "rollup", "gtfs", "gold", "snapshot", "hot-ship"]
+
+
+def test_resolve_stages_is_canonically_ordered_not_argv_ordered():
+    assert agency_batch.resolve_stages(
+        ["hot-ship", "gold", "rollup"], include_gtfs=False, include_snapshot=False
+    ) == ["rollup", "gold", "hot-ship"]
+
+
+def test_resolve_stages_implies_hot_ship_for_producers():
+    """Selecting a producer without hot-ship would strand parquet on ephemeral
+    disk -- the silent no-op that sank the earlier stage-split attempt."""
+    for producer in ("rollup", "gtfs", "gold", "snapshot"):
+        got = agency_batch.resolve_stages(
+            [producer], include_gtfs=False, include_snapshot=False
+        )
+        assert got == [producer, "hot-ship"], producer
+
+
+def test_resolve_stages_cold_ship_alone_does_not_imply_hot_ship():
+    """cold-ship produces nothing in curated_dir, so the archive-only task
+    shouldn't pay for a pointless hot ship of every feed."""
+    assert agency_batch.resolve_stages(
+        ["cold-ship"], include_gtfs=False, include_snapshot=False
+    ) == ["cold-ship"]
+
+
+def test_run_agency_single_stage_runs_only_that_stage(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(agency_batch.subprocess, "run", fake_run)
+
+    agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        stages=agency_batch.resolve_stages(
+            ["snapshot"], include_gtfs=False, include_snapshot=False
+        ),
+        curated_dir=Path("unused"),
+        cleanup=False,
+    )
+
+    # snapshot (one call, all feeds) then the implied hot ship (one per feed).
+    # No cold ship, no rollup, no gold.
+    assert [c[1] for c in calls] == [
+        "pipeline/snapshot.py",
+        "pipeline/ship.py",
+        "pipeline/ship.py",
+    ]
+    assert all("--cold-only" not in c for c in calls)
+
+
+def test_run_agency_cold_ship_stage_alone(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(agency_batch.subprocess, "run", fake_run)
+
+    agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        stages=agency_batch.resolve_stages(
+            ["cold-ship"], include_gtfs=False, include_snapshot=False
+        ),
+        curated_dir=Path("unused"),
+        cleanup=False,
+    )
+
+    assert [c[1] for c in calls] == ["pipeline/ship.py", "pipeline/ship.py"]
+    assert all("--cold-only" in c for c in calls)
 
 
 def test_run_all_one_agency_failing_does_not_block_others(monkeypatch):
@@ -209,8 +353,7 @@ def test_run_all_one_agency_failing_does_not_block_others(monkeypatch):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=False,
-        include_snapshot=False,
+        stages=_stages(),
         workers=2,
         curated_dir=Path("unused"),
         cleanup=False,
@@ -342,8 +485,7 @@ def test_run_agency_cleans_up_on_success_and_on_failure(monkeypatch, tmp_path):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=False,
-        include_snapshot=False,
+        stages=_stages(),
         curated_dir=curated,
         cleanup=True,
     )
@@ -366,8 +508,7 @@ def test_run_agency_cleans_up_on_success_and_on_failure(monkeypatch, tmp_path):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=False,
-        include_snapshot=False,
+        stages=_stages(),
         curated_dir=curated,
         cleanup=True,
     )
@@ -393,8 +534,7 @@ def test_run_agency_no_cleanup_leaves_files(monkeypatch, tmp_path):
         config="cfg.yaml",
         day=DAY,
         force=False,
-        include_gtfs=False,
-        include_snapshot=False,
+        stages=_stages(),
         curated_dir=curated,
         cleanup=False,
     )

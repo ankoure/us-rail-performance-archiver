@@ -13,6 +13,9 @@ export function SiteHeader() {
       <Link href="/compare" className="navbar-link">
         Compare
       </Link>
+      <Link href="/support" className="navbar-link">
+        Support
+      </Link>
     </nav>
   );
 }
