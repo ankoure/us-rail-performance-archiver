@@ -1045,9 +1045,17 @@ def assert_silver_present(silver_dir: Path | str) -> None:
     the NOTE in terraform/rollup.tf).
 
     So the check is on the INPUT TREE, not on an aggregate of per-feed results:
-    "every feed skipped" is ambiguous (an alerts-only agency does that legitimately),
-    whereas "the silver root holds no feed partitions at all" is not. Cheap, and
-    it cannot false-positive on a sparse day.
+    "every feed skipped" is ambiguous (an alerts-only agency does that
+    legitimately), whereas "the silver root holds no feed partitions at all" is
+    not -- PROVIDED the tree is a stable one gold did not itself produce.
+
+    Callers must only apply this to a silver tree owned by someone else (see
+    main(): it runs only when --silver-dir is given). Applied to the combined
+    task's local curated_dir it false-positives, because agency_batch runs
+    agencies concurrently and clean_agency_curated deletes each one's output as
+    it ships -- so the shared tree is legitimately empty at arbitrary moments.
+    That regressed BENTON_AREA_TRANSPORTATION (an alerts-only agency, so it
+    writes no vehicles/ or trip_updates/ partition of its own) on 2026-09-03.
     """
     fs, base = curated_fs(silver_dir)
     if any(has_any(fs, f"{base}/{sub}") for sub in _SOURCE_SUBDIR.values()):
@@ -1056,7 +1064,7 @@ def assert_silver_present(silver_dir: Path | str) -> None:
         f"no silver partitions under {silver_dir} "
         f"({', '.join(sorted(_SOURCE_SUBDIR.values()))}) — refusing to report "
         "success for a run that would skip every feed. Did rollup run, and is "
-        "--curated-dir pointing at its output?"
+        "--silver-dir pointing at its output?"
     )
 
 
@@ -1076,11 +1084,15 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    try:
-        assert_silver_present(silver_dir)
-    except FileNotFoundError as e:
-        print(f"[gold] FATAL — {e}", file=sys.stderr)
-        return 1
+    # Only when reading a tree gold did not produce. In the combined task
+    # silver_dir IS curated_dir, which rollup fills in this same container and
+    # clean_agency_curated concurrently empties -- see assert_silver_present.
+    if args.silver_dir is not None:
+        try:
+            assert_silver_present(silver_dir)
+        except FileNotFoundError as e:
+            print(f"[gold] FATAL — {e}", file=sys.stderr)
+            return 1
     feed_tz_map = load_feed_tz_map(args.config)
     if args.feed:
         feeds = args.feed

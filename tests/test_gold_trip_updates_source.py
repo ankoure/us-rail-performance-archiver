@@ -138,24 +138,6 @@ def test_explicit_feed_is_still_honored(config_path, listed, monkeypatch, curate
     assert seen == ["listed-vehicles"]
 
 
-def test_main_refuses_an_empty_silver_tree(config_path, monkeypatch, tmp_path):
-    """The 2026-07-31 stage-split failure mode: gold in its own task with fresh
-    ephemeral disk skipped all ~204 agencies and still exited 0."""
-    empty = tmp_path / "empty-curated"
-    empty.mkdir()
-    monkeypatch.setattr(gold, "_make_gtfs_resolver", lambda args: None)
-    monkeypatch.setattr(
-        gold, "build_one", lambda *a, **kw: pytest.fail("must not build anything")
-    )
-    assert (
-        gold.main(
-            ["--config", str(config_path), "--day", "2026-08-31"]
-            + ["--curated-dir", str(empty)]
-        )
-        == 1
-    )
-
-
 def test_main_allows_a_sparse_tree(config_path, monkeypatch, curated_dir):
     """A feed with no partition of its own is a normal skip, not a failure --
     alerts-only feeds never have a vehicles/ partition."""
@@ -166,4 +148,49 @@ def test_main_allows_a_sparse_tree(config_path, monkeypatch, curated_dir):
             + ["--day", "2026-08-31", "--curated-dir", str(curated_dir)]
         )
         == 0
+    )
+
+
+def test_empty_local_tree_is_not_fatal_without_silver_dir(
+    config_path, monkeypatch, tmp_path
+):
+    """Regression: BENTON_AREA_TRANSPORTATION, 2026-09-03.
+
+    agency_batch runs agencies concurrently and clean_agency_curated deletes
+    each one's curated output as it ships, so the shared local tree is
+    legitimately empty at arbitrary moments. An alerts-only agency writes no
+    vehicles/ or trip_updates/ partition of its own, so the guard saw an empty
+    tree and exited 1 -- failing the agency and skipping its ship. The guard is
+    only valid for a silver tree gold did NOT produce, i.e. when --silver-dir
+    is given.
+    """
+    empty = tmp_path / "empty-curated"
+    empty.mkdir()
+    monkeypatch.setattr(gold, "_make_gtfs_resolver", lambda args: None)
+    assert (
+        gold.main(
+            ["--config", str(config_path), "--feed", "listed-alerts"]
+            + ["--day", "2026-08-31", "--curated-dir", str(empty)]
+        )
+        == 0
+    )
+
+
+def test_empty_remote_tree_is_still_fatal_with_silver_dir(
+    config_path, monkeypatch, tmp_path
+):
+    """The split gold task's case, which the guard exists for: gold pointed at
+    someone else's silver tree that turns out to be empty."""
+    empty = tmp_path / "empty-silver"
+    empty.mkdir()
+    monkeypatch.setattr(gold, "_make_gtfs_resolver", lambda args: None)
+    monkeypatch.setattr(
+        gold, "build_one", lambda *a, **kw: pytest.fail("must not build anything")
+    )
+    assert (
+        gold.main(
+            ["--config", str(config_path), "--day", "2026-08-31"]
+            + ["--curated-dir", str(tmp_path / "out"), "--silver-dir", str(empty)]
+        )
+        == 1
     )

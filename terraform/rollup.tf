@@ -308,13 +308,25 @@ locals {
   rollup_heavy_script = <<-EOT
     set -e
     DAY="$${ROLLUP_DAY:-$(date -u -d yesterday +%F)}"
-    echo "rollup_heavy day: $DAY, agencies: ${join(" ", local.heavy_agencies)}"
+    # Overridable per run for the same reason ROLLUP_DAY is: a recovery run for
+    # a past day often wants only the stages that read LANDING (cold-ship,
+    # rollup, snapshot), because landing is the input that expires --
+    # gold is rebuildable from shipped silver at any time via
+    # pipeline/gold_backfill.py, and gtfs marts are version-partitioned, not
+    # day-partitioned. Skipping the memory-hungry stages also keeps a backfill
+    # of these agencies well clear of the SIGKILLs that made the day need
+    # recovering (see local.heavy_agencies). Default is the full chain, which is
+    # exactly what --include-gtfs --include-snapshot resolved to before.
+    STAGES="$${ROLLUP_STAGES:-cold-ship rollup gtfs gold snapshot hot-ship}"
+    echo "rollup_heavy day: $DAY, stages: $STAGES, agencies: ${join(" ", local.heavy_agencies)}"
     python -c 'import os, yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["writer"]["rollup_source"] = "s3"; c["s3"]["hot_bucket"] = os.environ["HOT_BUCKET"]; c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
     START=$(date +%s)
     trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --metric pipeline.rollup_heavy.duration --seconds $(( $(date +%s) - START )) || true' EXIT
 
     set +e
-    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --include-gtfs --include-snapshot --workers 1 --agency ${join(" ", local.heavy_agencies)}
+    # $STAGES unquoted on purpose (word-split into separate argv entries);
+    # --agency stays last since both it and --stages are nargs="+".
+    python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --workers 1 --stages $STAGES --agency ${join(" ", local.heavy_agencies)}
     AGENCY_STATUS=$?
     set -e
     if [ "$AGENCY_STATUS" -ne 0 ]; then

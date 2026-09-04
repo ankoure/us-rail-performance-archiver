@@ -11,10 +11,24 @@
 # never drift from what's actually deployed.
 #
 # Usage:
-#   scripts/run_task.sh <task-family> [--spot] [--profile PROFILE]
+#   scripts/run_task.sh <task-family> [--day YYYY-MM-DD] [--stages "S1 S2"] \
+#       [--spot] [--profile PROFILE]
+#
+# --day sets ROLLUP_DAY on the task's main container, which is how every
+# agency_batch-driven task targets a past day instead of its default
+# `${ROLLUP_DAY:-$(date -u -d yesterday +%F)}` (terraform/rollup.tf,
+# terraform/stages.tf). Re-runs are safe: ship.py skips any object already in
+# S3 unless --force, so a day that only partly shipped fills in its gaps.
+#
+# --stages sets ROLLUP_STAGES, narrowing agency_batch to part of the chain.
+# Only rail-archiver-rollup-heavy reads it today; the per-stage tasks are
+# already single-stage by construction (terraform/stages.tf).
 #
 # Examples:
 #   scripts/run_task.sh rail-archiver-rollup --profile KourePowerUser
+#   scripts/run_task.sh rail-archiver-rollup-heavy --day 2026-08-27 --profile KourePowerUser
+#   scripts/run_task.sh rail-archiver-rollup-heavy --day 2026-08-27 \
+#       --stages "cold-ship rollup hot-ship" --profile KourePowerUser
 #   scripts/run_task.sh rail-archiver-historic-511-otp --spot --profile KourePowerUser
 #
 # Task families (see terraform/*.tf): rail-archiver-rollup,
@@ -25,18 +39,32 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "usage: $0 <task-family> [--spot] [--profile PROFILE]" >&2
+  echo "usage: $0 <task-family> [--day YYYY-MM-DD] [--stages \"S1 S2\"] [--spot] [--profile PROFILE]" >&2
   exit 1
 fi
 
 task_family="$1"
 shift
 
+# Canonical stage names, mirroring agency_batch.py's STAGES. Validated here so a
+# typo fails in a second instead of after a task has spun up and exited 2.
+readonly VALID_STAGES=(cold-ship rollup gtfs gold snapshot hot-ship)
+
 spot=false
+day=""
+stages=""
 profile_args=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --day)
+      day="$2"
+      shift 2
+      ;;
+    --stages)
+      stages="$2"
+      shift 2
+      ;;
     --spot)
       spot=true
       shift
@@ -59,6 +87,40 @@ cluster=$(terraform -chdir="$tf_dir" output -raw rollup_cluster)
 subnets=$(terraform -chdir="$tf_dir" output -json rollup_subnet_ids | jq -r 'join(",")')
 security_group=$(terraform -chdir="$tf_dir" output -raw rollup_security_group)
 
+env_json="[]"
+
+add_env() {
+  env_json=$(jq -c --arg n "$1" --arg v "$2" '. + [{name: $n, value: $v}]' <<<"$env_json")
+}
+
+if [[ -n "$day" ]]; then
+  [[ "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
+    echo "--day must be YYYY-MM-DD, got: $day" >&2
+    exit 1
+  }
+  add_env ROLLUP_DAY "$day"
+fi
+
+if [[ -n "$stages" ]]; then
+  for stage in $stages; do
+    [[ " ${VALID_STAGES[*]} " == *" $stage "* ]] || {
+      echo "unknown stage: $stage (valid: ${VALID_STAGES[*]})" >&2
+      exit 1
+    }
+  done
+  add_env ROLLUP_STAGES "$stages"
+fi
+
+# The container to override is the task's own, not the datadog-agent sidecar.
+# Names are set in the task definitions and follow the family minus its
+# "rail-archiver-" prefix (rollup, rollup-heavy, stage-gold, ...).
+override_args=()
+if [[ "$env_json" != "[]" ]]; then
+  container="${task_family#rail-archiver-}"
+  override_args=(--overrides "$(jq -cn --arg c "$container" --argjson e "$env_json" \
+    '{containerOverrides: [{name: $c, environment: $e}]}')")
+fi
+
 launch_args=(--launch-type FARGATE)
 if $spot; then
   # aws ecs run-task rejects --launch-type FARGATE_SPOT outright; Spot is only
@@ -73,5 +135,6 @@ aws ecs run-task \
   --task-definition "$task_family" \
   --count 1 \
   "${launch_args[@]}" \
+  "${override_args[@]+"${override_args[@]}"}" \
   --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$security_group],assignPublicIp=ENABLED}" \
   --tags key=trigger,value=manual
