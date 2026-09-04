@@ -57,13 +57,29 @@ class Shipper:
         self.landing_bucket = landing_bucket
         self.landing_prefix = landing_prefix
 
-    def run(self, feed=None, day=None, *, force=False, hot_only=False, workers=4):
+    def run(
+        self,
+        feed=None,
+        day=None,
+        *,
+        force=False,
+        hot_only=False,
+        cold_only=False,
+        workers=4,
+    ):
         pairs = list(self._discover(feed, day))
         if not pairs:
             return
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = {
-                ex.submit(self.ship_one, fn, d, force=force, hot_only=hot_only): (fn, d)
+                ex.submit(
+                    self.ship_one,
+                    fn,
+                    d,
+                    force=force,
+                    hot_only=hot_only,
+                    cold_only=cold_only,
+                ): (fn, d)
                 for fn, d in pairs
             }
             for fut in as_completed(futures):
@@ -80,9 +96,18 @@ class Shipper:
         *,
         force: bool = False,
         hot_only: bool = False,
+        cold_only: bool = False,
     ) -> None:
+        """Ship one (feed, day). `hot_only` and `cold_only` are mirrors of each
+        other and mutually exclusive: the cold tarball is built from landing
+        alone, while hot parquet and snapshots come from the curated tree the
+        rollup/gold/snapshot steps write. Splitting them lets the batch archive
+        landing BEFORE running any of those steps -- see pipeline/agency_batch.py.
+        """
         if not hot_only:
             self._ship_cold(feed_name, day, force=force)
+        if cold_only:
+            return
         self._ship_hot(feed_name, day, force=force)
         self._ship_snapshots(feed_name, day, force=force)
 

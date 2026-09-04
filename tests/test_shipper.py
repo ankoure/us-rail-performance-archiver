@@ -381,6 +381,60 @@ def test_ship_one_hot_only_with_force_still_skips_cold(dirs):
     assert len(hot) == 1
 
 
+def _write_snapshot(dirs):
+    snap_dir = (
+        dirs
+        / "curated"
+        / "snapshots"
+        / "alerts"
+        / f"feed={FEED}"
+        / f"year={DAY.year}"
+        / f"month={DAY.month}"
+        / f"day={DAY.day}"
+    )
+    snap_dir.mkdir(parents=True)
+    (snap_dir / "data.json.gz").write_bytes(b"\x1f\x8bfake")
+
+
+def test_ship_one_cold_only_skips_hot_and_snapshots(dirs, shipper):
+    # Both curated outputs exist, so "no upload" can only mean cold_only skipped
+    # them -- not that there was nothing to ship.
+    _write_snapshot(dirs)
+
+    shipper.ship_one(FEED, DAY, cold_only=True)
+    uploader = shipper.uploader
+
+    assert len([u for u in uploader.uploads if u.bucket == "cold-bucket"]) == 1
+    assert [u for u in uploader.uploads if u.bucket == "hot-bucket"] == []
+
+
+def test_run_threads_cold_only_through(dirs, shipper):
+    _write_snapshot(dirs)
+
+    shipper.run(cold_only=True)
+    uploader = shipper.uploader
+
+    assert len([u for u in uploader.uploads if u.bucket == "cold-bucket"]) == 1
+    assert [u for u in uploader.uploads if u.bucket == "hot-bucket"] == []
+
+
+def test_ship_one_cold_only_then_full_ship_skips_the_cold_reupload(dirs, shipper):
+    """The archive-first + end-of-chain ship pair agency_batch runs.
+
+    The second call must not re-upload the tarball to DEEP_ARCHIVE -- that's
+    what makes putting the cold ship first essentially free.
+    """
+    _write_snapshot(dirs)
+
+    shipper.ship_one(FEED, DAY, cold_only=True)
+    shipper.ship_one(FEED, DAY)
+    uploader = shipper.uploader
+
+    assert len([u for u in uploader.uploads if u.bucket == "cold-bucket"]) == 1
+    # parquet + snapshot, both from the second call
+    assert len([u for u in uploader.uploads if u.bucket == "hot-bucket"]) == 2
+
+
 def test_discover_filters_today_and_future(tmp_path):
     today = datetime.now(tz=timezone.utc).date()
     for day in (date(2020, 1, 1), today):
