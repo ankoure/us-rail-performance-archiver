@@ -96,27 +96,36 @@ def test_run_agency_command_sequence(monkeypatch):
         # archive-first: the cold tarball ships before anything can fail
         "pipeline/ship.py",
         "pipeline/ship.py",
+        # each feed's rollup is immediately followed by ITS OWN hot-ship,
+        # rather than deferring all shipping to the end of the chain -- see
+        # run_agency's docstring for why (GO_AHEAD's silver never reaching S3
+        # before gtfs OOMed downstream).
         "pipeline/rollup.py",
+        "pipeline/ship.py",
         "pipeline/rollup.py",
+        "pipeline/ship.py",
         "pipeline/gtfs.py",
         "pipeline/gold.py",
+        # the catch-all final ship still runs for every feed, to pick up
+        # gtfs/gold's output the interim ships above couldn't have shipped yet
         "pipeline/ship.py",
         "pipeline/ship.py",
     ]
     assert all("--cold-only" in c for c in calls[:2])
     assert all("--cold-only" not in c for c in calls[2:])
 
-    # rollup/ship get one feed each, as separate invocations (singular --feed)
-    for pair in (calls[:2], calls[2:4], calls[6:]):
+    # cold-ship, the interim per-feed ships, and the final ships each get one
+    # feed per invocation (singular --feed)
+    for pair in (calls[:2], (calls[2], calls[4]), (calls[3], calls[5]), calls[8:]):
         assert {c[c.index("--feed") + 1] for c in pair} == {
             "wmata-trips",
             "wmata-vehicles",
         }
 
     # gtfs/gold get both feed names in one invocation, with --feed last (nargs="+" is greedy)
-    gtfs_cmd = calls[4]
+    gtfs_cmd = calls[6]
     assert gtfs_cmd[-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
-    gold_cmd = calls[5]
+    gold_cmd = calls[7]
     assert gold_cmd[-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
 
 
@@ -207,6 +216,95 @@ def test_run_agency_stops_after_first_failure(monkeypatch):
     assert sum(1 for c in calls if "pipeline/rollup.py" in c) == 1
 
 
+def test_run_agency_rollup_output_ships_even_when_gtfs_fails_after_it(monkeypatch):
+    """Regression for the GO_AHEAD incident: before each feed's hot-ship moved
+    to run immediately after ITS rollup, a downstream gtfs/gold OOM stopped
+    the fail-fast chain before the single end-of-chain ship ever ran --
+    silently discarding rollup's already-successful output along with it
+    (see run_agency's docstring). gtfs failing must not undo rollup's ship."""
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(cmd)
+        rc = 1 if "pipeline/gtfs.py" in cmd else 0
+        return subprocess.CompletedProcess(cmd, rc)
+
+    monkeypatch.setattr(agency_batch.subprocess, "run", fake_run)
+
+    result = agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        stages=_stages(gtfs=True),
+        curated_dir=Path("unused"),
+        cleanup=False,
+    )
+
+    assert not result.ok
+    assert result.failed_cmd is not None and "pipeline/gtfs.py" in result.failed_cmd
+    # both feeds' rollup AND their interim (non-cold) hot-ship already ran,
+    # before gtfs ever got a chance to fail
+    assert sum(1 for c in calls if "pipeline/rollup.py" in c) == 2
+    non_cold_ships = [
+        c for c in calls if "pipeline/ship.py" in c and "--cold-only" not in c
+    ]
+    assert len(non_cold_ships) == 2
+    assert {c[c.index("--feed") + 1] for c in non_cold_ships} == {
+        "wmata-trips",
+        "wmata-vehicles",
+    }
+    # gold never ran -- the chain still correctly stops at gtfs's failure
+    assert all("pipeline/gold.py" not in c for c in calls)
+
+
+def test_run_agency_interim_ship_failure_is_not_fatal(monkeypatch):
+    """Same non-fatal treatment as the archive-first cold ship: a transient S3
+    failure shipping rollup's freshly-produced silver must not also block
+    gtfs/gold, since the catch-all ship at the end of the chain retries it.
+
+    The interim and final ship.py invocations for a feed are identical
+    commands, so this fails only the FIRST (interim) one per feed and lets
+    the second (final, catch-all) succeed -- exactly what a real transient S3
+    blip followed by a successful retry looks like.
+    """
+    calls = []
+    ship_calls_per_feed: dict[str, int] = {}
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(cmd)
+        if "pipeline/ship.py" in cmd and "--cold-only" not in cmd:
+            feed = cmd[cmd.index("--feed") + 1]
+            ship_calls_per_feed[feed] = ship_calls_per_feed.get(feed, 0) + 1
+            if ship_calls_per_feed[feed] == 1:
+                return subprocess.CompletedProcess(cmd, 1)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(agency_batch.subprocess, "run", fake_run)
+
+    result = agency_batch.run_agency(
+        "WMATA",
+        ["wmata-trips", "wmata-vehicles"],
+        config="cfg.yaml",
+        day=DAY,
+        force=False,
+        stages=_stages(),
+        curated_dir=Path("unused"),
+        cleanup=False,
+    )
+
+    assert result.ok
+    # gold still ran despite both feeds' interim ship failing
+    assert sum(1 for c in calls if "pipeline/gold.py" in c) == 1
+    # each feed's ship.py ran twice: the failed interim one, then the
+    # successful final catch-all
+    non_cold_ships = [
+        c for c in calls if "pipeline/ship.py" in c and "--cold-only" not in c
+    ]
+    assert len(non_cold_ships) == 4
+
+
 def test_run_agency_archive_first_ship_failure_is_not_fatal(monkeypatch):
     """A failed cold ship must not skip the agency's chain.
 
@@ -239,7 +337,9 @@ def test_run_agency_archive_first_ship_failure_is_not_fatal(monkeypatch):
         "pipeline/ship.py",
         "pipeline/ship.py",
         "pipeline/rollup.py",
+        "pipeline/ship.py",
         "pipeline/rollup.py",
+        "pipeline/ship.py",
         "pipeline/gold.py",
         "pipeline/ship.py",
         "pipeline/ship.py",

@@ -1,5 +1,6 @@
-"""Run ship --cold-only -> rollup -> [gtfs] -> gold -> [snapshot] -> ship per
-agency (see run_agency for why the cold ship leads), each step a disposable
+"""Run ship --cold-only -> [rollup(feed) -> ship(feed)] per feed -> [gtfs] ->
+gold -> [snapshot] -> ship per agency (see run_agency for why the cold ship
+leads and each feed's rollup ships immediately), each step a disposable
 `python pipeline/X.py` subprocess, so the OS reclaims pandas/pyarrow allocations
 agency-by-agency instead of one long-lived process accumulating them across all
 ~186 agencies (see terraform/rollup.tf's rollup_memory variable description for
@@ -299,8 +300,9 @@ def run_agency(
     silver_dir: str | None = None,
 ) -> AgencyResult:
     """Run this agency's slice of `stages` (already canonically ordered by
-    resolve_stages): ship --cold-only(each feed) -> rollup(each feed) ->
-    gtfs(all feeds) -> gold(all feeds) -> snapshot(all feeds) -> ship(each feed).
+    resolve_stages): ship --cold-only(each feed) -> [rollup(feed) -> ship(feed)]
+    per feed -> gtfs(all feeds) -> gold(all feeds) -> snapshot(all feeds) ->
+    ship(each feed).
 
     The leading cold ship is deliberate. The cold DEEP_ARCHIVE tarball is built
     from the landing zone alone (Shipper._ship_cold -> _build_tarball ->
@@ -313,6 +315,19 @@ def run_agency(
     missing TFNSW_API_KEY crashed snapshot.py during config load for the whole
     fleet on Aug 23-24, costing both days' tarballs for every agency. Archiving
     first makes a failure downstream cost a mart instead of the data.
+
+    Each feed's hot ship runs immediately after ITS rollup, not deferred to a
+    single end-of-chain ship -- same reasoning, one stage later. Before
+    2026-09-05, GO_AHEAD's rollup parquet for 2026-08-26..31 was computed
+    successfully but never reached S3 at all: gtfs.py OOMed right after, the
+    fail-fast chain stopped there, and the old single hot-ship at the end of
+    the chain never ran. resolve_stages guarantees "hot-ship" is in `stages`
+    whenever "rollup" is, so this always fires when rollup does. Unlike
+    rollup's own failure (which must still fail-fast -- gtfs/gold must not run
+    against stale or partial curated data), a failure shipping what rollup just
+    produced is non-fatal, exactly like the cold ship above: a transient S3
+    hiccup here shouldn't also block gtfs/gold, and the catch-all hot-ship pass
+    at the end of the chain retries it for free via ship.py's exists() check.
 
     For the same reason snapshot runs at the END of the fail-fast chain rather
     than the start: nothing reads its output except Shipper._ship_snapshots, so
@@ -345,22 +360,52 @@ def run_agency(
                     feed,
                 )
 
+    result_out = AgencyResult(agency_id, True)
+
+    # rollup is handled outside the generic dispatch below (same reasoning as
+    # cold-ship above) so each feed's hot-ship can fire right after ITS
+    # rollup, before gtfs/gold get a chance to fail-fast the rest of the
+    # chain -- see the docstring. rollup's own failure still fail-fasts
+    # (result_out.ok gates the rest of the chain below); the interim
+    # hot-ship's failure doesn't.
+    if "rollup" in stages:
+        for feed in feeds:
+            cmd = _rollup_cmd(feed, day_str, config, force)
+            result = subprocess.run(cmd)
+            if result.returncode != 0:
+                logger.error(
+                    "[%s] step failed (exit %d): %s",
+                    agency_id,
+                    result.returncode,
+                    " ".join(cmd),
+                )
+                result_out = AgencyResult(agency_id, False, cmd, result.returncode)
+                break
+            if "hot-ship" in stages:
+                ship_cmd = _ship_cmd(feed, day_str, config, force)
+                if subprocess.run(ship_cmd).returncode != 0:
+                    logger.error(
+                        "[%s] interim silver ship failed for %s, continuing",
+                        agency_id,
+                        feed,
+                    )
+
     # Per-feed stages get one invocation each; whole-agency stages get one
     # invocation with every feed name (their --feed is nargs="+" and greedy).
-    per_feed = {"rollup": _rollup_cmd, "hot-ship": _ship_cmd}
+    # rollup is deliberately absent here -- handled above.
     per_agency = {"gtfs": _gtfs_cmd, "gold": _gold_cmd, "snapshot": _snapshot_cmd}
     steps: list[list[str]] = []
-    for stage in stages:
-        if stage in per_feed:
-            steps += [per_feed[stage](f, day_str, config, force) for f in feeds]
-        elif stage == "gold":
-            steps.append(
-                _gold_cmd(feeds, day_str, config, force, silver_dir=silver_dir)
-            )
-        elif stage in per_agency:
-            steps.append(per_agency[stage](feeds, day_str, config, force))
+    if result_out.ok:
+        for stage in stages:
+            if stage == "hot-ship":
+                steps += [_ship_cmd(f, day_str, config, force) for f in feeds]
+            elif stage == "gold":
+                steps.append(
+                    _gold_cmd(feeds, day_str, config, force, silver_dir=silver_dir)
+                )
+            elif stage in per_agency:
+                steps.append(per_agency[stage](feeds, day_str, config, force))
 
-    result_out = AgencyResult(agency_id, True)
     for cmd in steps:
         result = subprocess.run(cmd)
         if result.returncode != 0:
