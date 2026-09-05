@@ -22,7 +22,7 @@ from archiver.config import (
     TelemetryConfig,
 )
 from archiver.rate_limit import NullRateLimiter, RateLimiter, TokenBucket
-from archiver.decoder import Decoder
+from archiver.decoder import AlertRow, Decoder
 from archiver.feed import Feed
 from archiver.parser import Parser
 from archiver.poll_state import PollStateStore
@@ -353,6 +353,15 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
             for agency in config.agencies
             for feed in agency.feeds
         },
+        # Same "names only" reasoning: Decoder.from_name only resolves the
+        # registered class, same as build_feeds does internally, without
+        # needing build_feeds' agency_id/shard filtering machinery.
+        feed_alerts_capable=frozenset(
+            feed.name
+            for agency in config.agencies
+            for feed in agency.feeds
+            if AlertRow in Decoder.from_name(feed.decoder).produces
+        ),
         # Local landing; used by prune. S3 landing bucket/prefix used by prune_s3.
         landing_dir=config.writer.landing_dir,
         landing_bucket=config.writer.landing_bucket,

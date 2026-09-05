@@ -293,6 +293,143 @@ def test_prune_keeps_recent_days(shipper):
     assert recent.exists(), "pruned a day inside the keep_days buffer"
 
 
+# --- prune_s3 --------------------------------------------------------------- #
+# The S3-landing counterpart to prune() above, used by the nightly batch's
+# archive stage (pipeline/prune_s3.py).
+
+
+@pytest.fixture
+def s3_shipper():
+    uploader = FakeUploader()
+    return Shipper(
+        source=S3Source(uploader, "landing-bucket", ""),
+        curated_dir=Path("/tmp/none"),
+        uploader=uploader,
+        cold_bucket="cold-bucket",
+        hot_bucket="hot-bucket",
+        feed_names=[FEED],
+        feed_alerts_capable=[FEED],
+        landing_bucket="landing-bucket",
+        landing_prefix="",
+    )
+
+
+def _seed_s3_landing(uploader, feed, day):
+    Y, M, D = day.year, day.month, day.day
+    uploader.put(
+        f"{feed}/metadata/year={Y}/month={M}/day={D}/data.jsonl", b'{"ts":1}\n'
+    )
+    uploader.put(f"{feed}/raw/year={Y}/month={M}/day={D}/1.bin", b"raw")
+
+
+def _s3_raw_keys(uploader, feed, day):
+    return uploader.list_keys(
+        "landing-bucket",
+        f"{feed}/raw/year={day.year}/month={day.month}/day={day.day}/",
+    )
+
+
+def test_prune_s3_requires_landing_bucket():
+    shipper = Shipper(
+        source=S3Source(FakeUploader(), "landing-bucket", ""),
+        curated_dir=Path("/tmp/none"),
+        uploader=FakeUploader(),
+        cold_bucket="c",
+        hot_bucket="h",
+    )
+    with pytest.raises(RuntimeError, match="S3 prune requires a staging bucket"):
+        shipper.prune_s3()
+
+
+def test_prune_s3_deletes_shipped_and_snapshotted_day(s3_shipper):
+    _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
+    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
+    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
+
+    result = s3_shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 1, "skipped": 0}
+    assert not _s3_raw_keys(s3_shipper.uploader, FEED, DAY)
+
+
+def test_prune_s3_skips_unshipped_day(s3_shipper):
+    _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
+    # No cold tarball marked existing.
+
+    result = s3_shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 0, "skipped": 1}
+    assert _s3_raw_keys(s3_shipper.uploader, FEED, DAY), (
+        "deleted raw that wasn't shipped!"
+    )
+
+
+def test_prune_s3_skips_alerts_capable_feed_without_snapshot(s3_shipper):
+    """Cold-ship runs before snapshot in the nightly chain (see
+    agency_batch.py's run_agency docstring), so the cold tarball existing is
+    not proof snapshot ever processed this day. A feed that OOMs in
+    snapshot.py every night (see local.heavy_agencies in terraform/rollup.tf)
+    must not have its landing data deleted just because it shipped cold."""
+    _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
+    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
+    # No snapshot object seeded.
+
+    result = s3_shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 0, "skipped": 1}
+    assert _s3_raw_keys(s3_shipper.uploader, FEED, DAY), "pruned before snapshot ran!"
+
+
+def test_prune_s3_ignores_snapshot_for_non_alerts_feed():
+    """A feed whose decoder never produces AlertRow gets no snapshot object,
+    ever -- prune must not wait forever for one that will never exist."""
+    uploader = FakeUploader()
+    shipper = Shipper(
+        source=S3Source(uploader, "landing-bucket", ""),
+        curated_dir=Path("/tmp/none"),
+        uploader=uploader,
+        cold_bucket="cold-bucket",
+        hot_bucket="hot-bucket",
+        feed_names=[FEED],
+        feed_alerts_capable=[],  # not alerts-capable
+        landing_bucket="landing-bucket",
+        landing_prefix="",
+    )
+    _seed_s3_landing(uploader, FEED, DAY)
+    uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+
+    result = shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 1, "skipped": 0}
+
+
+def test_prune_s3_dry_run_touches_nothing(s3_shipper):
+    _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
+    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
+    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
+
+    result = s3_shipper.prune_s3(keep_days=3, dry_run=True)
+
+    assert result == {"deleted": 1, "skipped": 0}  # would-be count
+    assert _s3_raw_keys(s3_shipper.uploader, FEED, DAY), "dry-run deleted from s3"
+
+
+def test_prune_s3_keeps_recent_days(s3_shipper):
+    today = datetime.now(tz=timezone.utc).date()
+    _seed_s3_landing(s3_shipper.uploader, FEED, today)
+    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, today))
+    s3_shipper.uploader.mark_existing(
+        "hot-bucket", s3_shipper._snapshot_key(FEED, today)
+    )
+
+    result = s3_shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 0, "skipped": 0}
+    assert _s3_raw_keys(s3_shipper.uploader, FEED, today), (
+        "pruned a day inside keep_days"
+    )
+
+
 def test_ship_one_skips_when_keys_exist(dirs):
     uploader = FakeUploader()
     shipper = Shipper(

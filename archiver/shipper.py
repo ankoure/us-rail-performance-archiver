@@ -30,6 +30,7 @@ class Shipper:
         *,
         feed_names: Iterable[str] = (),
         feed_agency: dict[str, str] | None = None,
+        feed_alerts_capable: Iterable[str] = (),
         landing_dir: Path | None = None,
         landing_bucket: str | None = None,
         landing_prefix: str = "",
@@ -51,6 +52,12 @@ class Shipper:
         # landing; that needs the configured feed list.
         self.feed_names = list(feed_names)
         self.feed_agency: dict[str, str] = feed_agency or {}
+        # Feeds whose decoder can produce AlertRow -- i.e. the ones snapshot.py
+        # actually processes (see pipeline/snapshot.py's own identical filter).
+        # prune_s3 uses this to know which feeds should have a snapshot object
+        # before their landing raw data is deleted; a feed that never produces
+        # alerts should not be held hostage waiting for one.
+        self.feed_alerts_capable: frozenset[str] = frozenset(feed_alerts_capable)
         # Local-only; used by prune (which deletes the on-box landing tree). None
         # on Fargate, where prune isn't run (S3 landing expires via lifecycle).
         self.landing_dir = landing_dir
@@ -195,6 +202,14 @@ class Shipper:
     def _hot_key(self, parquet: Path) -> str:
         rel = parquet.relative_to(self.curated_dir).as_posix()
         return f"{self.hot_prefix}{rel}"
+
+    def _snapshot_key(self, feed_name: str, day: date) -> str:
+        # Mirrors _curated_snapshots' partition shape (hardcoding "alerts" the
+        # same way that glob's own comment does -- one kind exists today).
+        return (
+            f"{self.hot_prefix}snapshots/alerts/feed={feed_name}/"
+            f"year={day.year}/month={day.month}/day={day.day}/data.json.gz"
+        )
 
     def _curated_parquets(self, feed_name: str, day: date) -> Iterator[Path]:
         # Silver datasets live one segment above feed= (e.g. vehicles/feed=...);
@@ -356,10 +371,19 @@ class Shipper:
         Delete landing-zone raw+metadata day-partitions older than keep_days.
 
         SAFETY: a day is deleted only if its cold tarball is confirmed in S3
-        (same exists() check ship uses). A day not yet shipped is skipped, never
-        deleted — so this is crash-safe and idempotent. `keep_days` retains that
-        many recent days as a buffer for re-rollups; `day` restricts to one day;
-        `dry_run` logs what it would delete without touching disk.
+        (same exists() check ship uses), AND -- for a feed whose decoder can
+        produce alerts -- its snapshot object is also confirmed in S3. Cold-ship
+        now runs before snapshot in the nightly chain (see agency_batch.py's
+        run_agency docstring), so the cold tarball existing is no longer proof
+        that snapshot ever got to this day. Without the second check, a feed
+        that OOMs in snapshot.py every night (see local.heavy_agencies in
+        terraform/rollup.tf) would still have its landing data pruned once the
+        day crosses keep_days, permanently losing snapshot's only input for a
+        day it never actually processed. A day not yet shipped, or not yet
+        snapshotted, is skipped, never deleted -- so this is crash-safe and
+        idempotent. `keep_days` retains that many recent days as a buffer for
+        re-rollups; `day` restricts to one day; `dry_run` logs what it would
+        delete without touching disk.
         """
         if self.landing_bucket is None:
             raise RuntimeError("S3 prune requires a staging bucket to be set ...")
@@ -385,6 +409,21 @@ class Shipper:
                     )
                     skipped += 1
                     continue
+                if feed_name in self.feed_alerts_capable:
+                    snapshot_key = self._snapshot_key(feed_name, partition_day)
+                    if not self.uploader.exists(self.hot_bucket, snapshot_key):
+                        logger.warning(
+                            "prune skip %s %s: no alert snapshot %s in s3 "
+                            "(snapshot.py hasn't succeeded for this day yet)",
+                            feed_name,
+                            partition_day,
+                            snapshot_key,
+                        )
+                        self.telemetry.incr(
+                            "prune.skipped_no_snapshot", tags={"feed": feed_name}
+                        )
+                        skipped += 1
+                        continue
                 for sub in ("raw", "metadata"):
                     prefix = f"{self.landing_prefix}{feed_name}/{sub}/year={partition_day.year}/month={partition_day.month}/day={partition_day.day}/"
                     keys = list(self.uploader.list_keys(self.landing_bucket, prefix))

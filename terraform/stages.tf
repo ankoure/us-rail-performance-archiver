@@ -6,14 +6,21 @@
 # ships are I/O-bound. Sizing them together made headroom untargetable -- giving
 # gold more memory meant giving rollup the same.
 #
-# These three stages read nothing that any other stage writes (gtfs pulls static
+# These four stages read nothing that any OTHER STAGE writes (gtfs pulls static
 # GTFS off the network, snapshot reads landing, cold-ship reads landing), so they
 # split out with no shared-storage problem at all -- unlike gold, which reads
-# rollup's silver parquet and is deferred to phase 2. That is what makes this
-# safe where the 2026-07-31 Step Functions split was not: see the NOTE in
-# rollup.tf, where gold saw an empty curated/ and silently no-op'd every feed.
+# rollup's silver parquet. That is what makes this safe where the 2026-07-31
+# Step Functions split was not: see the NOTE in rollup.tf, where gold saw an
+# empty curated/ and silently no-op'd every feed.
 #
-# All three exclude local.heavy_agencies for the same reason the main task does:
+# snapshot and archive DO have a dependency on EACH OTHER, though: archive's
+# prune_s3 deletes a landing day-partition once shipped, and must not run
+# before snapshot has had its chance to read that day's raw payloads. That
+# ordering is handled by the state machine in stage_orchestration.tf, same as
+# gold's dependency on rollup -- see that file's header comment. So of the four,
+# only gtfs is scheduled by a plain, un-ordered cron below.
+#
+# All four exclude local.heavy_agencies for the same reason the main task does:
 # those agencies run their whole chain alone in rollup_heavy, and running their
 # gtfs/snapshot here too would both duplicate the work and put GO_AHEAD's gtfs
 # step -- the one that SIGKILLs at 8 GiB by itself -- back into a shared envelope.
@@ -33,6 +40,8 @@ locals {
       silver    = ""
       scheduled = true
     }
+    # Sequenced by the state machine after nothing (it's the first stage in its
+    # branch) but BEFORE archive, below -- see stage_orchestration.tf.
     snapshot = {
       cpu       = var.stage_snapshot_cpu
       memory    = var.stage_snapshot_memory
@@ -40,7 +49,7 @@ locals {
       workers   = var.stage_workers
       post      = ""
       silver    = ""
-      scheduled = true
+      scheduled = false
     }
     # cold-ship + prune. Splitting the archive out means the raw DEEP_ARCHIVE
     # tarball is no longer downstream of ANY other stage -- stronger than the
@@ -50,21 +59,26 @@ locals {
     # prune_s3 runs here and ONLY here: it sweeps the whole landing bucket, so a
     # second task doing it concurrently would be pure duplicated listing. It is
     # safe to run while other stages are still working -- it deletes only days
-    # whose cold tarball is already confirmed in S3, and keep-days holds back the
-    # recent days everything else is actually reading.
+    # whose cold tarball AND (for an alerts-capable feed) snapshot object are
+    # already confirmed in S3 (see prune_s3's docstring), and keep-days holds
+    # back the recent days everything else is actually reading.
+    #
+    # Sequenced by the state machine after snapshot, not by its own cron --
+    # see stage_orchestration.tf for why archive can't just run on a plain
+    # schedule alongside it.
     archive = {
       cpu       = var.stage_archive_cpu
       memory    = var.stage_archive_memory
       stages    = "cold-ship"
       workers   = var.stage_workers
       silver    = ""
-      scheduled = true
+      scheduled = false
       post      = "python pipeline/prune_s3.py --config /tmp/fargate.yaml --keep-days ${var.landing_prune_keep_days} || true"
     }
-    # Phase 2. Unlike the three above, gold READS another stage's output, so it
-    # must run after rollup -- that ordering is the whole reason the state
-    # machine in stage_orchestration.tf exists, and why this stage's schedule is
-    # driven by the state machine rather than its own cron.
+    # Phase 2. Unlike gtfs, gold READS another stage's output, so it must run
+    # after rollup -- that ordering is the whole reason the state machine in
+    # stage_orchestration.tf exists, and why this stage's schedule is driven
+    # by the state machine rather than its own cron.
     #
     # It reads silver from the hot bucket (var.hot_bucket) rather than local
     # disk. That is not a new layout: Shipper._hot_key is the curated-relative
@@ -181,9 +195,11 @@ resource "aws_ecs_task_definition" "stage" {
   ])
 }
 
-# Phase 1 keeps plain schedules: these three stages have no dependency on each
-# other or on rollup, so there is nothing to order. The Step Functions state
-# machine arrives in phase 2, when gold has to be sequenced after rollup.
+# gtfs is the only stage left with no ordering dependency on anything else, so
+# it's the only one still driven by a plain, un-sequenced schedule here.
+# snapshot/archive/gold all run via the state machine in
+# stage_orchestration.tf instead -- this resource's `for_each` filters them
+# out (`scheduled = false`) so they don't ALSO get a redundant cron trigger.
 resource "aws_scheduler_schedule" "stage" {
   for_each = { for k, v in local.stage_defs : k => v if v.scheduled }
   name     = "rail-archiver-stage-${each.key}-daily"

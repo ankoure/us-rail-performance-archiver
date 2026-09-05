@@ -47,3 +47,8 @@ class FakeUploader:
     def mark_existing(self, bucket: str, key: str) -> None:
         """Pre-seed a key as if it already lives in S3 (without uploading)."""
         self._existing.add((bucket, key))
+
+    def delete_objects(self, bucket: str, keys: list[str]) -> None:
+        for key in keys:
+            self.store.pop(key, None)
+            self._existing.discard((bucket, key))

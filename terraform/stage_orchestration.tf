@@ -1,10 +1,27 @@
-# --- Step Functions: the one real dependency edge (phase 2) ---------------- #
+# --- Step Functions: the two real dependency edges (phase 2) --------------- #
 #
-# gtfs / snapshot / archive read nothing any other stage writes, so they are
-# scheduled independently (stages.tf) and need no orchestration. gold is the
-# exception: it reads rollup's silver, so it must not start until rollup has
-# finished AND shipped. That single edge is the only reason this state machine
-# exists -- everything else runs in parallel.
+# gtfs reads nothing any other stage writes, so it stays plainly scheduled
+# (stages.tf) and needs no orchestration. Two pairs do have a real ordering
+# requirement, each handled as its own branch of the Nightly Parallel state
+# below -- the branches themselves are independent of each other and run
+# concurrently:
+#
+#   Rollup -> Gold: gold reads rollup's silver, so it must not start until
+#   rollup has finished AND shipped.
+#
+#   Snapshot -> Archive: archive's post-step is prune_s3, which deletes a
+#   landing day-partition once its cold tarball is confirmed shipped. Cold-ship
+#   used to run inside the same monolithic task as snapshot, after it, so a day
+#   was never eligible for pruning before snapshot had already had its chance
+#   to read that day's raw payloads. Splitting them into separate tasks removes
+#   that implicit ordering -- archive could otherwise run before snapshot ever
+#   starts. prune_s3 (archiver/shipper.py) now ALSO checks that an alerts-
+#   capable feed has a snapshot object in S3 before deleting its landing data,
+#   which is the correctness backstop for a feed that fails snapshot every
+#   single night (see local.heavy_agencies in rollup.tf) -- ordering alone
+#   can't help *that* case, since archive would just keep finding no snapshot
+#   forever. This edge closes the narrower, cheaper-to-hit case: archive
+#   racing ahead of a snapshot run that would otherwise have succeeded.
 #
 # Note the 2026-07-31 attempt used Step Functions too and was reverted, but the
 # orchestration was never the problem: the problem was that gold and rollup ran
@@ -15,79 +32,164 @@
 #      so it no longer needs rollup's local disk at all; and
 #   2. gold.assert_silver_present() makes an empty tree a non-zero exit instead
 #      of a zero-row success, so the same mistake can't be silent twice.
+# Snapshot -> Archive has no such hazard: archive's cold-ship reads landing
+# (S3), not curated/, so it was never exposed to the shared-local-disk problem.
 #
 # ROLLUP_DAY is threaded through the execution input so a manual re-run of one
-# past day drives both tasks consistently: start an execution with
-# {"day": "2026-09-02"} rather than running the two tasks by hand.
+# past day drives all four tasks consistently: start an execution with
+# {"day": "2026-09-02"} rather than running them by hand.
 
 locals {
   # Both branches override ROLLUP_DAY from the execution input when present.
   # States.Format with a null-ish input would produce "None", so the default
   # empty string is resolved in-container by the script's `${ROLLUP_DAY:-...}`.
+  # Both pairs are Task/.sync -> Task/.sync chains with an identical shape
+  # (override ROLLUP_DAY, discard the ECS result so $.day survives, catch any
+  # failure and proceed anyway), so the two branches below are structurally
+  # twins -- see the header comment for what each edge is actually for.
   sfn_definition = jsonencode({
-    Comment = "rail-archiver nightly: rollup -> gold, with independent stages in parallel"
-    StartAt = "Rollup"
+    Comment = "rail-archiver nightly: rollup -> gold and snapshot -> archive, running as independent parallel branches"
+    StartAt = "Nightly"
     States = {
-      Rollup = {
-        Type     = "Task"
-        Resource = "arn:aws:states:::ecs:runTask.sync"
-        Parameters = {
-          Cluster        = aws_ecs_cluster.main.arn
-          TaskDefinition = aws_ecs_task_definition.rollup.arn
-          LaunchType     = "FARGATE"
-          NetworkConfiguration = {
-            AwsvpcConfiguration = {
-              Subnets        = data.aws_subnets.default.ids
-              SecurityGroups = [aws_security_group.rollup.id]
-              AssignPublicIp = "ENABLED"
-            }
-          }
-          Overrides = {
-            ContainerOverrides = [{
-              Name            = "rollup"
-              "Environment.$" = "States.Array(States.StringToJson(States.Format('{{\"Name\":\"ROLLUP_DAY\",\"Value\":\"{}\"}}', $.day)))"
-            }]
-          }
-        }
-        # A Task's DEFAULT ResultPath is "$", i.e. the ECS result REPLACES the
-        # state input -- which would drop $.day before Gold ever reads it, and
-        # only at runtime. null discards the result and passes the input through
-        # unchanged. (The Catch below already preserves it, so without this the
-        # failure path would work and the success path would not.)
-        ResultPath = null
+      Nightly = {
+        Type = "Parallel"
+        # Branches run concurrently and are independent of each other --
+        # gold's dependency is only on rollup, archive's only on snapshot.
+        Branches = [
+          {
+            StartAt = "Rollup"
+            States = {
+              Rollup = {
+                Type     = "Task"
+                Resource = "arn:aws:states:::ecs:runTask.sync"
+                Parameters = {
+                  Cluster        = aws_ecs_cluster.main.arn
+                  TaskDefinition = aws_ecs_task_definition.rollup.arn
+                  LaunchType     = "FARGATE"
+                  NetworkConfiguration = {
+                    AwsvpcConfiguration = {
+                      Subnets        = data.aws_subnets.default.ids
+                      SecurityGroups = [aws_security_group.rollup.id]
+                      AssignPublicIp = "ENABLED"
+                    }
+                  }
+                  Overrides = {
+                    ContainerOverrides = [{
+                      Name            = "rollup"
+                      "Environment.$" = "States.Array(States.StringToJson(States.Format('{{\"Name\":\"ROLLUP_DAY\",\"Value\":\"{}\"}}', $.day)))"
+                    }]
+                  }
+                }
+                # A Task's DEFAULT ResultPath is "$", i.e. the ECS result
+                # REPLACES the state input -- which would drop $.day before
+                # Gold ever reads it, and only at runtime. null discards the
+                # result and passes the input through unchanged. (The Catch
+                # below already preserves it, so without this the failure path
+                # would work and the success path would not.)
+                ResultPath = null
 
-        # A failed agency makes the task exit non-zero, but that must NOT stop
-        # gold: the other ~190 agencies rolled up fine and their marts are still
-        # worth building. Catch and continue, exactly like agency_batch's own
-        # per-agency isolation one level down.
-        Catch = [{
-          ErrorEquals = ["States.ALL"]
-          Next        = "Gold"
-          ResultPath  = "$.rollupError"
-        }]
-        Next = "Gold"
-      }
-      Gold = {
-        Type     = "Task"
-        Resource = "arn:aws:states:::ecs:runTask.sync"
-        Parameters = {
-          Cluster        = aws_ecs_cluster.main.arn
-          TaskDefinition = aws_ecs_task_definition.stage["gold"].arn
-          LaunchType     = "FARGATE"
-          NetworkConfiguration = {
-            AwsvpcConfiguration = {
-              Subnets        = data.aws_subnets.default.ids
-              SecurityGroups = [aws_security_group.rollup.id]
-              AssignPublicIp = "ENABLED"
+                # A failed agency makes the task exit non-zero, but that must
+                # NOT stop gold: the other ~190 agencies rolled up fine and
+                # their marts are still worth building. Catch and continue,
+                # exactly like agency_batch's own per-agency isolation one
+                # level down.
+                Catch = [{
+                  ErrorEquals = ["States.ALL"]
+                  Next        = "Gold"
+                  ResultPath  = "$.rollupError"
+                }]
+                Next = "Gold"
+              }
+              Gold = {
+                Type     = "Task"
+                Resource = "arn:aws:states:::ecs:runTask.sync"
+                Parameters = {
+                  Cluster        = aws_ecs_cluster.main.arn
+                  TaskDefinition = aws_ecs_task_definition.stage["gold"].arn
+                  LaunchType     = "FARGATE"
+                  NetworkConfiguration = {
+                    AwsvpcConfiguration = {
+                      Subnets        = data.aws_subnets.default.ids
+                      SecurityGroups = [aws_security_group.rollup.id]
+                      AssignPublicIp = "ENABLED"
+                    }
+                  }
+                  Overrides = {
+                    ContainerOverrides = [{
+                      Name            = "stage-gold"
+                      "Environment.$" = "States.Array(States.StringToJson(States.Format('{{\"Name\":\"ROLLUP_DAY\",\"Value\":\"{}\"}}', $.day)))"
+                    }]
+                  }
+                }
+                End = true
+              }
             }
-          }
-          Overrides = {
-            ContainerOverrides = [{
-              Name            = "stage-gold"
-              "Environment.$" = "States.Array(States.StringToJson(States.Format('{{\"Name\":\"ROLLUP_DAY\",\"Value\":\"{}\"}}', $.day)))"
-            }]
-          }
-        }
+          },
+          {
+            StartAt = "Snapshot"
+            States = {
+              Snapshot = {
+                Type     = "Task"
+                Resource = "arn:aws:states:::ecs:runTask.sync"
+                Parameters = {
+                  Cluster        = aws_ecs_cluster.main.arn
+                  TaskDefinition = aws_ecs_task_definition.stage["snapshot"].arn
+                  LaunchType     = "FARGATE"
+                  NetworkConfiguration = {
+                    AwsvpcConfiguration = {
+                      Subnets        = data.aws_subnets.default.ids
+                      SecurityGroups = [aws_security_group.rollup.id]
+                      AssignPublicIp = "ENABLED"
+                    }
+                  }
+                  Overrides = {
+                    ContainerOverrides = [{
+                      Name            = "stage-snapshot"
+                      "Environment.$" = "States.Array(States.StringToJson(States.Format('{{\"Name\":\"ROLLUP_DAY\",\"Value\":\"{}\"}}', $.day)))"
+                    }]
+                  }
+                }
+                ResultPath = null
+
+                # Same reasoning as Rollup's Catch: one agency SIGKILLing in
+                # snapshot.py must not stop archive from pruning everyone
+                # else's confirmed-shipped, confirmed-snapshotted days. The
+                # agencies that never get a snapshot object are exactly the
+                # ones prune_s3's new per-feed check now holds back on its own
+                # (see archiver/shipper.py's prune_s3 docstring).
+                Catch = [{
+                  ErrorEquals = ["States.ALL"]
+                  Next        = "Archive"
+                  ResultPath  = "$.snapshotError"
+                }]
+                Next = "Archive"
+              }
+              Archive = {
+                Type     = "Task"
+                Resource = "arn:aws:states:::ecs:runTask.sync"
+                Parameters = {
+                  Cluster        = aws_ecs_cluster.main.arn
+                  TaskDefinition = aws_ecs_task_definition.stage["archive"].arn
+                  LaunchType     = "FARGATE"
+                  NetworkConfiguration = {
+                    AwsvpcConfiguration = {
+                      Subnets        = data.aws_subnets.default.ids
+                      SecurityGroups = [aws_security_group.rollup.id]
+                      AssignPublicIp = "ENABLED"
+                    }
+                  }
+                  Overrides = {
+                    ContainerOverrides = [{
+                      Name            = "stage-archive"
+                      "Environment.$" = "States.Array(States.StringToJson(States.Format('{{\"Name\":\"ROLLUP_DAY\",\"Value\":\"{}\"}}', $.day)))"
+                    }]
+                  }
+                }
+                End = true
+              }
+            }
+          },
+        ]
         End = true
       }
     }
@@ -116,10 +218,15 @@ resource "aws_iam_role_policy" "sfn" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "RunStageTasks"
-        Effect   = "Allow"
-        Action   = ["ecs:RunTask"]
-        Resource = ["${aws_ecs_task_definition.rollup.arn_without_revision}:*", "${aws_ecs_task_definition.stage["gold"].arn_without_revision}:*"]
+        Sid    = "RunStageTasks"
+        Effect = "Allow"
+        Action = ["ecs:RunTask"]
+        Resource = [
+          "${aws_ecs_task_definition.rollup.arn_without_revision}:*",
+          "${aws_ecs_task_definition.stage["gold"].arn_without_revision}:*",
+          "${aws_ecs_task_definition.stage["snapshot"].arn_without_revision}:*",
+          "${aws_ecs_task_definition.stage["archive"].arn_without_revision}:*",
+        ]
       },
       {
         # runTask.sync needs to be able to stop what it started, and to describe
