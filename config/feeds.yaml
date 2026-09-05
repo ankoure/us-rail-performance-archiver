@@ -1089,6 +1089,7 @@ agencies:
     region: Wellington
     timezone: Pacific/Auckland
     base_url: https://api.opendata.metlink.org.nz/v1/gtfs-rt
+    mdb_feed_id: mdb-1132
     auth:
       type: api_key
       header: x-api-key
@@ -1116,6 +1117,7 @@ agencies:
     region: Budapest
     timezone: Europe/Budapest
     base_url: https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full
+    mdb_feed_id: mdb-990
     auth:
       type: api_key
       param: key
@@ -1143,6 +1145,7 @@ agencies:
     region: Auckland
     timezone: Pacific/Auckland
     base_url: https://api.at.govt.nz/realtime/legacy
+    mdb_feed_id: mdb-1029
     auth:
       type: api_key
       header: Ocp-Apim-Subscription-Key
@@ -1171,6 +1174,7 @@ agencies:
     region: Montréal
     timezone: America/Montreal
     base_url: https://api.stm.info/pub/od
+    mdb_feed_id: mdb-2126
     auth:
       type: api_key
       header: apiKey
@@ -1198,6 +1202,7 @@ agencies:
     region: Canterbury
     timezone: Pacific/Auckland
     base_url: https://apis.metroinfo.co.nz/rti/gtfsrt/v1
+    mdb_feed_id: mdb-1313
     auth:
       type: api_key
       header: Ocp-Apim-Subscription-Key
@@ -1241,6 +1246,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
@@ -1257,6 +1263,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
@@ -1278,6 +1285,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
@@ -1304,6 +1312,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
@@ -1337,6 +1346,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
@@ -1363,6 +1373,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
@@ -1384,6 +1395,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
@@ -1410,6 +1422,7 @@ agencies:
     region: New South Wales
     timezone: Australia/Sydney
     base_url: https://api.transport.nsw.gov.au
+    mdb_feed_id: mdb-2449
     auth:
       type: api_key
       header: Authorization
