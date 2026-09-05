@@ -309,9 +309,23 @@ def s3_shipper():
         hot_bucket="hot-bucket",
         feed_names=[FEED],
         feed_alerts_capable=[FEED],
+        feed_expected_kinds={FEED: ["vehicles"]},
         landing_bucket="landing-bucket",
         landing_prefix="",
     )
+
+
+def _mark_shipped(shipper, feed, day):
+    """Seed everything prune_s3 requires before it will delete a day: cold
+    tarball, rollup's expected silver, and (for alerts-capable feeds) the
+    snapshot object."""
+    shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(feed, day))
+    for kind in shipper.feed_expected_kinds.get(feed, ()):
+        shipper.uploader.mark_existing(
+            "hot-bucket", shipper._silver_key(kind, feed, day)
+        )
+    if feed in shipper.feed_alerts_capable:
+        shipper.uploader.mark_existing("hot-bucket", shipper._snapshot_key(feed, day))
 
 
 def _seed_s3_landing(uploader, feed, day):
@@ -341,10 +355,9 @@ def test_prune_s3_requires_landing_bucket():
         shipper.prune_s3()
 
 
-def test_prune_s3_deletes_shipped_and_snapshotted_day(s3_shipper):
+def test_prune_s3_deletes_fully_shipped_day(s3_shipper):
     _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
-    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
-    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
+    _mark_shipped(s3_shipper, FEED, DAY)
 
     result = s3_shipper.prune_s3(keep_days=3)
 
@@ -364,6 +377,42 @@ def test_prune_s3_skips_unshipped_day(s3_shipper):
     )
 
 
+def test_prune_s3_skips_feed_without_rollup_silver(s3_shipper):
+    """rollup.py reads the same landing raw bins this deletes
+    (archiver/rollup.py's iter_bins), so the cold tarball existing is not
+    proof rollup ever processed this day either. A feed that OOMs in
+    rollup.py every night must not have its landing data deleted just because
+    it shipped cold."""
+    _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
+    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
+    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
+    # No silver ("vehicles") object seeded.
+
+    result = s3_shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 0, "skipped": 1}
+    assert _s3_raw_keys(s3_shipper.uploader, FEED, DAY), "pruned before rollup ran!"
+
+
+def test_prune_s3_requires_every_expected_kind(s3_shipper):
+    """A feed can produce more than one silver kind (e.g. a decoder that
+    yields both VehicleRow and StopTimeUpdateRow); prune must wait for ALL of
+    them, not just the first one shipped."""
+    s3_shipper.feed_expected_kinds = {FEED: frozenset({"vehicles", "trip_updates"})}
+    _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
+    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
+    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
+    s3_shipper.uploader.mark_existing(
+        "hot-bucket", s3_shipper._silver_key("vehicles", FEED, DAY)
+    )
+    # trip_updates not seeded.
+
+    result = s3_shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 0, "skipped": 1}
+    assert _s3_raw_keys(s3_shipper.uploader, FEED, DAY)
+
+
 def test_prune_s3_skips_alerts_capable_feed_without_snapshot(s3_shipper):
     """Cold-ship runs before snapshot in the nightly chain (see
     agency_batch.py's run_agency docstring), so the cold tarball existing is
@@ -372,6 +421,9 @@ def test_prune_s3_skips_alerts_capable_feed_without_snapshot(s3_shipper):
     must not have its landing data deleted just because it shipped cold."""
     _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
     s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
+    s3_shipper.uploader.mark_existing(
+        "hot-bucket", s3_shipper._silver_key("vehicles", FEED, DAY)
+    )
     # No snapshot object seeded.
 
     result = s3_shipper.prune_s3(keep_days=3)
@@ -392,6 +444,34 @@ def test_prune_s3_ignores_snapshot_for_non_alerts_feed():
         hot_bucket="hot-bucket",
         feed_names=[FEED],
         feed_alerts_capable=[],  # not alerts-capable
+        feed_expected_kinds={FEED: ["vehicles"]},
+        landing_bucket="landing-bucket",
+        landing_prefix="",
+    )
+    _seed_s3_landing(uploader, FEED, DAY)
+    uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+    uploader.mark_existing("hot-bucket", shipper._silver_key("vehicles", FEED, DAY))
+
+    result = shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 1, "skipped": 0}
+
+
+def test_prune_s3_ignores_silver_check_for_feed_absent_from_config():
+    """feed_expected_kinds is built from live config (build_shipper), so a
+    feed absent from it entirely means "no longer configured", not "unknown"
+    -- e.g. landing data left over from a decommissioned feed. Nothing will
+    ever run rollup for it again, so requiring silver would trap that data in
+    landing forever instead of letting it prune once cold-shipped."""
+    uploader = FakeUploader()
+    shipper = Shipper(
+        source=S3Source(uploader, "landing-bucket", ""),
+        curated_dir=Path("/tmp/none"),
+        uploader=uploader,
+        cold_bucket="cold-bucket",
+        hot_bucket="hot-bucket",
+        feed_names=[FEED],
+        # feed_expected_kinds intentionally omitted -- FEED isn't in it.
         landing_bucket="landing-bucket",
         landing_prefix="",
     )
@@ -405,8 +485,7 @@ def test_prune_s3_ignores_snapshot_for_non_alerts_feed():
 
 def test_prune_s3_dry_run_touches_nothing(s3_shipper):
     _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
-    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
-    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
+    _mark_shipped(s3_shipper, FEED, DAY)
 
     result = s3_shipper.prune_s3(keep_days=3, dry_run=True)
 
@@ -417,10 +496,7 @@ def test_prune_s3_dry_run_touches_nothing(s3_shipper):
 def test_prune_s3_keeps_recent_days(s3_shipper):
     today = datetime.now(tz=timezone.utc).date()
     _seed_s3_landing(s3_shipper.uploader, FEED, today)
-    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, today))
-    s3_shipper.uploader.mark_existing(
-        "hot-bucket", s3_shipper._snapshot_key(FEED, today)
-    )
+    _mark_shipped(s3_shipper, FEED, today)
 
     result = s3_shipper.prune_s3(keep_days=3)
 

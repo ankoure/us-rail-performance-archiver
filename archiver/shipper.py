@@ -31,6 +31,7 @@ class Shipper:
         feed_names: Iterable[str] = (),
         feed_agency: dict[str, str] | None = None,
         feed_alerts_capable: Iterable[str] = (),
+        feed_expected_kinds: dict[str, Iterable[str]] | None = None,
         landing_dir: Path | None = None,
         landing_bucket: str | None = None,
         landing_prefix: str = "",
@@ -58,6 +59,18 @@ class Shipper:
         # before their landing raw data is deleted; a feed that never produces
         # alerts should not be held hostage waiting for one.
         self.feed_alerts_capable: frozenset[str] = frozenset(feed_alerts_capable)
+        # feed_name -> the set of curated "kind" subdirectories rollup.py is
+        # expected to write for it (see Rollup._expected_outputs, the same
+        # feed.decoder.produces -> TableSpec.name mapping rollup uses to decide
+        # its own completeness). prune_s3 uses this the same way it uses
+        # feed_alerts_capable above: rollup reads the same landing raw bins
+        # snapshot.py does (archiver/rollup.py's iter_bins call), so its output
+        # needs the same "did this actually get consumed" check before landing
+        # data is deleted.
+        self.feed_expected_kinds: dict[str, frozenset[str]] = {
+            feed: frozenset(kinds)
+            for feed, kinds in (feed_expected_kinds or {}).items()
+        }
         # Local-only; used by prune (which deletes the on-box landing tree). None
         # on Fargate, where prune isn't run (S3 landing expires via lifecycle).
         self.landing_dir = landing_dir
@@ -209,6 +222,14 @@ class Shipper:
         return (
             f"{self.hot_prefix}snapshots/alerts/feed={feed_name}/"
             f"year={day.year}/month={day.month}/day={day.day}/data.json.gz"
+        )
+
+    def _silver_key(self, kind: str, feed_name: str, day: date) -> str:
+        # Mirrors Rollup._curated_path's shape (archiver/rollup.py) for the S3
+        # hot-key equivalent of one rollup output kind.
+        return (
+            f"{self.hot_prefix}{kind}/feed={feed_name}/"
+            f"year={day.year}/month={day.month}/day={day.day}/data.parquet"
         )
 
     def _curated_parquets(self, feed_name: str, day: date) -> Iterator[Path]:
@@ -371,19 +392,22 @@ class Shipper:
         Delete landing-zone raw+metadata day-partitions older than keep_days.
 
         SAFETY: a day is deleted only if its cold tarball is confirmed in S3
-        (same exists() check ship uses), AND -- for a feed whose decoder can
-        produce alerts -- its snapshot object is also confirmed in S3. Cold-ship
-        now runs before snapshot in the nightly chain (see agency_batch.py's
-        run_agency docstring), so the cold tarball existing is no longer proof
-        that snapshot ever got to this day. Without the second check, a feed
-        that OOMs in snapshot.py every night (see local.heavy_agencies in
-        terraform/rollup.tf) would still have its landing data pruned once the
-        day crosses keep_days, permanently losing snapshot's only input for a
-        day it never actually processed. A day not yet shipped, or not yet
-        snapshotted, is skipped, never deleted -- so this is crash-safe and
-        idempotent. `keep_days` retains that many recent days as a buffer for
-        re-rollups; `day` restricts to one day; `dry_run` logs what it would
-        delete without touching disk.
+        (same exists() check ship uses), AND rollup's expected silver outputs
+        for that feed are confirmed in S3, AND -- for a feed whose decoder can
+        produce alerts -- its snapshot object is also confirmed in S3. rollup.py
+        and snapshot.py both read the same landing raw bins this deletes
+        (archiver/rollup.py's and analysis/alert_snapshot's respective reads),
+        so the cold tarball existing is proof of neither -- cold-ship reads
+        landing directly too, and runs before either of them in the nightly
+        chain (see agency_batch.py's run_agency docstring). Without these
+        checks, a feed that OOMs in rollup.py or snapshot.py every night (see
+        local.heavy_agencies in terraform/rollup.tf) would still have its
+        landing data pruned once the day crosses keep_days, permanently losing
+        that step's only input for a day it never actually processed. A day
+        not yet shipped, rolled up, or snapshotted is skipped, never deleted --
+        so this is crash-safe and idempotent. `keep_days` retains that many
+        recent days as a buffer for re-rollups; `day` restricts to one day;
+        `dry_run` logs what it would delete without touching disk.
         """
         if self.landing_bucket is None:
             raise RuntimeError("S3 prune requires a staging bucket to be set ...")
@@ -406,6 +430,27 @@ class Shipper:
                     )
                     self.telemetry.incr(
                         "prune.skipped_unshipped", tags={"feed": feed_name}
+                    )
+                    skipped += 1
+                    continue
+                missing_kinds = sorted(
+                    kind
+                    for kind in self.feed_expected_kinds.get(feed_name, frozenset())
+                    if not self.uploader.exists(
+                        self.hot_bucket,
+                        self._silver_key(kind, feed_name, partition_day),
+                    )
+                )
+                if missing_kinds:
+                    logger.warning(
+                        "prune skip %s %s: rollup output missing in s3 for kind(s) %s "
+                        "(rollup.py hasn't succeeded for this day yet)",
+                        feed_name,
+                        partition_day,
+                        missing_kinds,
+                    )
+                    self.telemetry.incr(
+                        "prune.skipped_no_silver", tags={"feed": feed_name}
                     )
                     skipped += 1
                     continue

@@ -362,6 +362,19 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
             for feed in agency.feeds
             if AlertRow in Decoder.from_name(feed.decoder).produces
         ),
+        # feed_name -> the curated "kind" subdirectories rollup.py must write
+        # for it -- the same feed.decoder.produces -> TableSpec.name mapping
+        # Rollup._expected_outputs (archiver/rollup.py) uses to decide its own
+        # completeness, reused here so prune_s3 can ask the identical question.
+        # "metadata" is always expected too (Rollup._METADATA_KIND) -- hardcoded
+        # as a literal here rather than reaching into Rollup's internals, the
+        # same tradeoff Shipper._snapshot_key already makes for "alerts".
+        feed_expected_kinds={
+            feed.name: {"metadata"}
+            | {spec.name for spec in Decoder.from_name(feed.decoder).produces.values()}
+            for agency in config.agencies
+            for feed in agency.feeds
+        },
         # Local landing; used by prune. S3 landing bucket/prefix used by prune_s3.
         landing_dir=config.writer.landing_dir,
         landing_bucket=config.writer.landing_bucket,
