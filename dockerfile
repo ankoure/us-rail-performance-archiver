@@ -56,6 +56,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Then, use a final image without uv
 FROM debian:bookworm-slim
 
+# pyarrow's S3FileSystem (analysis/curated_fs.py) goes through the AWS C++
+# SDK, which verifies TLS against the OS trust store -- unlike boto3, which
+# rides on Python's bundled certifi regardless of what's installed at the OS
+# level. Without this package that store is empty, so any pyarrow S3 call
+# fails with "unable to get local issuer certificate" even though boto3 calls
+# in the same container succeed. Never caught before because gold always read
+# curated/ off local disk in the monolithic task; the stage split's
+# --silver-dir s3://... path is the first thing to ever exercise it.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Setup a non-root user
 RUN groupadd --system --gid 999 nonroot \
     && useradd --system --gid 999 --uid 999 --create-home nonroot
