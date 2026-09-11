@@ -96,13 +96,18 @@ def test_run_agency_command_sequence(monkeypatch):
         # archive-first: the cold tarball ships before anything can fail
         "pipeline/ship.py",
         "pipeline/ship.py",
-        # each feed's rollup is immediately followed by ITS OWN hot-ship,
-        # rather than deferring all shipping to the end of the chain -- see
+        # each feed's rollup is immediately followed by compacting ITS
+        # trip_updates in place, then ITS OWN hot-ship -- rather than
+        # deferring all shipping to the end of the chain -- see
         # run_agency's docstring for why (GO_AHEAD's silver never reaching S3
-        # before gtfs OOMed downstream).
+        # before gtfs OOMed downstream) and compact_trip_updates.py's
+        # docstring for why compaction has to happen here, before this ship,
+        # not after gold.
         "pipeline/rollup.py",
+        "pipeline/compact_trip_updates.py",
         "pipeline/ship.py",
         "pipeline/rollup.py",
+        "pipeline/compact_trip_updates.py",
         "pipeline/ship.py",
         "pipeline/gtfs.py",
         "pipeline/gold.py",
@@ -114,18 +119,24 @@ def test_run_agency_command_sequence(monkeypatch):
     assert all("--cold-only" in c for c in calls[:2])
     assert all("--cold-only" not in c for c in calls[2:])
 
-    # cold-ship, the interim per-feed ships, and the final ships each get one
-    # feed per invocation (singular --feed)
-    for pair in (calls[:2], (calls[2], calls[4]), (calls[3], calls[5]), calls[8:]):
+    # cold-ship, the interim per-feed ships/compactions, and the final ships
+    # each get one feed per invocation (singular --feed)
+    for pair in (
+        calls[:2],
+        (calls[2], calls[5]),  # rollup
+        (calls[3], calls[6]),  # compact
+        (calls[4], calls[7]),  # interim ship
+        calls[10:],  # final ship
+    ):
         assert {c[c.index("--feed") + 1] for c in pair} == {
             "wmata-trips",
             "wmata-vehicles",
         }
 
     # gtfs/gold get both feed names in one invocation, with --feed last (nargs="+" is greedy)
-    gtfs_cmd = calls[6]
+    gtfs_cmd = calls[8]
     assert gtfs_cmd[-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
-    gold_cmd = calls[7]
+    gold_cmd = calls[9]
     assert gold_cmd[-3:] == ["--feed", "wmata-trips", "wmata-vehicles"]
 
 
@@ -337,8 +348,10 @@ def test_run_agency_archive_first_ship_failure_is_not_fatal(monkeypatch):
         "pipeline/ship.py",
         "pipeline/ship.py",
         "pipeline/rollup.py",
+        "pipeline/compact_trip_updates.py",
         "pipeline/ship.py",
         "pipeline/rollup.py",
+        "pipeline/compact_trip_updates.py",
         "pipeline/ship.py",
         "pipeline/gold.py",
         "pipeline/ship.py",

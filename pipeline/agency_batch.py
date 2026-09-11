@@ -1,6 +1,7 @@
-"""Run ship --cold-only -> [rollup(feed) -> ship(feed)] per feed -> [gtfs] ->
-gold -> [snapshot] -> ship per agency (see run_agency for why the cold ship
-leads and each feed's rollup ships immediately), each step a disposable
+"""Run ship --cold-only -> [rollup(feed) -> compact(feed) -> ship(feed)] per
+feed -> [gtfs] -> gold -> [snapshot] -> ship per agency (see run_agency for
+why the cold ship leads and each feed's rollup ships immediately), each step
+a disposable
 `python pipeline/X.py` subprocess, so the OS reclaims pandas/pyarrow allocations
 agency-by-agency instead of one long-lived process accumulating them across all
 ~186 agencies (see terraform/rollup.tf's rollup_memory variable description for
@@ -245,6 +246,20 @@ def _rollup_cmd(feed: str, day: str, config: str, force: bool) -> list[str]:
     return cmd + (["-f"] if force else [])
 
 
+def _compact_cmd(feed: str, day: str) -> list[str]:
+    # No -c/config, no --curated-dir: compact_trip_updates.py's own
+    # data/curated default already matches what every other stage here relies
+    # on (see --curated-dir's help above), and it doesn't touch S3 or secrets.
+    return [
+        sys.executable,
+        "pipeline/compact_trip_updates.py",
+        "--feed",
+        feed,
+        "--day",
+        day,
+    ]
+
+
 def _gtfs_cmd(feeds: list[str], day: str, config: str, force: bool) -> list[str]:
     # --feed uses nargs="+" and is greedy -- keep it last in the argv.
     cmd = [sys.executable, "pipeline/gtfs.py", "-c", config, "--day", day]
@@ -300,9 +315,9 @@ def run_agency(
     silver_dir: str | None = None,
 ) -> AgencyResult:
     """Run this agency's slice of `stages` (already canonically ordered by
-    resolve_stages): ship --cold-only(each feed) -> [rollup(feed) -> ship(feed)]
-    per feed -> gtfs(all feeds) -> gold(all feeds) -> snapshot(all feeds) ->
-    ship(each feed).
+    resolve_stages): ship --cold-only(each feed) -> [rollup(feed) ->
+    compact(feed) -> ship(feed)] per feed -> gtfs(all feeds) -> gold(all
+    feeds) -> snapshot(all feeds) -> ship(each feed).
 
     The leading cold ship is deliberate. The cold DEEP_ARCHIVE tarball is built
     from the landing zone alone (Shipper._ship_cold -> _build_tarball ->
@@ -381,6 +396,22 @@ def run_agency(
                 )
                 result_out = AgencyResult(agency_id, False, cmd, result.returncode)
                 break
+            # Non-fatal, same reasoning as the interim ship below: a compaction
+            # bug should cost this one partition its storage savings, never the
+            # pipeline run. compact_trip_updates.py rewrites trip_updates
+            # in-place to exactly what TripUpdatesDay/gold.py already reduce it
+            # to at read time (see that script's docstring) -- correct either
+            # way, so it must run before THIS feed's interim hot-ship a few
+            # lines down, not after gold like an earlier version of that
+            # docstring assumed (gold reads this feed's silver back from S3,
+            # well after it's already been shipped here).
+            compact_cmd = _compact_cmd(feed, day_str)
+            if subprocess.run(compact_cmd).returncode != 0:
+                logger.error(
+                    "[%s] trip_updates compaction failed for %s, shipping uncompacted",
+                    agency_id,
+                    feed,
+                )
             if "hot-ship" in stages:
                 ship_cmd = _ship_cmd(feed, day_str, config, force)
                 if subprocess.run(ship_cmd).returncode != 0:

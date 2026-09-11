@@ -8,13 +8,23 @@ each partition to exactly what's actually used, in place.
 
 This is a storage optimization only: nothing about trip prediction correctness
 changes, since gold.py's marts are already built from the same reduction (see
-TripUpdatesDay._dedupe_latest_per_key). Poll-level history isn't lost either —
-the raw landing bins are archived to cold storage (DEEP_ARCHIVE) independently
-of curated trip_updates, so a full re-roll from cold recovers it if ever needed.
+TripUpdatesDay._dedupe_latest_per_key) — gold reduces this file's rows itself
+at read time regardless of whether it's already compacted, so compacting
+before OR after gold runs produces identical marts. Poll-level history isn't
+lost either — the raw landing bins are archived to cold storage (DEEP_ARCHIVE)
+independently of curated trip_updates, so a full re-roll from cold recovers it
+if ever needed.
 
-Meant to run after gold.py (which needs full-fidelity trip_updates to build
-marts) and before ship.py (so ship uploads the already-compacted file, not the
-uncompacted one).
+Wired into agency_batch.py's rollup step (run_agency), right after each
+feed's rollup and before that feed's interim hot-ship — NOT after gold as an
+earlier version of this docstring assumed. That assumption didn't hold once
+the interim hot-ship ("each feed's hot ship runs immediately after ITS
+rollup") started shipping trip_updates well before gold's separate stage-gold
+task even runs — it reads this feed's silver back from S3, by which point
+compaction here has already happened. This is the only point left where the
+full-fidelity file is still on local disk before something uploads it.
+Failure here is non-fatal, same as the interim ship it precedes — shipping
+uncompacted is correct, just bigger.
 
 Examples:
 
