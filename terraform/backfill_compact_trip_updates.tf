@@ -75,14 +75,22 @@ resource "aws_ecs_task_definition" "backfill_compact_trip_updates" {
   family                   = "rail-archiver-backfill-compact-trip-updates"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  # Generous first guess, not a measured value for the whole job -- but the
-  # single heaviest known feed (bkk-trips) measured ~7.2 GB RSS per object
-  # (pipeline/backfill_compact_trip_updates.py's --workers help), and the
-  # default WORKERS=2 means two such objects could peak concurrently: 20480
-  # leaves ~6 GB of margin over that ~14.4 GB worst case. Bump WORKERS only
-  # alongside memory, not independently.
+  # 2026-09-11: cut 20480 -> 8192 after the real bkk-trips + metromn-trips
+  # backfill run (WORKERS=2, both the two heaviest known feeds) measured
+  # TaskMemoryUtilization peaking at just 26.3% of the old 20 GB ceiling
+  # (~5.4 GB). 8192 keeps ~2.8 GB of margin over that observed peak.
+  #
+  # Not risk-free: the isolated single-object test that originally justified
+  # 20480 measured ~7.2 GB RSS for bkk-trips alone (see
+  # pipeline/backfill_compact_trip_updates.py's --workers help) -- if two
+  # objects that heavy ever land on both WORKERS=2 slots at once, worst case
+  # is ~14.4 GB, above this ceiling. The real run never hit that (the random
+  # shuffle apparently never paired two BKK/metromn-scale files), but the
+  # remaining ~198 feeds haven't all been backfilled yet, and one could turn
+  # out just as heavy. Floor for cpu=4096's pairing range anyway (4096-30720
+  # MiB), so this is as low as memory can go without also cutting cpu.
   cpu                = 4096
-  memory             = 20480
+  memory             = 8192
   execution_role_arn = aws_iam_role.rollup_execution.arn
   task_role_arn      = aws_iam_role.backfill_compact_trip_updates_task.arn
 

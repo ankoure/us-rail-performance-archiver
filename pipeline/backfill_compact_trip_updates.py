@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -223,13 +224,14 @@ def main(argv: list[str] | None = None) -> int:
             if line:
                 compacted_count += 1
                 print(f"[{i}/{len(keys)}] {line}")
-                try:
-                    bytes_part = line.split(",")[1].strip().split(" ")[0]
-                    before_b, after_b = (int(x) for x in bytes_part.split("->"))
-                    total_before += before_b
-                    total_after += after_b
-                except (IndexError, ValueError):
-                    pass
+                # The child's line is comma-formatted (e.g. "1,347,587,896->
+                # 4,734,413 bytes"), so a naive line.split(",") shreds the
+                # numbers themselves instead of separating fields -- match the
+                # bytes pair explicitly instead.
+                m = re.search(r"([\d,]+)->([\d,]+) bytes", line)
+                if m:
+                    total_before += int(m.group(1).replace(",", ""))
+                    total_after += int(m.group(2).replace(",", ""))
 
     print(
         f"---\ncompacted {compacted_count}/{len(keys)} partitions"

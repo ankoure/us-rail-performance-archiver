@@ -238,8 +238,14 @@ variable "heavy_gtfs_memory" {
   # stops short of heavy_gold's more aggressive cut: 12288 keeps a ~4x margin
   # over the observed steady state while staying below the number that once
   # OOMed, rather than assuming isolation alone explains all the headroom.
-  # Watch TaskMemoryUtilization for a few days before cutting further.
-  default     = "12288"
+  #
+  # 2026-09-12: cut 12288 -> 10240. Two more days (Sep 10-11) held the same
+  # ~25-26% (~3.1-3.2 GiB) steady state, seven days total now. Still stopping
+  # short of matching heavy_snapshot/heavy_gold's cuts below, deliberately --
+  # the 16384 OOM is real prior evidence for THIS agency specifically (not a
+  # fixed bug like heavy_snapshot's), so this keeps a ~3.2x margin rather
+  # than chasing the same ~4x ratio down as the steady-state number drops.
+  default     = "10240"
   description = "Fargate memory (MiB) for the heavy-agency gtfs stage (GO_AHEAD only)."
 }
 
@@ -272,7 +278,12 @@ variable "heavy_snapshot_memory" {
   # top of that for the still-small 4-day sample -- 12288 stays well below
   # the 20480 that ran fine before, but isn't as tight as heavy_gold's cut,
   # given this task's real (if now-fixed) OOM history.
-  default     = "12288"
+  #
+  # 2026-09-12: cut 12288 -> 8192. Three more days (Sep 10-12) held
+  # 15-18% (~1.8-2.2 GiB) at workers=2, confirming the 4-day sample above
+  # wasn't a fluke -- the fixed build_alert_snapshot has now run OOM-free for
+  # a full week. 8192 keeps a ~3.7x margin over the observed two-agency peak.
+  default     = "8192"
   description = <<-EOT
     Fargate memory (MiB) for the heavy-agency snapshot stage
     (BKK/EDMONTON_TRANSIT_SYSTEM/LONDON_TRANSIT_COMMISSION/VBB), sized for
@@ -301,7 +312,14 @@ variable "heavy_gold_memory" {
   # 16 GiB keeps ~1.8x headroom -- less aggressive than the 8.8 GiB peak alone
   # would justify, deliberately, given gold.py's documented SIGKILL history on
   # the non-heavy fleet (see stage_gold_memory).
-  default     = "16384"
+  #
+  # 2026-09-12: cut 16384 -> 8192. Sep 10-12 TaskMemoryUtilization maxed only
+  # ~10-12% (~2.0 GiB) of the 16 GiB ceiling -- a full 4x lower than the
+  # pre-cut 8.8 GiB peak this variable was originally sized against, not just
+  # noise on top of it. 8192 keeps a ~4.2x margin over the new observed peak,
+  # matching (not exceeding) the caution this task started with, just against
+  # the real number instead of the inherited stage_gold one.
+  default     = "8192"
   description = <<-EOT
     Fargate memory (MiB) for the heavy-agency gold stage.
   EOT

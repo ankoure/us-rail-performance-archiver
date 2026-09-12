@@ -61,6 +61,14 @@ _TIME_COL = "feed_timestamp"
 _SCHED_REL_COL = "trip_update.stop_time_update.schedule_relationship"
 _ARRIVAL_TIME_COL = "trip_update.stop_time_update.arrival.time"
 _DEPARTURE_TIME_COL = "trip_update.stop_time_update.departure.time"
+_REQUIRED_COLS = (
+    _TRIP_ID_COL,
+    _STOP_ID_COL,
+    _TIME_COL,
+    _SCHED_REL_COL,
+    _ARRIVAL_TIME_COL,
+    _DEPARTURE_TIME_COL,
+)
 
 
 def compact_table(table: pa.Table) -> pa.Table:
@@ -75,8 +83,26 @@ def compact_table(table: pa.Table) -> pa.Table:
     without it, a stop whose *latest* poll happens to be junk would win over an
     earlier real prediction, which is the opposite of what TripUpdatesDay
     actually selects.
+
+    Partitions from before 2026-05-30 (commit 5c2f34e, "Expanded decoder
+    schema, renamed position fields to dotted form") use bare column names
+    (schedule_relationship, departure_time) instead of these dotted ones and
+    are left untouched rather than crashing -- confirmed 2026-09-11 against
+    the backfill's real failure on metromn-trips/2026-05-24: 382 of 10,198
+    partitions (63.8 GB of ~1.2 TB) predate the rename. Remapping old names
+    to new isn't done here since the old schema's semantics (e.g. whether its
+    separate stop_time_schedule_relationship column means the same thing as
+    today's dotted one) haven't been verified -- safer to skip than guess.
     """
     if table.num_rows == 0:
+        return table
+
+    missing = [c for c in _REQUIRED_COLS if c not in table.column_names]
+    if missing:
+        logger.info(
+            "compact_table: skipping, missing columns (pre-2026-05-30 schema?): %s",
+            missing,
+        )
         return table
 
     mask = pc.and_(pc.is_valid(table[_TRIP_ID_COL]), pc.is_valid(table[_STOP_ID_COL]))
