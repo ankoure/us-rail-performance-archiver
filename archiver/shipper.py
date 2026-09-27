@@ -1,5 +1,6 @@
 import io
 import itertools
+import json
 import shutil
 import tarfile
 import tempfile
@@ -16,6 +17,19 @@ from archiver.logger import logger
 
 class Shipper:
     _COLD_STORAGE_CLASS = "DEEP_ARCHIVE"
+    # Must match Rollup._MARKER_KIND / Rollup._MARKER_NAME (archiver/rollup.py).
+    _ROLLUP_MARKER_KIND = "_rollup"
+    _ROLLUP_MARKER_NAME = "_SUCCESS.json"
+    # First day whose rollup is guaranteed to have run with marker-writing code:
+    # the day the rollup + ship changes deploy. Days before it were rolled up by
+    # the old code and have no marker, so _rollup_confirmed falls back to a
+    # file-presence check for them. PLACEHOLDER: set to the actual deploy date.
+    # Too early and pre-deploy days are held until re-rolled; too late and some
+    # post-deploy days get the weaker check.
+    # Remove this and the backlog branch in _rollup_confirmed once prune has run
+    # past MARKER_CUTOVER + keep_days (watch prune.rollup_backlog_rule go to 0).
+    # Keep feed_expected_kinds: its keys are the "still configured" signal.
+    _MARKER_CUTOVER = date(2026, 9, 28)
 
     def __init__(
         self,
@@ -59,14 +73,13 @@ class Shipper:
         # before their landing raw data is deleted; a feed that never produces
         # alerts should not be held hostage waiting for one.
         self.feed_alerts_capable: frozenset[str] = frozenset(feed_alerts_capable)
-        # feed_name -> the set of curated "kind" subdirectories rollup.py is
-        # expected to write for it (see Rollup._expected_outputs, the same
-        # feed.decoder.produces -> TableSpec.name mapping rollup uses to decide
-        # its own completeness). prune_s3 uses this the same way it uses
-        # feed_alerts_capable above: rollup reads the same landing raw bins
-        # snapshot.py does (archiver/rollup.py's iter_bins call), so its output
-        # needs the same "did this actually get consumed" check before landing
-        # data is deleted.
+        # feed_name -> the curated "kind" subdirectories rollup.py writes for it
+        # (the feed.decoder.produces -> TableSpec.name mapping, possibly plus
+        # "metadata"). Built from live config, so its keys are the feeds rollup
+        # is configured to process: _rollup_confirmed treats a feed missing
+        # from it as decommissioned and doesn't wait for a marker. The kind sets
+        # themselves are only used by the backlog rule for days before
+        # _MARKER_CUTOVER; once that rule is deleted, only the keys matter.
         self.feed_expected_kinds: dict[str, frozenset[str]] = {
             feed: frozenset(kinds)
             for feed, kinds in (feed_expected_kinds or {}).items()
@@ -129,6 +142,10 @@ class Shipper:
         if cold_only:
             return
         self._ship_hot(feed_name, day, force=force)
+        # Strictly after _ship_hot, and only reached if it didn't raise: the
+        # marker in S3 is prune_s3's proof that every rollup parquet for this
+        # day is in S3 too.
+        self._ship_rollup_marker(feed_name, day, force=force)
         self._ship_snapshots(feed_name, day, force=force)
 
     def _ship_cold(self, feed_name, day, *, force):
@@ -182,6 +199,45 @@ class Shipper:
                 tags=tags,
             )
 
+    def _ship_rollup_marker(self, feed_name: str, day: date, *, force: bool) -> None:
+        """Upload rollup's _SUCCESS.json for (feed, day), after the hot parquet.
+
+        Must run only after _ship_hot returned normally. _ship_hot uploads (or
+        finds already in S3) every local data.parquet for the day, so shipping
+        the marker afterwards makes "marker in S3" imply "rollup's outputs are
+        in S3".
+        """
+        marker = self._local_marker_path(feed_name, day)
+        if not marker.exists():
+            # Rollup didn't finish for this day in this curated tree (or ran
+            # elsewhere): there's nothing to vouch for.
+            logger.debug("no rollup marker for %s/%s, not shipping one", feed_name, day)
+            return
+
+        # _ship_hot only ships what's on disk, so a kind the marker counts rows
+        # for but whose parquet is missing locally would never reach S3. Refuse
+        # to vouch for it rather than let prune delete the input.
+        rows: dict[str, int] = json.loads(marker.read_text())["rows"]
+        missing = sorted(
+            kind
+            for kind, n in rows.items()
+            if n > 0 and not self._local_curated_path(kind, feed_name, day).exists()
+        )
+        if missing:
+            raise RuntimeError(
+                f"rollup marker for {feed_name}/{day} counts rows for kind(s) "
+                f"{missing} but their parquet is missing locally; not shipping marker"
+            )
+
+        key = self._marker_key(feed_name, day)
+        tags = {"feed": feed_name, "agency": self.feed_agency.get(feed_name, "unknown")}
+        if not force and self.uploader.exists(self.hot_bucket, key):
+            self.telemetry.incr("ship.marker.skipped", tags=tags)
+            logger.debug("marker already exists, skipping: %s/%s", self.hot_bucket, key)
+            return
+        with self.telemetry.span("ship.marker", tags=tags):
+            self.uploader.upload(self.hot_bucket, key, marker)
+
     @contextmanager
     def _build_tarball(self, feed_name: str, day: date):
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
@@ -232,11 +288,73 @@ class Shipper:
             f"year={day.year}/month={day.month}/day={day.day}/data.parquet"
         )
 
+    @staticmethod
+    def _partition_rel(kind: str, feed_name: str, day: date) -> str:
+        # Same shape as Rollup._partition_dir, relative to curated_dir.
+        return (
+            f"{kind}/feed={feed_name}/year={day.year}/month={day.month}/day={day.day}"
+        )
+
+    def _local_curated_path(self, kind: str, feed_name: str, day: date) -> Path:
+        return (
+            self.curated_dir
+            / self._partition_rel(kind, feed_name, day)
+            / "data.parquet"
+        )
+
+    def _local_marker_path(self, feed_name: str, day: date) -> Path:
+        # Mirrors Rollup._marker_path.
+        rel = self._partition_rel(self._ROLLUP_MARKER_KIND, feed_name, day)
+        return self.curated_dir / rel / self._ROLLUP_MARKER_NAME
+
+    def _marker_key(self, feed_name: str, day: date) -> str:
+        # Derived from the local path the same way _hot_key derives parquet keys,
+        # so the key ship writes and the key prune_s3 checks can't drift apart.
+        # Same shape as _silver_key: <hot_prefix>_rollup/feed=.../day=D/_SUCCESS.json
+        return self._hot_key(self._local_marker_path(feed_name, day))
+
+    def _rollup_confirmed(self, feed_name: str, day: date) -> bool:
+        """Is rollup's output for (feed, day) safely in S3, or not needed?
+
+        A feed with no entry in feed_expected_kinds is no longer configured
+        (the dict is built from live config): rollup treats its landing data as
+        orphaned and will never write a marker for it, so requiring one would
+        keep that data in landing forever. That's different from a configured
+        feed whose rollup hasn't run, which has an entry and needs the marker.
+
+        Otherwise the marker is the proof: it's shipped only after every hot
+        parquet for the day uploaded. Days before _MARKER_CUTOVER were rolled
+        up by code that wrote no marker; for those, accept metadata silver plus
+        at least one data kind. That rule can't tell which kinds legitimately
+        had zero rows (the reason the marker exists), so it's deliberately
+        looser than "every kind", and it trusts files the old code may have
+        renamed into place after a crash.
+        """
+        if feed_name not in self.feed_expected_kinds:
+            self.telemetry.incr("prune.rollup_not_configured", tags={"feed": feed_name})
+            return True
+        if self.uploader.exists(self.hot_bucket, self._marker_key(feed_name, day)):
+            return True
+        if day >= self._MARKER_CUTOVER:
+            return False
+        # --- backlog rule: delete with _MARKER_CUTOVER ---
+        data_kinds = sorted(self.feed_expected_kinds[feed_name] - {"metadata"})
+        confirmed = self.uploader.exists(
+            self.hot_bucket, self._silver_key("metadata", feed_name, day)
+        ) and any(
+            self.uploader.exists(self.hot_bucket, self._silver_key(k, feed_name, day))
+            for k in data_kinds
+        )
+        if confirmed:
+            self.telemetry.incr("prune.rollup_backlog_rule", tags={"feed": feed_name})
+        return confirmed
+
     def _curated_parquets(self, feed_name: str, day: date) -> Iterator[Path]:
         # Silver datasets live one segment above feed= (e.g. vehicles/feed=...);
         # the gold marts live two segments above (metrics/stop_day/feed=...).
         # Glob both layouts explicitly rather than with ** to avoid matching any
-        # deeper, unintended trees.
+        # deeper, unintended trees. The rollup marker (_rollup/feed=.../
+        # _SUCCESS.json) doesn't match either glob; _ship_rollup_marker ships it.
         partition = f"feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.parquet"
         yield from self.curated_dir.glob(f"*/{partition}")
         yield from self.curated_dir.glob(f"metrics/*/{partition}")
@@ -392,9 +510,10 @@ class Shipper:
         Delete landing-zone raw+metadata day-partitions older than keep_days.
 
         SAFETY: a day is deleted only if its cold tarball is confirmed in S3
-        (same exists() check ship uses), AND rollup's expected silver outputs
-        for that feed are confirmed in S3, AND -- for a feed whose decoder can
-        produce alerts -- its snapshot object is also confirmed in S3. rollup.py
+        (same exists() check ship uses), AND rollup is confirmed for it (its
+        _SUCCESS.json marker is in S3; see _rollup_confirmed), AND -- for a feed
+        whose decoder can produce alerts -- its snapshot object is also
+        confirmed in S3. rollup.py
         and snapshot.py both read the same landing raw bins this deletes
         (archiver/rollup.py's and analysis/alert_snapshot's respective reads),
         so the cold tarball existing is proof of neither -- cold-ship reads
@@ -433,24 +552,16 @@ class Shipper:
                     )
                     skipped += 1
                     continue
-                missing_kinds = sorted(
-                    kind
-                    for kind in self.feed_expected_kinds.get(feed_name, frozenset())
-                    if not self.uploader.exists(
-                        self.hot_bucket,
-                        self._silver_key(kind, feed_name, partition_day),
-                    )
-                )
-                if missing_kinds:
+                if not self._rollup_confirmed(feed_name, partition_day):
                     logger.warning(
-                        "prune skip %s %s: rollup output missing in s3 for kind(s) %s "
-                        "(rollup.py hasn't succeeded for this day yet)",
+                        "prune skip %s %s: no rollup marker %s in s3 "
+                        "(rollup.py hasn't finished, or its outputs aren't shipped)",
                         feed_name,
                         partition_day,
-                        missing_kinds,
+                        self._marker_key(feed_name, partition_day),
                     )
                     self.telemetry.incr(
-                        "prune.skipped_no_silver", tags={"feed": feed_name}
+                        "prune.skipped_no_rollup", tags={"feed": feed_name}
                     )
                     skipped += 1
                     continue

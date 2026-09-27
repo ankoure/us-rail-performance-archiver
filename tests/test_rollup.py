@@ -127,6 +127,38 @@ class FakeDecoder(Decoder):
             )
 
 
+def _fake_feed() -> Feed:
+    return Feed(
+        name="fake-feed",
+        path="/whatever",
+        parser=None,
+        decoder=FakeDecoder(),
+        agency_id="A",
+        poll_interval_seconds=60,
+    )
+
+
+def _stub_rollup_steps(rollup, monkeypatch):
+    """Replace the two rollup steps with call recorders that return counts in
+    the shapes rollup_one passes to _write_marker (int, dict[kind, int])."""
+    metadata_calls = []
+    data_calls = []
+    monkeypatch.setattr(
+        rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1) or 7
+    )
+    monkeypatch.setattr(
+        rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1) or {"fakes": 5}
+    )
+    return metadata_calls, data_calls
+
+
+def _seed_marker(rollup, feed_name: str, day: date) -> Path:
+    marker = rollup._marker_path(feed_name, day)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text('{"rows": {"stale": 1}}\n')
+    return marker
+
+
 # tests/test_rollup.py
 def test_schema_for_spec_renames_and_extras():
     spec = StandardDecoder.produces[VehicleRow]
@@ -171,9 +203,9 @@ def test_streaming_writer_empty_writes_nothing(tmp_path):
 def test_streaming_writer_one_batch(tmp_path):
     out = tmp_path / "data.parquet"
     schema = _schema_for_spec(FakeRow, TableSpec("fakes"))
-    with Rollup._streaming_writer(out, schema) as append:
-        append(asdict(FakeRow(feed_timestamp=1, destination="A", direction="W")))
-        append(asdict(FakeRow(feed_timestamp=2, destination="B", direction="E")))
+    with Rollup._streaming_writer(out, schema) as buf:
+        buf.append(asdict(FakeRow(feed_timestamp=1, destination="A", direction="W")))
+        buf.append(asdict(FakeRow(feed_timestamp=2, destination="B", direction="E")))
 
     table = pq.ParquetFile(out).read()
     assert table.num_rows == 2
@@ -183,9 +215,9 @@ def test_streaming_writer_one_batch(tmp_path):
 def test_streaming_writer_multiple_batches(tmp_path):
     out = tmp_path / "data.parquet"
     schema = _schema_for_spec(FakeRow, TableSpec("fakes"))
-    with Rollup._streaming_writer(out, schema, batch_size=3) as append:
+    with Rollup._streaming_writer(out, schema, batch_size=3) as buf:
         for i in range(7):  # forces 2 flushes + final
-            append(
+            buf.append(
                 asdict(FakeRow(feed_timestamp=i, destination=f"d{i}", direction="W"))
             )
 
@@ -197,8 +229,10 @@ def test_streaming_writer_exception_no_orphan(tmp_path):
     out = tmp_path / "data.parquet"
     schema = _schema_for_spec(FakeRow, TableSpec("fakes"))
     with pytest.raises(RuntimeError):
-        with Rollup._streaming_writer(out, schema) as append:
-            append(asdict(FakeRow(feed_timestamp=1, destination="A", direction="W")))
+        with Rollup._streaming_writer(out, schema) as buf:
+            buf.append(
+                asdict(FakeRow(feed_timestamp=1, destination="A", direction="W"))
+            )
             raise RuntimeError("boom")
 
     # final parquet shouldn't exist (atomic rename never happened)
@@ -211,11 +245,9 @@ def test_streaming_writer_applies_column_renames(tmp_path):
     out = tmp_path / "data.parquet"
     spec = StandardDecoder.produces[VehicleRow]
     schema = _schema_for_spec(VehicleRow, spec)
-    with Rollup._streaming_writer(
-        out, schema, column_names=spec.column_names
-    ) as append:
-        append(asdict(VehicleRow(vehicle_id="v1", vehicle_timestamp=1700000000)))
-        append(asdict(VehicleRow(vehicle_id="v2", vehicle_timestamp=1700000001)))
+    with Rollup._streaming_writer(out, schema, column_names=spec.column_names) as buf:
+        buf.append(asdict(VehicleRow(vehicle_id="v1", vehicle_timestamp=1700000000)))
+        buf.append(asdict(VehicleRow(vehicle_id="v2", vehicle_timestamp=1700000001)))
 
     table = pq.ParquetFile(out).read()
     assert table.column("vehicle.vehicle.id").to_pylist() == ["v1", "v2"]
@@ -228,30 +260,16 @@ def test_rollup_routes_unknwon_decoder_to_its_own_table(tmp_path):
     pass
 
 
-def test_skip_happens_when_outputs_exist(tmp_path, monkeypatch):
-    landing_dir = tmp_path / "landing"
-    curated_dir = tmp_path / "curated"
-    feed = Feed(
-        name="fake-feed",
-        path="/whatever",
-        parser=None,
-        decoder=FakeDecoder(),
-        agency_id="A",
-        poll_interval_seconds=60,
-    )
+def test_skip_happens_when_marker_exists(tmp_path, monkeypatch):
+    feed = _fake_feed()
     day = date(2026, 5, 1)
     rollup = Rollup(
-        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+        feeds=[feed],
+        source=LocalSource(tmp_path / "landing"),
+        curated_dir=tmp_path / "curated",
     )
-    for path in rollup._expected_outputs(feed, day).values():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch()
-    metadata_calls = []
-    data_calls = []
-    monkeypatch.setattr(
-        rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1)
-    )
-    monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
+    _seed_marker(rollup, feed.name, day)
+    metadata_calls, data_calls = _stub_rollup_steps(rollup, monkeypatch)
 
     rollup.rollup_one("fake-feed", day)
 
@@ -259,63 +277,47 @@ def test_skip_happens_when_outputs_exist(tmp_path, monkeypatch):
     assert data_calls == []
 
 
-def test_skip_does_not_happen_when_outputs_missing(tmp_path, monkeypatch):
-    landing_dir = tmp_path / "landing"
-    curated_dir = tmp_path / "curated"
-    feed = Feed(
-        name="fake-feed",
-        path="/whatever",
-        parser=None,
-        decoder=FakeDecoder(),
-        agency_id="A",
-        poll_interval_seconds=60,
-    )
+def test_skip_does_not_happen_when_marker_missing(tmp_path, monkeypatch):
+    """Output files alone no longer count as done: without a marker, the day is
+    rolled up again (resuming over complete files), and a marker is written."""
+    feed = _fake_feed()
     day = date(2026, 5, 1)
     rollup = Rollup(
-        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+        feeds=[feed],
+        source=LocalSource(tmp_path / "landing"),
+        curated_dir=tmp_path / "curated",
     )
-    metadata_calls = []
-    data_calls = []
-    monkeypatch.setattr(
-        rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1)
-    )
-    monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
+    for kind in ("metadata", "fakes"):  # every output present, as the old gate wanted
+        path = rollup._curated_path(kind, feed.name, day)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    metadata_calls, data_calls = _stub_rollup_steps(rollup, monkeypatch)
 
     rollup.rollup_one(feed_name="fake-feed", day=day)
 
     assert metadata_calls == [1]
     assert data_calls == [1]
+    marker = json.loads(rollup._marker_path(feed.name, day).read_text())
+    assert marker["rows"] == {"metadata": 7, "fakes": 5}
 
 
 def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
-    landing_dir = tmp_path / "landing"
-    curated_dir = tmp_path / "curated"
-    feed = Feed(
-        name="fake-feed",
-        path="/whatever",
-        parser=None,
-        decoder=FakeDecoder(),
-        agency_id="A",
-        poll_interval_seconds=60,
-    )
+    feed = _fake_feed()
     day = date(2026, 5, 1)
     rollup = Rollup(
-        feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
+        feeds=[feed],
+        source=LocalSource(tmp_path / "landing"),
+        curated_dir=tmp_path / "curated",
     )
-    for path in rollup._expected_outputs(feed, day).values():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch()
-    metadata_calls = []
-    data_calls = []
-    monkeypatch.setattr(
-        rollup, "_rollup_metadata", lambda *a, **kw: metadata_calls.append(1)
-    )
-    monkeypatch.setattr(rollup, "_rollup_data", lambda *a, **kw: data_calls.append(1))
+    marker = _seed_marker(rollup, feed.name, day)
+    metadata_calls, data_calls = _stub_rollup_steps(rollup, monkeypatch)
 
     rollup.rollup_one(feed_name="fake-feed", day=day, force=True)
 
     assert metadata_calls == [1]
     assert data_calls == [1]
+    # The stale marker was replaced, not left in place.
+    assert json.loads(marker.read_text())["rows"] == {"metadata": 7, "fakes": 5}
 
 
 def test_framed_window_rolls_up_with_joined_fetched_at(tmp_path):
@@ -666,11 +668,23 @@ def test_rollup_uses_rust_decoder_for_standard_decoder_feeds(tmp_path):
         feeds=[feed], source=LocalSource(landing_dir), curated_dir=curated_dir
     )
 
-    rollup._rollup_data(feed, day)  # direct, to skip the _expected_outputs gate
+    # Direct, to skip metadata (there's none here) and the marker.
+    rows = rollup._rollup_data(feed, day)
 
-    # TODO: assert the parquet landed and the row counts match the goldens --
-    # 291 vehicles, 6950 trip_updates. Read the golden JSON lengths rather than
-    # hardcoding, so regenerating fixtures doesn't silently desync the test.
+    # One count per kind the decoder produces; each non-zero count matches the
+    # parquet on disk, and a zero count means no file (the Rust sink's counter).
+    assert set(rows) == {spec.name for spec in feed.decoder.produces.values()}
+    assert sum(rows.values()) > 0
+    for kind, n in rows.items():
+        path = rollup._curated_path(kind, feed.name, day)
+        if n:
+            assert pq.read_metadata(path).num_rows == n, kind
+        else:
+            assert not path.exists(), kind
+
+    # TODO: also check the counts against the goldens -- 291 vehicles, 6950
+    # trip_updates. Read the golden JSON lengths rather than hardcoding, so
+    # regenerating fixtures doesn't silently desync the test.
 
 
 def test_iter_payloads_hash_named_joins_digest_to_timestamp():

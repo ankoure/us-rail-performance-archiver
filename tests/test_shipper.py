@@ -1,6 +1,7 @@
 import io
+import json
 import tarfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from tests.fakes.uploader import FakeUploader
 
 FEED = "fake-feed"
 DAY = date(2026, 5, 1)
+MARKER_KEY = "curated/_rollup/feed=fake-feed/year=2026/month=5/day=1/_SUCCESS.json"
 
 
 @pytest.fixture
@@ -66,6 +68,28 @@ def shipper(dirs):
     )
 
 
+def _write_rollup_marker(dirs, rows=None):
+    """The _SUCCESS.json rollup.py writes when a day finishes. Default rows match
+    the dirs fixture: vehicles has a parquet, metadata had 0 rows (no file)."""
+    marker_dir = (
+        dirs
+        / "curated"
+        / "_rollup"
+        / f"feed={FEED}"
+        / f"year={DAY.year}"
+        / f"month={DAY.month}"
+        / f"day={DAY.day}"
+    )
+    marker_dir.mkdir(parents=True)
+    body = {
+        "feed": FEED,
+        "day": DAY.isoformat(),
+        "rows": rows if rows is not None else {"metadata": 0, "vehicles": 1},
+        "finished_at": "2026-05-02T04:00:00Z",
+    }
+    (marker_dir / "_SUCCESS.json").write_text(json.dumps(body))
+
+
 def test_ship_one_cold_upload(shipper):
     shipper.ship_one(FEED, DAY)
     uploader = shipper.uploader
@@ -99,6 +123,60 @@ def test_ship_one_hot_upload(shipper):
     assert (
         h.key == "curated/vehicles/feed=fake-feed/year=2026/month=5/day=1/data.parquet"
     )
+
+
+# --- rollup marker shipping ------------------------------------------------- #
+
+
+def test_ship_one_ships_rollup_marker_after_parquet(dirs, shipper):
+    """prune_s3 reads "marker in S3" as "every rollup parquet is in S3", so the
+    marker must go up last among the hot uploads that rollup produced."""
+    _write_rollup_marker(dirs)
+
+    shipper.ship_one(FEED, DAY)
+    hot_keys = [u.key for u in shipper.uploader.uploads if u.bucket == "hot-bucket"]
+
+    assert shipper._marker_key(FEED, DAY) == MARKER_KEY
+    assert MARKER_KEY in hot_keys
+    parquet_key = "curated/vehicles/feed=fake-feed/year=2026/month=5/day=1/data.parquet"
+    assert hot_keys.index(parquet_key) < hot_keys.index(MARKER_KEY)
+
+
+def test_ship_one_no_marker_without_local_marker(shipper):
+    """No local marker means rollup didn't finish here: nothing to vouch for."""
+    shipper.ship_one(FEED, DAY)
+    hot_keys = [u.key for u in shipper.uploader.uploads if u.bucket == "hot-bucket"]
+    assert MARKER_KEY not in hot_keys
+
+
+def test_ship_one_no_marker_when_parquet_upload_fails(dirs, shipper):
+    """A failed hot upload must stop ship_one before the marker step, or prune
+    would delete landing data whose rollup output never reached S3."""
+    _write_rollup_marker(dirs)
+    real_upload = shipper.uploader.upload
+
+    def failing_upload(bucket, key, local_path, **kw):
+        if key.endswith("data.parquet"):
+            raise RuntimeError("upload failed")
+        return real_upload(bucket, key, local_path, **kw)
+
+    shipper.uploader.upload = failing_upload
+
+    with pytest.raises(RuntimeError, match="upload failed"):
+        shipper.ship_one(FEED, DAY)
+    hot_keys = [u.key for u in shipper.uploader.uploads if u.bucket == "hot-bucket"]
+    assert MARKER_KEY not in hot_keys
+
+
+def test_ship_one_refuses_marker_counting_a_missing_parquet(dirs, shipper):
+    """_ship_hot only ships files on disk; a kind the marker counts rows for
+    but that has no local parquet would never reach S3, so don't vouch for it."""
+    _write_rollup_marker(dirs, rows={"metadata": 0, "vehicles": 1, "trip_updates": 5})
+
+    with pytest.raises(RuntimeError, match="missing locally"):
+        shipper.ship_one(FEED, DAY)
+    hot_keys = [u.key for u in shipper.uploader.uploads if u.bucket == "hot-bucket"]
+    assert MARKER_KEY not in hot_keys
 
 
 def test_ship_one_hot_upload_includes_gold_marts(dirs, shipper):
@@ -315,15 +393,27 @@ def s3_shipper():
     )
 
 
+@pytest.fixture
+def after_cutover(monkeypatch):
+    """DAY is on or after the marker cutover, so prune needs rollup's marker.
+    Pinned explicitly so these tests don't depend on Shipper._MARKER_CUTOVER."""
+    monkeypatch.setattr(Shipper, "_MARKER_CUTOVER", DAY)
+
+
+@pytest.fixture
+def before_cutover(monkeypatch):
+    """DAY predates the marker cutover, so the backlog file-presence rule
+    applies. Delete this and the tests using it with Shipper._MARKER_CUTOVER."""
+    monkeypatch.setattr(Shipper, "_MARKER_CUTOVER", DAY + timedelta(days=1))
+
+
 def _mark_shipped(shipper, feed, day):
     """Seed everything prune_s3 requires before it will delete a day: cold
-    tarball, rollup's expected silver, and (for alerts-capable feeds) the
-    snapshot object."""
+    tarball, rollup's marker, and (for alerts-capable feeds) the snapshot
+    object. Seeding the marker (not silver files) keeps callers independent of
+    the marker cutover and the backlog rule."""
     shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(feed, day))
-    for kind in shipper.feed_expected_kinds.get(feed, ()):
-        shipper.uploader.mark_existing(
-            "hot-bucket", shipper._silver_key(kind, feed, day)
-        )
+    shipper.uploader.mark_existing("hot-bucket", shipper._marker_key(feed, day))
     if feed in shipper.feed_alerts_capable:
         shipper.uploader.mark_existing("hot-bucket", shipper._snapshot_key(feed, day))
 
@@ -377,16 +467,21 @@ def test_prune_s3_skips_unshipped_day(s3_shipper):
     )
 
 
-def test_prune_s3_skips_feed_without_rollup_silver(s3_shipper):
+def test_prune_s3_skips_day_without_rollup_marker(s3_shipper, after_cutover):
     """rollup.py reads the same landing raw bins this deletes
     (archiver/rollup.py's iter_bins), so the cold tarball existing is not
     proof rollup ever processed this day either. A feed that OOMs in
     rollup.py every night must not have its landing data deleted just because
-    it shipped cold."""
+    it shipped cold. Silver files alone aren't proof either: only the marker
+    says the day finished and every output reached S3."""
     _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
     s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
     s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
-    # No silver ("vehicles") object seeded.
+    for kind in ("metadata", "vehicles"):
+        s3_shipper.uploader.mark_existing(
+            "hot-bucket", s3_shipper._silver_key(kind, FEED, DAY)
+        )
+    # No marker seeded.
 
     result = s3_shipper.prune_s3(keep_days=3)
 
@@ -394,18 +489,36 @@ def test_prune_s3_skips_feed_without_rollup_silver(s3_shipper):
     assert _s3_raw_keys(s3_shipper.uploader, FEED, DAY), "pruned before rollup ran!"
 
 
-def test_prune_s3_requires_every_expected_kind(s3_shipper):
-    """A feed can produce more than one silver kind (e.g. a decoder that
-    yields both VehicleRow and StopTimeUpdateRow); prune must wait for ALL of
-    them, not just the first one shipped."""
+def test_prune_s3_backlog_day_with_metadata_and_one_kind_deletes(
+    s3_shipper, before_cutover
+):
+    """Days rolled up before the marker existed have no marker. For those,
+    metadata silver plus at least one data kind is accepted. Requiring every
+    expected kind was the old rule, and it never let go of a day where a kind
+    legitimately had zero rows (no file is written for those)."""
     s3_shipper.feed_expected_kinds = {FEED: frozenset({"vehicles", "trip_updates"})}
+    _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
+    s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
+    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
+    for kind in ("metadata", "vehicles"):  # trip_updates had no rows: no file
+        s3_shipper.uploader.mark_existing(
+            "hot-bucket", s3_shipper._silver_key(kind, FEED, DAY)
+        )
+
+    result = s3_shipper.prune_s3(keep_days=3)
+
+    assert result == {"deleted": 1, "skipped": 0}
+
+
+def test_prune_s3_backlog_day_without_metadata_silver_is_held(
+    s3_shipper, before_cutover
+):
     _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
     s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
     s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._snapshot_key(FEED, DAY))
     s3_shipper.uploader.mark_existing(
         "hot-bucket", s3_shipper._silver_key("vehicles", FEED, DAY)
     )
-    # trip_updates not seeded.
 
     result = s3_shipper.prune_s3(keep_days=3)
 
@@ -421,9 +534,8 @@ def test_prune_s3_skips_alerts_capable_feed_without_snapshot(s3_shipper):
     must not have its landing data deleted just because it shipped cold."""
     _seed_s3_landing(s3_shipper.uploader, FEED, DAY)
     s3_shipper.uploader.mark_existing("cold-bucket", s3_shipper._cold_key(FEED, DAY))
-    s3_shipper.uploader.mark_existing(
-        "hot-bucket", s3_shipper._silver_key("vehicles", FEED, DAY)
-    )
+    # Rollup confirmed, so the snapshot is the only thing missing.
+    s3_shipper.uploader.mark_existing("hot-bucket", s3_shipper._marker_key(FEED, DAY))
     # No snapshot object seeded.
 
     result = s3_shipper.prune_s3(keep_days=3)
@@ -450,19 +562,21 @@ def test_prune_s3_ignores_snapshot_for_non_alerts_feed():
     )
     _seed_s3_landing(uploader, FEED, DAY)
     uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
-    uploader.mark_existing("hot-bucket", shipper._silver_key("vehicles", FEED, DAY))
+    uploader.mark_existing("hot-bucket", shipper._marker_key(FEED, DAY))
 
     result = shipper.prune_s3(keep_days=3)
 
     assert result == {"deleted": 1, "skipped": 0}
 
 
-def test_prune_s3_ignores_silver_check_for_feed_absent_from_config():
+def test_prune_s3_ignores_rollup_check_for_feed_absent_from_config(after_cutover):
     """feed_expected_kinds is built from live config (build_shipper), so a
     feed absent from it entirely means "no longer configured", not "unknown"
-    -- e.g. landing data left over from a decommissioned feed. Nothing will
-    ever run rollup for it again, so requiring silver would trap that data in
-    landing forever instead of letting it prune once cold-shipped."""
+    -- e.g. landing data left over from a decommissioned feed. Rollup treats
+    its data as orphaned and will never write a marker for it, so requiring
+    one would trap that data in landing forever instead of letting it prune
+    once cold-shipped. after_cutover: this holds for new days, not just the
+    backlog."""
     uploader = FakeUploader()
     shipper = Shipper(
         source=S3Source(uploader, "landing-bucket", ""),
@@ -610,9 +724,11 @@ def _write_snapshot(dirs):
 
 
 def test_ship_one_cold_only_skips_hot_and_snapshots(dirs, shipper):
-    # Both curated outputs exist, so "no upload" can only mean cold_only skipped
-    # them -- not that there was nothing to ship.
+    # Every curated output exists (parquet, snapshot, rollup marker), so "no
+    # upload" can only mean cold_only skipped them -- not that there was
+    # nothing to ship.
     _write_snapshot(dirs)
+    _write_rollup_marker(dirs)
 
     shipper.ship_one(FEED, DAY, cold_only=True)
     uploader = shipper.uploader
