@@ -1,7 +1,23 @@
+# No docker log rotation was configured anywhere (no daemon.json default either),
+# so the json-file driver let container stdout grow unbounded -- confirmed on
+# 2026-09-17 the two poller shards alone had racked up 1.8G + 1.3G in one
+# container lifetime (~250MB/day/shard, one INFO line per feed HTTP poll across
+# 900+ feeds), the dominant driver behind recurring "[rail-archiver] Host disk
+# usage high" alerts. The shard containers already ship their logs to Datadog
+# (com.datadoghq.ad.logs label + DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL below), so
+# the local file is just a tailing buffer for the agent -- capping it loses no
+# durable history.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   datadog-agent:
     image: gcr.io/datadoghq/agent:7
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - DD_API_KEY=${DD_API_KEY}
       - DD_SITE=${DD_SITE:-datadoghq.com}
@@ -58,6 +74,7 @@ services:
     # for the rest of that shutdown sequence. Keep in sync if _JOIN_TIMEOUT_S
     # ever changes.
     stop_grace_period: 90s
+    logging: *default-logging
     labels:
       - autoheal=true
       - "com.datadoghq.ad.logs=[{\"source\": \"python\", \"service\": \"rail-archiver\"}]"
@@ -106,6 +123,7 @@ services:
   autoheal:
     image: willfarrell/autoheal:latest
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - AUTOHEAL_CONTAINER_LABEL=autoheal
     volumes:
