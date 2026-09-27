@@ -144,7 +144,7 @@ locals {
   # re-shipped once the failure is fixed. `|| true` so a prune problem can never
   # mask agency_batch's exit code, which is what the alarms key off. Exactly one
   # task may prune (it sweeps the whole bucket); once the stage tasks are live
-  # that task is `archive`, so this drops out here.
+  # that task is `prune` (stages.tf), so this drops out here.
   main_prune = (
     var.stage_schedule_enabled
     ? ""

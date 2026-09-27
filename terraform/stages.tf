@@ -72,21 +72,13 @@ locals {
       exclude   = local.heavy_stage_defs["snapshot"].agencies
       scheduled = false
     }
-    # cold-ship + prune. Splitting the archive out means the raw DEEP_ARCHIVE
+    # cold-ship. Splitting the archive out means the raw DEEP_ARCHIVE
     # tarball is no longer downstream of ANY other stage -- stronger than the
     # 2026-09-03 archive-first reorder, which only moved it to the front of a
     # chain that could still die before reaching it.
     #
-    # prune_s3 runs here and ONLY here: it sweeps the whole landing bucket, so a
-    # second task doing it concurrently would be pure duplicated listing. It is
-    # safe to run while other stages are still working -- it deletes only days
-    # whose cold tarball AND (for an alerts-capable feed) snapshot object are
-    # already confirmed in S3 (see prune_s3's docstring), and keep-days holds
-    # back the recent days everything else is actually reading.
-    #
     # Sequenced by the state machine after snapshot, not by its own cron --
-    # see stage_orchestration.tf for why archive can't just run on a plain
-    # schedule alongside it.
+    # see stage_orchestration.tf.
     archive = {
       cpu       = var.stage_archive_cpu
       memory    = var.stage_archive_memory
@@ -95,7 +87,27 @@ locals {
       silver    = ""
       exclude   = local.heavy_agencies
       scheduled = false
-      post      = "python pipeline/prune_s3.py --config /tmp/fargate.yaml --keep-days ${var.landing_prune_keep_days} || true"
+      post      = ""
+    }
+    # prune_s3 only, no agency_batch (empty `stages` skips it in stage_scripts).
+    # It used to be archive's `post`, which ran it in parallel with the Rollup
+    # and HeavyRollup branches -- so it could sweep before heavy_rollup had
+    # cold-shipped the heavy agencies or rollup had shipped yesterday's silver,
+    # and its `|| true` hid the result entirely (the 2026-09-05 silver gate
+    # skipped ~12k partitions a night for three weeks with nobody noticing).
+    # Now it's the state machine's final step, after every branch has
+    # finished, and its exit code is the task's.
+    #
+    # Exactly one task may run it: it sweeps the whole landing bucket.
+    prune = {
+      cpu       = var.stage_prune_cpu
+      memory    = var.stage_prune_memory
+      stages    = ""
+      workers   = var.stage_workers
+      silver    = ""
+      exclude   = []
+      scheduled = false
+      post      = "python pipeline/prune_s3.py --config /tmp/fargate.yaml --keep-days ${var.landing_prune_keep_days} || AGENCY_STATUS=$?"
     }
     # Phase 2. Unlike gtfs, gold READS another stage's output, so it must run
     # after rollup -- that ordering is the whole reason the state machine in
@@ -132,6 +144,8 @@ locals {
       START=$(date +%s)
       trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --metric pipeline.stage_${name}.duration --seconds $(( $(date +%s) - START )) || true' EXIT
 
+      AGENCY_STATUS=0
+      %{if def.stages != ""}
       set +e
       python pipeline/agency_batch.py --config /tmp/fargate.yaml --day "$DAY" --workers ${def.workers} --stages ${def.stages} ${def.silver} --exclude-agency ${join(" ", def.exclude)}
       AGENCY_STATUS=$?
@@ -139,6 +153,7 @@ locals {
       if [ "$AGENCY_STATUS" -ne 0 ]; then
         echo "agency_batch (${name}): one or more agencies failed for $DAY -- see per-agency log lines above" >&2
       fi
+      %{endif}
       ${def.post}
       sleep 15
       exit "$AGENCY_STATUS"

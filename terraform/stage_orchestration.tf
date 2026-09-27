@@ -9,8 +9,10 @@
 #   Rollup -> Gold: gold reads rollup's silver, so it must not start until
 #   rollup has finished AND shipped.
 #
-#   Snapshot -> Archive: archive's post-step is prune_s3, which deletes a
-#   landing day-partition once its cold tarball is confirmed shipped. Cold-ship
+#   Snapshot -> Archive: archive's post-step USED TO BE prune_s3, which deletes
+#   a landing day-partition once its cold tarball is confirmed shipped. (Since
+#   2026-09-27 prune is its own Prune state after the whole Parallel joins --
+#   see below and stages.tf -- so this edge is now belt-and-braces.) Cold-ship
 #   used to run inside the same monolithic task as snapshot, after it, so a day
 #   was never eligible for pruning before snapshot had already had its chance
 #   to read that day's raw payloads. Splitting them into separate tasks removes
@@ -35,8 +37,12 @@
 # Snapshot -> Archive has no such hazard: archive's cold-ship reads landing
 # (S3), not curated/, so it was never exposed to the shared-local-disk problem.
 #
+# Prune runs once after the Parallel joins, whether or not a branch failed
+# (Catch -> Prune), then CheckNightly re-raises any branch failure so the
+# execution still goes red.
+#
 # ROLLUP_DAY is threaded through the execution input so a manual re-run of one
-# past day drives all four tasks consistently: start an execution with
+# past day drives all the tasks consistently: start an execution with
 # {"day": "2026-09-02"} rather than running them by hand.
 
 locals {
@@ -48,7 +54,7 @@ locals {
   # failure and proceed anyway), so the two branches below are structurally
   # twins -- see the header comment for what each edge is actually for.
   sfn_definition = jsonencode({
-    Comment = "rail-archiver nightly: rollup -> gold and snapshot -> archive, running as independent parallel branches"
+    Comment = "rail-archiver nightly: rollup -> gold and snapshot -> archive as independent parallel branches, then prune"
     StartAt = "Nightly"
     States = {
       Nightly = {
@@ -152,11 +158,10 @@ locals {
                 ResultPath = null
 
                 # Same reasoning as Rollup's Catch: one agency SIGKILLing in
-                # snapshot.py must not stop archive from pruning everyone
-                # else's confirmed-shipped, confirmed-snapshotted days. The
-                # agencies that never get a snapshot object are exactly the
-                # ones prune_s3's new per-feed check now holds back on its own
-                # (see archiver/shipper.py's prune_s3 docstring).
+                # snapshot.py must not stop archive from cold-shipping
+                # everyone else. The agencies that never get a snapshot object
+                # are exactly the ones prune_s3's per-feed check holds back
+                # on its own (see archiver/shipper.py's prune_s3 docstring).
                 Catch = [{
                   ErrorEquals = ["States.ALL"]
                   Next        = "Archive"
@@ -257,7 +262,63 @@ locals {
             }
           },
         ]
-        End = true
+        # A Parallel's result is an array of branch outputs, which would drop
+        # $.day before Prune reads it -- same trap as the Tasks' ResultPath.
+        ResultPath = null
+
+        # Prune gates every deletion on its own S3 checks, so a failed branch
+        # doesn't make it unsafe -- it just means more days get skipped. The
+        # error is kept and re-raised by CheckNightly, so catching here doesn't
+        # turn a failed night into a green execution.
+        Catch = [{
+          ErrorEquals = ["States.ALL"]
+          Next        = "Prune"
+          ResultPath  = "$.nightlyError"
+        }]
+        Next = "Prune"
+      }
+      # After the join, not inside a branch: see stages.tf's prune stage for
+      # why it moved out of archive's post-step.
+      Prune = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::ecs:runTask.sync"
+        Parameters = {
+          Cluster        = aws_ecs_cluster.main.arn
+          TaskDefinition = aws_ecs_task_definition.stage["prune"].arn
+          LaunchType     = "FARGATE"
+          NetworkConfiguration = {
+            AwsvpcConfiguration = {
+              Subnets        = data.aws_subnets.default.ids
+              SecurityGroups = [aws_security_group.rollup.id]
+              AssignPublicIp = "ENABLED"
+            }
+          }
+          Overrides = {
+            ContainerOverrides = [{
+              Name            = "stage-prune"
+              "Environment.$" = "States.Array(States.StringToJson(States.Format('\\{\"Name\":\"ROLLUP_DAY\",\"Value\":\"{}\"\\}', $.day)))"
+            }]
+          }
+        }
+        ResultPath = null
+        Next       = "CheckNightly"
+      }
+      CheckNightly = {
+        Type = "Choice"
+        Choices = [{
+          Variable  = "$.nightlyError"
+          IsPresent = true
+          Next      = "NightlyFailed"
+        }]
+        Default = "Done"
+      }
+      NightlyFailed = {
+        Type  = "Fail"
+        Error = "NightlyBranchFailed"
+        Cause = "A Nightly branch failed; prune still ran. See $.nightlyError in the execution history."
+      }
+      Done = {
+        Type = "Succeed"
       }
     }
   })
@@ -293,6 +354,7 @@ resource "aws_iam_role_policy" "sfn" {
           "${aws_ecs_task_definition.stage["gold"].arn_without_revision}:*",
           "${aws_ecs_task_definition.stage["snapshot"].arn_without_revision}:*",
           "${aws_ecs_task_definition.stage["archive"].arn_without_revision}:*",
+          "${aws_ecs_task_definition.stage["prune"].arn_without_revision}:*",
           # heavy_stages.tf's third branch (HeavyRollup -> HeavyGold), added
           # 2026-09-05 alongside heavy_stage.
           "${aws_ecs_task_definition.heavy_stage["rollup"].arn_without_revision}:*",

@@ -388,7 +388,7 @@ variable "stage_snapshot_memory" {
 variable "stage_archive_cpu" {
   type        = string
   default     = "2048" # gzip during tarball build is the only real CPU here
-  description = "Fargate CPU units for the archive (cold-ship + prune) stage task."
+  description = "Fargate CPU units for the archive (cold-ship) stage task."
 }
 
 variable "stage_archive_memory" {
@@ -405,6 +405,22 @@ variable "stage_archive_memory" {
     streams one landing object at a time rather than materializing a day, so
     peak is roughly (workers x largest single hourly bin), not a day's volume.
   EOT
+}
+
+variable "stage_prune_cpu" {
+  type = string
+  # prune_s3 is one sequential loop of S3 List/Head/DeleteObjects calls --
+  # network-bound, nothing to parallelize across vCPUs.
+  default     = "512"
+  description = "Fargate CPU units for the prune (prune_s3.py only) stage task."
+}
+
+variable "stage_prune_memory" {
+  type = string
+  # Sep 5-9 the archive task, prune included, peaked ~330 MiB. 1024 leaves
+  # room for the first post-fix sweep, which deletes ~1.9 TB of backlog.
+  default     = "1024"
+  description = "Fargate memory (MiB) for the prune stage task."
 }
 
 variable "stage_gold_cpu" {
