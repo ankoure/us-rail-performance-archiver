@@ -261,4 +261,3 @@ class S3Source:
             if key.endswith(".jsonl"):
                 name = key.rsplit("/", 1)[-1]  # window=*.jsonl — keep the ext
                 yield name, self._uploader.get_bytes(self._bucket, key)
-

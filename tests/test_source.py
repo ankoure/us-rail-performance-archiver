@@ -529,9 +529,7 @@ ZST_KEY = RAW_A1 + "window=1700000000--shipped=1700003600.tar.zst"
 ZST_RETRY_KEY = RAW_A1 + "window=1700000000--shipped=1700007200.tar.zst"
 
 
-def make_tar_zst(
-    members: dict[str, bytes], *, frame_per_member: bool = False
-) -> bytes:
+def make_tar_zst(members: dict[str, bytes], *, frame_per_member: bool = False) -> bytes:
     """A .tar.zst blob built the way _ship_raw_window builds one.
 
     frame_per_member ends a zstd frame after every member, producing a
@@ -766,4 +764,3 @@ def test_s3_iter_bins_mixes_all_four_object_shapes():
         ("gzipped.bin", b"G"),
         ("zstd.bin", b"Z"),
     ]
-
