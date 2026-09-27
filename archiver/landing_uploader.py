@@ -10,6 +10,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import zstandard
+
 from archiver.landing_layout import (
     iter_window_objects,
     window_metadata_local_path,
@@ -52,18 +54,18 @@ class LandingUploader:
     one is materialized (``_scan_once_window``, paced by ``scan_interval``) --
     this half is unchanged from before content-addressed raw storage existed.
 
-    Raw payloads ship as one gzip'd tar per window (``_maybe_ship_raw_windows``,
-    paced independently by ``ship_window_seconds``, since PUT count against S3
-    is exactly what that cadence exists to bound). ``ContentAddressedWriter``
-    writes each poll's payload immediately to a content-hash-named
-    ``{digest}.bin`` -- there's no ``window=*.bin`` file for a glob to find the
-    way there is for metadata, so a closed window's digests are discovered by
-    reading the feed's local ``data.jsonl`` directly (``_closed_windows``).
-    Whichever of those digests still has a ``{digest}.bin`` present locally
-    gets tarred and uploaded (``_ship_raw_window``); a ``.shipped`` marker then
-    records that the window's metadata was handed off, because bin-absence
-    alone can't mean "already shipped" here -- see ``_shipped_marker``'s
-    docstring for why.
+    Raw payloads ship as one zstd-compressed tar per window
+    (``_maybe_ship_raw_windows``, paced independently by
+    ``ship_window_seconds``, since PUT count against S3 is exactly what that
+    cadence exists to bound). ``ContentAddressedWriter`` writes each poll's
+    payload immediately to a content-hash-named ``{digest}.bin`` -- there's no
+    ``window=*.bin`` file for a glob to find the way there is for metadata, so
+    a closed window's digests are discovered by reading the feed's local
+    ``data.jsonl`` directly (``_closed_windows``). Whichever of those digests
+    still has a ``{digest}.bin`` present locally gets tarred and uploaded
+    (``_ship_raw_window``); a ``.shipped`` marker then records that the
+    window's metadata was handed off, because bin-absence alone can't mean
+    "already shipped" here -- see ``_shipped_marker``'s docstring for why.
     """
 
     def __init__(
@@ -395,20 +397,34 @@ class LandingUploader:
                 with tempfile.TemporaryDirectory(
                     dir=self._landing_dir, prefix=_SCRATCH_PREFIX
                 ) as scratch:
-                    staged = Path(scratch) / f"window={window_start}.tar.gz"
-                    # compresslevel=6, not tarfile's default 9: matches
-                    # shipper.py's cold-tarball choice — the EU/AU boxes are
-                    # 2-vCPU, and 9 would burn a full core per window for
-                    # little extra ratio. Raw protobuf + repeated field
-                    # structure still compresses several-fold at 6.
-                    with tarfile.open(staged, "w:gz", compresslevel=6) as tar:
-                        for path in present:
-                            try:
-                                tar.add(path, arcname=path.name)
-                            except FileNotFoundError:
-                                # Raced with something else; the metadata row
-                                # still points at it, so let the next tick decide.
-                                logger.warning("raw file vanished mid-tar: %s", path)
+                    staged = Path(scratch) / f"window={window_start}.tar.zst"
+                    # level=6, not zstd's default 3: matches shipper.py's
+                    # cold-tarball choice. Single-threaded on purpose (no
+                    # threads=) — the EU/AU boxes are 2-vCPU and the worker
+                    # already shares them with the poller; level 6 is well
+                    # below the 19+ range where window size and memory cost
+                    # climb sharply, so one core is plenty.
+                    cctx = zstandard.ZstdCompressor(level=6)
+                    # tarfile has no native zstd mode before 3.14, so the
+                    # compressor is wrapped around the file and tarfile writes
+                    # into it. Stream mode ("w|", not "w:") is REQUIRED: the
+                    # seekable write modes rewind to patch up headers, and
+                    # stream_writer is not seekable — "w:" raises mid-add.
+                    with staged.open("wb") as fh, cctx.stream_writer(fh) as zfh:
+                        with tarfile.open(fileobj=zfh, mode="w|") as tar:
+                            for path in present:
+                                try:
+                                    tar.add(path, arcname=path.name)
+                                except FileNotFoundError:
+                                    # Raced with something else; the metadata
+                                    # row still points at it, so let the next
+                                    # tick decide.
+                                    logger.warning(
+                                        "raw file vanished mid-tar: %s", path
+                                    )
+                    # stat() only AFTER both context managers close: the tar's
+                    # trailing blocks and zstd's final frame aren't flushed
+                    # until then, so measuring inside would under-report.
                     self._tel.gauge("landing.raw_tar_bytes", staged.stat().st_size)
                     self._uploader.upload(self._bucket, key, staged)
             except Exception:

@@ -31,6 +31,8 @@ from datetime import datetime, timezone
 import io
 import tarfile
 
+import zstandard
+
 from archiver.landing_layout import window_metadata_local_path, window_tar_key
 
 NOW = datetime(2026, 5, 4, 12, 0, 0, tzinfo=timezone.utc).timestamp()
@@ -95,12 +97,18 @@ def add_response(
 
 
 def tar_members(blob: bytes) -> list[tuple[str, bytes]]:
-    """[(arcname, contents)] for an uploaded tar, in archive order.
+    """[(arcname, contents)] for an uploaded .tar.zst, in archive order.
 
     A list, not a dict: tar permits repeated arcnames, so keying by name would
     silently collapse a duplicate member and hide a dedup regression.
     """
-    with tarfile.open(fileobj=io.BytesIO(blob)) as tar:
+    # decompressobj, not ZstdDecompressor().decompress(): stream_writer frames
+    # don't record the content size in the header, and one-shot decompress()
+    # refuses frames without it.
+    raw = zstandard.ZstdDecompressor().decompressobj().decompress(blob)
+    # Explicit "r:" (uncompressed) rather than auto-detect, so a regression
+    # back to gzip fails here instead of being transparently accepted.
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as tar:
         return [(m.name, tar.extractfile(m).read()) for m in tar.getmembers()]
 
 
@@ -678,13 +686,13 @@ def test_repeated_digest_in_one_window_is_tarred_once(tmp_path):
     assert len(lines) == 2
 
 
-def test_shipped_tar_gz_round_trips_through_s3source_iter_bins(tmp_path):
+def test_shipped_tar_zst_round_trips_through_s3source_iter_bins(tmp_path):
     """End-to-end: the real write path's bytes must be exactly what the real
     read path (S3Source.iter_bins) expects -- not just two test fixtures
-    agreeing with each other. Guards the .tar.gz key/mode wiring between
+    agreeing with each other. Guards the .tar.zst key/codec wiring between
     landing_uploader.py and source.py, which nothing enforces structurally --
-    iter_bins matches on a literal ".tar.gz" suffix, not by calling
-    window_tar_key, so a drift between the two would only surface here or in
+    iter_bins dispatches on a literal suffix, not by calling window_tar_key,
+    so a drift between the two would only surface here or in
     prod (silently, at next-day rollup, after the local bins are gone).
     """
     from archiver.source import S3Source
@@ -699,7 +707,7 @@ def test_shipped_tar_gz_round_trips_through_s3source_iter_bins(tmp_path):
 
     assert len(up.calls) == 1
     bucket, key, _ = up.calls[0]
-    assert key.endswith(".tar.gz")
+    assert key.endswith(".tar.zst")
     data = up.bodies[key]
 
     class OneKeyUploader:

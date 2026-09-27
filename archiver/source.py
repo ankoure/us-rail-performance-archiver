@@ -4,6 +4,8 @@ from datetime import date
 from pathlib import Path
 from typing import Iterator, Protocol
 
+import zstandard
+
 from archiver.logger import logger
 
 
@@ -132,12 +134,18 @@ class S3Source:
     def iter_bins(self, feed, day):
         """Yield (name, bytes) for every payload in the day's raw prefix.
 
-        Three object shapes coexist and all come out of one call: legacy flat
+        Four object shapes coexist and all come out of one call: legacy flat
         `.bin` objects from before the migration, yielded as-is; legacy
-        uncompressed `.tar` objects (pre-gzip _ship_raw_window); and current
-        `.tar.gz` objects, all unpacked into their `{digest}.bin` members.
-        Callers see the same (name, bytes) contract either way —
+        uncompressed `.tar` objects (pre-gzip _ship_raw_window); legacy
+        `.tar.gz` objects (pre-zstd); and current `.tar.zst` objects — the
+        last three all unpacked into their `{digest}.bin` members. Callers
+        see the same (name, bytes) contract either way —
         payloads.iter_payloads dispatches on the name.
+
+        Dispatch is by suffix, longest-first where they nest: `.tar.zst` and
+        `.tar.gz` are tested before the bare `.tar` branch, which would
+        otherwise never be reached by those keys anyway (neither ends in
+        ".tar") but the ordering documents the intent.
         """
         prefix = self._day_prefix(feed, "raw", day)
         seen_members: set[str] = set()
@@ -148,13 +156,28 @@ class S3Source:
                 data = self._uploader.get_bytes(self._bucket, key)
                 yield name, data
 
+            elif key.endswith(".tar.zst"):
+                data = self._uploader.get_bytes(self._bucket, key)
+                # zstd can't be named in a tarfile mode string (native
+                # "r:zst" is 3.14+), so the decompressor wraps the buffer
+                # and tarfile reads a plain tar out of it. Stream mode
+                # ("r|") because stream_reader isn't seekable — and it
+                # keeps the DECOMPRESSED tar out of memory, which matters
+                # more here than in the .gz branch: these are the current
+                # objects and the largest.
+                dctx = zstandard.ZstdDecompressor()
+                with dctx.stream_reader(io.BytesIO(data)) as reader:
+                    yield from self._iter_tar_members(reader, "r|", key, seen_members)
+
             elif key.endswith(".tar.gz"):
                 data = self._uploader.get_bytes(self._bucket, key)
                 # mode="r:gz" is exact-match gzip, matching the
                 # tarfile.open(staged, "w:gz") that wrote these — same
                 # "loud failure on mismatch" reasoning as the plain ".tar"
-                # branch below, just for the current format.
-                yield from self._iter_tar_members(data, "r:gz", key, seen_members)
+                # branch below.
+                yield from self._iter_tar_members(
+                    io.BytesIO(data), "r:gz", key, seen_members
+                )
 
             elif key.endswith(".tar"):
                 data = self._uploader.get_bytes(self._bucket, key)
@@ -164,11 +187,19 @@ class S3Source:
                 # "r"/"r:*" would auto-detect and silently accept a gzip'd
                 # tar that has no business being in this path; a loud
                 # ReadError is the point.
-                yield from self._iter_tar_members(data, "r:", key, seen_members)
+                yield from self._iter_tar_members(
+                    io.BytesIO(data), "r:", key, seen_members
+                )
 
-    def _iter_tar_members(self, data, mode, key, seen_members):
+    def _iter_tar_members(self, fileobj, mode, key, seen_members):
+        """Yield (name, bytes) for each flat file member of one tar.
+
+        Takes a FILEOBJ, not bytes: the zstd branch has a stream_reader to
+        hand over, and wrapping bytes in io.BytesIO at the other call sites
+        is cheaper than forcing a decompress-to-bytes there.
+        """
         try:
-            with tarfile.open(fileobj=io.BytesIO(data), mode=mode) as tar:
+            with tarfile.open(fileobj=fileobj, mode=mode) as tar:
                 for member in tar:
                     if not member.isfile():
                         continue  # dir/link entries carry no payload
@@ -195,18 +226,23 @@ class S3Source:
                     # double-count the poll in the rollup.
                     if name in seen_members:
                         continue
-                    seen_members.add(name)
 
                     extracted = tar.extractfile(member)
                     if extracted is None:
                         continue
-                    yield name, extracted.read()
+                    payload = extracted.read()  # may raise; name not yet claimed
+                    seen_members.add(name)
+                    yield name, payload
 
-        except tarfile.TarError:
+        # ZstdError alongside TarError: a truncated or corrupt zstd frame
+        # surfaces as the former, and it has to be skipped-and-logged like
+        # any other unreadable object rather than killing the run.
+        except (tarfile.TarError, zstandard.ZstdError):
             logger.exception(
-                "Unreadable raw tar %s; skipping object (its payloads are "
-                "lost for this run — the local {digest}.bin files were "
-                "deleted once the upload was confirmed)",
+                "Unreadable raw tar %s; skipping the remainder of the object "
+                "(its payloads are lost for this run — the local {digest}.bin "
+                "files were deleted once the upload was confirmed). Under the "
+                "streaming modes any members already yielded above are kept.",
                 key,
             )
             return
@@ -225,3 +261,4 @@ class S3Source:
             if key.endswith(".jsonl"):
                 name = key.rsplit("/", 1)[-1]  # window=*.jsonl — keep the ext
                 yield name, self._uploader.get_bytes(self._bucket, key)
+

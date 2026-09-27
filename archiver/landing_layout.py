@@ -96,5 +96,5 @@ def window_tar_key(prefix: str, feed: str, window_unix: int, shipped_unix: int) 
     y, m, d = _day_parts(window_unix)
     return (
         f"{prefix}{feed}/raw/{y}/{m}/{d}"
-        f"/window={window_unix}--shipped={shipped_unix}.tar.gz"
+        f"/window={window_unix}--shipped={shipped_unix}.tar.zst"
     )

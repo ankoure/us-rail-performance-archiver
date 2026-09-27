@@ -3,9 +3,14 @@ from datetime import date
 import pytest
 
 from archiver.source import LocalSource, S3Source
+import gzip
+import hashlib
 import io
 import logging
+import os
 import tarfile
+
+import zstandard
 
 
 # --------------------------------------------------------------------------- #
@@ -500,3 +505,265 @@ def test_s3_iter_bins_dedups_a_member_across_two_tars():
         "only-second.bin",
     ]
     assert dict(pairs)["dupe.bin"] == b"payload"
+
+
+# --------------------------------------------------------------------------- #
+# .tar.zst — the current _ship_raw_window format
+# --------------------------------------------------------------------------- #
+# make_tar_zst mirrors _ship_raw_window's writer exactly: a level-6
+# stream_writer wrapped around tarfile "w|". If that writer changes shape,
+# update this builder to match; test_landing_uploader's round-trip test is
+# what catches a divergence between the two.
+#
+# Payloads that must cross zstd block boundaries use os.urandom: random bytes
+# are incompressible, so compressed size tracks raw size and a byte offset into
+# the blob lands predictably inside a given member. Compressible payloads would
+# collapse into a single block, and truncation would then drop the whole
+# object before one member decoded, hiding the bugs these tests target.
+
+# Comfortably above zstd's 128 KiB maximum block size, so each member spans
+# several blocks and a truncation can land in the middle of one.
+MULTI_BLOCK = 400_000
+
+ZST_KEY = RAW_A1 + "window=1700000000--shipped=1700003600.tar.zst"
+ZST_RETRY_KEY = RAW_A1 + "window=1700000000--shipped=1700007200.tar.zst"
+
+
+def make_tar_zst(
+    members: dict[str, bytes], *, frame_per_member: bool = False
+) -> bytes:
+    """A .tar.zst blob built the way _ship_raw_window builds one.
+
+    frame_per_member ends a zstd frame after every member, producing a
+    multi-frame object. The production writer never does this; it exists to
+    pin that the reader would cope if it ever did.
+
+    mtime is pinned for the same reason as make_tar: equal members, equal
+    bytes.
+    """
+    buf = io.BytesIO()
+    zw = zstandard.ZstdCompressor(level=6).stream_writer(buf, closefd=False)
+    with tarfile.open(fileobj=zw, mode="w|") as tar:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mtime = 0
+            tar.addfile(info, io.BytesIO(data))
+            if frame_per_member:
+                zw.flush(zstandard.FLUSH_FRAME)
+    zw.close()
+    return buf.getvalue()
+
+
+def digest_name(data: bytes) -> str:
+    """{sha256}.bin, the arcname _ship_raw_window gives every member."""
+    return f"{hashlib.sha256(data).hexdigest()}.bin"
+
+
+def random_members(count: int, size: int) -> dict[str, bytes]:
+    payloads = [os.urandom(size) for _ in range(count)]
+    return {digest_name(p): p for p in payloads}
+
+
+def test_s3_iter_bins_unpacks_tar_zst_into_members():
+    """A .tar.zst key yields its members, in archive order."""
+    up = FakeUploader()
+    up.put(ZST_KEY, make_tar_zst({"aaa.bin": b"alpha", "bbb.bin": b"beta"}))
+    src = S3Source(up, "bucket")
+
+    assert list(src.iter_bins("f", D_A1)) == [
+        ("aaa.bin", b"alpha"),
+        ("bbb.bin", b"beta"),
+    ]
+
+
+def test_s3_iter_bins_tar_zst_frames_carry_no_content_size():
+    """Pins the property that rules out one-shot ZstdDecompressor.decompress().
+
+    stream_writer can't know the total size when it writes the frame header,
+    so the header has none, and decompress() refuses such frames. iter_bins
+    streams through stream_reader instead. This fails if someone "simplifies"
+    the zstd branch to decompress-to-bytes.
+    """
+    blob = make_tar_zst({"aaa.bin": b"alpha"})
+    assert zstandard.frame_content_size(blob) == -1
+    with pytest.raises(zstandard.ZstdError):
+        zstandard.ZstdDecompressor().decompress(blob)
+
+    up = FakeUploader()
+    up.put(ZST_KEY, blob)
+    src = S3Source(up, "bucket")
+
+    assert list(src.iter_bins("f", D_A1)) == [("aaa.bin", b"alpha")]
+
+
+def test_s3_iter_bins_tar_zst_members_larger_than_a_block_round_trip():
+    """Multi-block members decode byte-for-byte through the streaming reader."""
+    members = random_members(3, MULTI_BLOCK)
+    up = FakeUploader()
+    up.put(ZST_KEY, make_tar_zst(members))
+    src = S3Source(up, "bucket")
+
+    assert list(src.iter_bins("f", D_A1)) == list(members.items())
+
+
+def test_s3_iter_bins_tar_zst_reads_across_every_frame():
+    """read_across_frames=False only stops a single read() at a frame edge;
+    the next read() continues. If a zstandard release ever changed that, the
+    reader would silently stop after the first member, and this would catch it.
+    """
+    members = random_members(3, 1_000)
+    up = FakeUploader()
+    up.put(ZST_KEY, make_tar_zst(members, frame_per_member=True))
+    src = S3Source(up, "bucket")
+
+    assert list(src.iter_bins("f", D_A1)) == list(members.items())
+
+
+def test_s3_iter_bins_tar_zst_yields_a_zero_byte_member():
+    """An empty payload is still a payload with a digest and must survive."""
+    members = {digest_name(b""): b"", digest_name(b"after"): b"after"}
+    up = FakeUploader()
+    up.put(ZST_KEY, make_tar_zst(members))
+    src = S3Source(up, "bucket")
+
+    assert list(src.iter_bins("f", D_A1)) == list(members.items())
+
+
+def test_s3_iter_bins_empty_tar_zst_is_not_an_error(caplog):
+    up = FakeUploader()
+    up.put(ZST_KEY, make_tar_zst({}))
+    src = S3Source(up, "bucket")
+
+    with caplog.at_level(logging.ERROR):
+        assert list(src.iter_bins("f", D_A1)) == []
+    assert "Unreadable raw tar" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "bad_blob",
+    [
+        pytest.param(b"definitely not zstd", id="garbage"),
+        pytest.param(make_tar({"aaa.bin": b"alpha"}, compressed=True), id="gzip-tar"),
+        pytest.param(make_tar({"aaa.bin": b"alpha"}), id="plain-tar"),
+        pytest.param(gzip.compress(b"x" * 100), id="gzip-non-tar"),
+    ],
+)
+def test_s3_iter_bins_skips_non_zstd_bytes_under_zst_key_loudly(bad_blob, caplog):
+    """Suffix decides the decoder, so wrong bytes under a .tar.zst key must
+    fail loudly (logged, object skipped) for that object alone. The later .bin
+    proves iteration is not abandoned.
+    """
+    up = FakeUploader()
+    up.put(ZST_KEY, bad_blob)
+    up.put(RAW_A1 + "window=00.bin", b"LEGACY")
+    src = S3Source(up, "bucket")
+
+    with caplog.at_level(logging.ERROR):
+        assert dict(src.iter_bins("f", D_A1)) == {"window=00.bin": b"LEGACY"}
+
+    assert "Unreadable raw tar" in caplog.text
+    assert ZST_KEY in caplog.text
+
+
+def test_s3_iter_bins_dedups_a_member_across_tar_gz_and_tar_zst():
+    """During the gzip -> zstd cutover one window can exist in both formats.
+    seen_members is shared across branches, so the overlap comes out once.
+    """
+    up = FakeUploader()
+    up.put(
+        RAW_A1 + "window=1700000000--shipped=1700003600.tar.gz",
+        make_tar({"dupe.bin": b"payload", "only-gz.bin": b"G"}, compressed=True),
+    )
+    up.put(ZST_RETRY_KEY, make_tar_zst({"dupe.bin": b"payload", "only-zst.bin": b"Z"}))
+    src = S3Source(up, "bucket")
+
+    assert [name for name, _ in src.iter_bins("f", D_A1)] == [
+        "dupe.bin",
+        "only-gz.bin",
+        "only-zst.bin",
+    ]
+
+
+def test_s3_iter_bins_truncated_tar_zst_keeps_members_before_the_break(caplog):
+    """Streaming mode yields as it goes: a member fully decoded before the
+    truncation point is kept, and the object is logged rather than raised.
+    """
+    members = random_members(3, MULTI_BLOCK)
+    blob = make_tar_zst(members)
+    up = FakeUploader()
+    up.put(ZST_KEY, blob[: len(blob) // 2])  # breaks inside the second member
+    src = S3Source(up, "bucket")
+
+    with caplog.at_level(logging.ERROR):
+        assert list(src.iter_bins("f", D_A1)) == list(members.items())[:1]
+
+    assert "Unreadable raw tar" in caplog.text
+    assert ZST_KEY in caplog.text
+
+
+@pytest.mark.parametrize(
+    "cut",
+    [
+        pytest.param(0.05, id="breaks-in-first-member"),
+        pytest.param(0.5, id="breaks-in-second-member"),
+        pytest.param(0.9, id="breaks-in-third-member"),
+    ],
+)
+def test_s3_iter_bins_truncated_tar_does_not_suppress_the_intact_retry(cut, caplog):
+    """A member whose read failed must not be marked as seen.
+
+    The first tar is cut off inside one member's data: that member's header
+    decodes but its bytes don't. The second tar is the intact retry and holds
+    every member, so every member must come out exactly once.
+
+    Fails if a name is added to seen_members before its bytes are read: the
+    failed member is then skipped as a "duplicate" when the retry tar reaches
+    it, and its only good copy is silently dropped.
+
+    Insertion order matters: FakeUploader lists in insertion order, so the
+    truncated tar is read first, as it would be in S3 where its earlier
+    shipped= stamp sorts first.
+    """
+    members = random_members(3, MULTI_BLOCK)
+    blob = make_tar_zst(members)
+    up = FakeUploader()
+    up.put(ZST_KEY, blob[: int(len(blob) * cut)])
+    up.put(ZST_RETRY_KEY, blob)
+    src = S3Source(up, "bucket")
+
+    with caplog.at_level(logging.ERROR):
+        pairs = list(src.iter_bins("f", D_A1))
+
+    # a list, not a dict: a dict would collapse a double-yield
+    assert sorted(pairs) == sorted(members.items())
+    assert "Unreadable raw tar" in caplog.text  # the damage is still reported
+
+
+def test_s3_iter_bins_mixes_all_four_object_shapes():
+    """Legacy flat .bin, legacy .tar, legacy .tar.gz and current .tar.zst can
+    all sit under one day prefix, and all come out of one call.
+    """
+    up = FakeUploader()
+    up.put(RAW_A1 + "window=00.bin", b"LEGACY")
+    up.put(
+        RAW_A1 + "window=1700000000--shipped=1700003600.tar",
+        make_tar({"plain.bin": b"P"}),
+    )
+    up.put(
+        RAW_A1 + "window=1700000300--shipped=1700003900.tar.gz",
+        make_tar({"gzipped.bin": b"G"}, compressed=True),
+    )
+    up.put(
+        RAW_A1 + "window=1700000600--shipped=1700004200.tar.zst",
+        make_tar_zst({"zstd.bin": b"Z"}),
+    )
+    src = S3Source(up, "bucket")
+
+    assert list(src.iter_bins("f", D_A1)) == [
+        ("window=00.bin", b"LEGACY"),
+        ("plain.bin", b"P"),
+        ("gzipped.bin", b"G"),
+        ("zstd.bin", b"Z"),
+    ]
+
