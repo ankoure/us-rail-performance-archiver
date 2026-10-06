@@ -2,7 +2,12 @@ from datetime import date
 
 import pytest
 
-from archiver.source import LocalSource, S3Source, select_metadata_names
+from archiver.source import (
+    LocalSource,
+    S3Source,
+    dedupe_metadata_lines,
+    select_metadata_names,
+)
 import gzip
 import hashlib
 import io
@@ -157,14 +162,15 @@ def test_iter_bins_no_bins_is_empty(source):
     assert list(source.iter_bins("feedA", date(1999, 1, 1))) == []
 
 
-def test_iter_metadata_concats_to_read_metadata(source):
-    # Per-file form (for the cold tarball) must contain the same bytes as the
-    # concatenated stream (for the rollup) once the shared selection is
-    # applied — iter_metadata ships every file, read_metadata reads the
-    # selected ones, regardless of backend file naming.
+def test_iter_metadata_dedupes_to_read_metadata(source):
+    # Per-file form (for the cold tarball) must hold the same rows as the
+    # concatenated stream (for the rollup) once the two shared read-side
+    # rules are applied: file selection, then row dedupe. iter_metadata ships
+    # every file untouched; read_metadata reads the selected ones and drops
+    # repeated polls, regardless of backend file naming.
     got = dict(source.iter_metadata("feedA", D_A1))
     assert got, "iter_metadata yielded nothing"
-    joined = b"".join(got[k] for k in select_metadata_names(got))
+    joined = dedupe_metadata_lines(got[k] for k in select_metadata_names(got))
     assert joined == source.read_metadata("feedA", D_A1)
 
 
@@ -270,24 +276,235 @@ def test_select_empty_is_empty():
 
 
 # --------------------------------------------------------------------------- #
+# dedupe_metadata_lines
+# --------------------------------------------------------------------------- #
+# One poll as two writers serialize it: the legacy hour= file in json.dumps
+# defaults, the window= slice compact with sort_keys. Same row, different
+# bytes, which is why the dedupe has to parse rather than compare lines.
+HOUR_ROW = b'{"timestamp": 1788739215.744962, "status": 200, "digest": "abc123"}\n'
+WINDOW_ROW = b'{"digest":"abc123","status":200,"timestamp":1788739215.744962}\n'
+
+
+def test_dedupe_drops_cross_format_duplicate_and_keeps_first_bytes():
+    # The first occurrence's ORIGINAL line survives; nothing is re-serialized.
+    assert dedupe_metadata_lines([HOUR_ROW, WINDOW_ROW]) == HOUR_ROW
+    assert dedupe_metadata_lines([WINDOW_ROW, HOUR_ROW]) == WINDOW_ROW
+
+
+def test_dedupe_drops_duplicate_within_one_chunk():
+    assert dedupe_metadata_lines([HOUR_ROW + WINDOW_ROW]) == HOUR_ROW
+
+
+def test_dedupe_keeps_same_digest_at_different_timestamps():
+    # A 304 repeats the previous digest: one digest, many real polls. Fails
+    # if the key is digest alone.
+    rows = [
+        b'{"timestamp": 100.0, "status": 200, "digest": "abc123"}\n',
+        b'{"timestamp": 160.0, "status": 304, "digest": "abc123"}\n',
+        b'{"timestamp": 220.0, "status": 304, "digest": "abc123"}\n',
+    ]
+    assert dedupe_metadata_lines(rows) == b"".join(rows)
+
+
+def test_dedupe_keeps_different_digests_at_one_timestamp():
+    # Fails if the key is timestamp alone.
+    rows = [
+        b'{"timestamp": 100.0, "digest": "abc123"}\n',
+        b'{"timestamp": 100.0, "digest": "def456"}\n',
+    ]
+    assert dedupe_metadata_lines(rows) == b"".join(rows)
+
+
+def test_dedupe_keeps_error_rows_without_a_digest():
+    rows = [
+        b'{"timestamp": 100.0, "error": "timeout"}\n',
+        b'{"timestamp": 160.0, "error": "timeout"}\n',
+    ]
+    assert dedupe_metadata_lines(rows) == b"".join(rows)
+
+
+def test_dedupe_collapses_a_repeated_error_row():
+    # No digest keys as (timestamp, None), so the same failed poll shipped
+    # twice still comes out once. A missing digest and an explicit null are
+    # the same key.
+    first = b'{"timestamp": 100.0, "error": "timeout"}\n'
+    again = b'{"digest":null,"error":"timeout","timestamp":100.0}\n'
+    assert dedupe_metadata_lines([first, again]) == first
+
+
+def test_dedupe_does_not_confuse_an_error_row_with_a_poll_at_that_timestamp():
+    rows = [
+        b'{"timestamp": 100.0, "error": "timeout"}\n',
+        b'{"timestamp": 100.0, "digest": "abc123"}\n',
+    ]
+    assert dedupe_metadata_lines(rows) == b"".join(rows)
+
+
+def test_dedupe_matches_timestamps_that_differ_below_a_microsecond():
+    # Two writers can print one instant with different digit counts. These
+    # two literals parse to DIFFERENT doubles (asserted, so the test stays
+    # meaningful), which is why the key is integer microseconds, not the float.
+    assert float("1788739215.744962") != float("1788739215.7449622")
+    first = b'{"timestamp": 1788739215.744962, "digest": "abc123"}\n'
+    again = b'{"timestamp": 1788739215.7449622, "digest": "abc123"}\n'
+    assert dedupe_metadata_lines([first, again]) == first
+
+
+def test_dedupe_keeps_polls_one_microsecond_apart():
+    rows = [
+        b'{"timestamp": 1788739215.744962, "digest": "abc123"}\n',
+        b'{"timestamp": 1788739215.744963, "digest": "abc123"}\n',
+    ]
+    assert dedupe_metadata_lines(rows) == b"".join(rows)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param(b'{"timestamp": 100.0, "digest": "abc', id="truncated-json"),
+        pytest.param(b"not json at all", id="garbage"),
+        pytest.param(b'{"digest": "abc123"}', id="no-timestamp"),
+        pytest.param(b'{"timestamp": "soon", "digest": "abc123"}', id="bad-timestamp"),
+        pytest.param(b'{"timestamp": null, "digest": "abc123"}', id="null-timestamp"),
+        pytest.param(b'{"timestamp": 100.0, "digest": ["a"]}', id="non-string-digest"),
+        pytest.param(b"[1, 2, 3]", id="not-an-object"),
+    ],
+)
+def test_dedupe_passes_unkeyable_lines_through_every_time(line):
+    # A line with no key is never dropped, even when it repeats: discarding
+    # data is the caller's decision (the rollup fails on it, digest_timestamps
+    # warns and skips), not read_metadata's.
+    good = b'{"timestamp": 100.0, "digest": "abc123"}\n'
+    got = dedupe_metadata_lines([line + b"\n" + good, line + b"\n"])
+    assert got == line + b"\n" + good + line + b"\n"
+
+
+def test_dedupe_without_duplicates_is_plain_concatenation():
+    chunks = [
+        b'{"timestamp": 100.0, "digest": "a"}\n{"timestamp": 160.0, "digest": "b"}\n',
+        b'{"timestamp": 220.0, "digest": "c"}\n',
+    ]
+    assert dedupe_metadata_lines(chunks) == b"".join(chunks)
+
+
+def test_dedupe_does_not_fuse_rows_across_an_unterminated_chunk():
+    # A file missing its final newline used to glue its last row onto the
+    # next file's first row under a bare b"".join.
+    first = b'{"timestamp": 100.0, "digest": "a"}'
+    second = b'{"timestamp": 160.0, "digest": "b"}\n'
+    assert dedupe_metadata_lines([first, second]) == first + b"\n" + second
+
+
+def test_dedupe_drops_blank_lines():
+    row = b'{"timestamp": 100.0, "digest": "a"}\n'
+    assert dedupe_metadata_lines([b"\n" + row + b"\n  \n"]) == row
+
+
+def test_dedupe_empty_input_is_empty():
+    assert dedupe_metadata_lines([]) == b""
+    assert dedupe_metadata_lines([b""]) == b""
+
+
+def test_dedupe_accepts_a_one_shot_generator():
+    # Both read_metadata call sites pass a generator, so files are read (and
+    # S3 objects fetched) lazily, one at a time.
+    assert dedupe_metadata_lines(c for c in [HOUR_ROW, WINDOW_ROW]) == HOUR_ROW
+
+
+# --------------------------------------------------------------------------- #
+# read_metadata dedupe — run against BOTH backends
+# --------------------------------------------------------------------------- #
+@pytest.fixture(params=["local", "s3"])
+def metadata_source(request, tmp_path):
+    """Build a source holding one feed-day ("f", D_A1) of the given metadata
+    files, so each test states its files once and both backends read them."""
+
+    def build(files):
+        if request.param == "local":
+            _write_metadata_files(tmp_path, "f", D_A1, files)
+            return LocalSource(tmp_path)
+        up = FakeUploader()
+        for name, data in files.items():
+            up.put(f"f/metadata/year=2024/month=1/day=5/{name}", data)
+        return S3Source(up, "bucket")
+
+    return build
+
+
+def test_read_metadata_drops_hour_and_window_copies_of_one_poll(metadata_source):
+    # The switch days: every closed window was re-shipped as window= files on
+    # top of the hour= objects already there. hour= sorts first, so its bytes
+    # are the ones kept.
+    earlier = b'{"timestamp": 1788739155.1, "status": 200, "digest": "aaa111"}\n'
+    later = b'{"digest":"ccc333","status":200,"timestamp":1788739275.9}\n'
+    src = metadata_source(
+        {
+            "window=1788739200.jsonl": WINDOW_ROW + later,
+            "hour=01.jsonl": earlier + HOUR_ROW,
+        }
+    )
+    assert src.read_metadata("f", D_A1) == earlier + HOUR_ROW + later
+
+
+def test_read_metadata_drops_rows_shared_by_overlapping_windows(metadata_source):
+    # A ship_window_seconds change: the old wide window and the new narrow
+    # ones cover the same polls.
+    a = b'{"digest":"aaa111","timestamp":100.0}\n'
+    b = b'{"digest":"bbb222","timestamp":400.0}\n'
+    c = b'{"digest":"ccc333","timestamp":700.0}\n'
+    src = metadata_source(
+        {
+            "window=0000.jsonl": a + b + c,
+            "window=0300.jsonl": b,
+            "window=0600.jsonl": c,
+        }
+    )
+    assert src.read_metadata("f", D_A1) == a + b + c
+
+
+def test_read_metadata_dedupes_data_jsonl_too(metadata_source):
+    # One rule on every branch: data.jsonl should never hold a duplicate, but
+    # if it does it is not exempt.
+    src = metadata_source({"data.jsonl": HOUR_ROW + WINDOW_ROW})
+    assert src.read_metadata("f", D_A1) == HOUR_ROW
+
+
+def test_read_metadata_keeps_304s_across_files(metadata_source):
+    first = b'{"digest":"abc123","status":200,"timestamp":100.0}\n'
+    not_modified = b'{"digest":"abc123","status":304,"timestamp":160.0}\n'
+    src = metadata_source(
+        {"window=0000.jsonl": first, "window=0100.jsonl": not_modified}
+    )
+    assert src.read_metadata("f", D_A1) == first + not_modified
+
+
+def test_iter_metadata_still_ships_duplicated_files_untouched(metadata_source):
+    # Dedupe is read-side only, like selection: the cold tarball keeps every
+    # file exactly as written.
+    files = {"hour=01.jsonl": HOUR_ROW, "window=1788739200.jsonl": WINDOW_ROW}
+    src = metadata_source(files)
+    assert dict(src.iter_metadata("f", D_A1)) == files
+
+
+# --------------------------------------------------------------------------- #
 # S3Source-specific tests
 # --------------------------------------------------------------------------- #
 def test_s3_read_metadata_concatenates_in_sorted_key_order():
     up = FakeUploader()
     # Inserted out of order on purpose; read_metadata must sort by key.
-    up.put("f/metadata/year=2024/month=1/day=5/window=02.jsonl", b"C")
-    up.put("f/metadata/year=2024/month=1/day=5/window=00.jsonl", b"A")
-    up.put("f/metadata/year=2024/month=1/day=5/window=01.jsonl", b"B")
+    up.put("f/metadata/year=2024/month=1/day=5/window=02.jsonl", b"C\n")
+    up.put("f/metadata/year=2024/month=1/day=5/window=00.jsonl", b"A\n")
+    up.put("f/metadata/year=2024/month=1/day=5/window=01.jsonl", b"B\n")
     src = S3Source(up, "bucket")
-    assert src.read_metadata("f", D_A1) == b"ABC"
+    assert src.read_metadata("f", D_A1) == b"A\nB\nC\n"
 
 
 def test_s3_read_metadata_ignores_non_jsonl():
     up = FakeUploader()
-    up.put("f/metadata/year=2024/month=1/day=5/window=00.jsonl", b"DATA")
+    up.put("f/metadata/year=2024/month=1/day=5/window=00.jsonl", b"DATA\n")
     up.put("f/metadata/year=2024/month=1/day=5/_SUCCESS", b"junk")
     src = S3Source(up, "bucket")
-    assert src.read_metadata("f", D_A1) == b"DATA"
+    assert src.read_metadata("f", D_A1) == b"DATA\n"
 
 
 def test_s3_read_metadata_absent_returns_empty():

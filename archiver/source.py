@@ -3,6 +3,7 @@ import tarfile
 from datetime import date
 from pathlib import Path
 from typing import Iterable, Iterator, Protocol
+import json
 
 import zstandard
 
@@ -15,7 +16,7 @@ class Source(Protocol):
     ) -> Iterator[tuple[str, date]]: ...
     def read_metadata(
         self, feed: str, day: date
-    ) -> bytes: ...  # day's full jsonl; b"" if absent
+    ) -> bytes: ...  # day's jsonl, repeated polls removed; b"" if absent
     def iter_bins(
         self, feed: str, day: date
     ) -> Iterator[tuple[str, bytes]]: ...  # (name, bytes)
@@ -41,6 +42,42 @@ def select_metadata_names(names: Iterable[str]) -> list[str]:
     if "data.jsonl" in names:
         return ["data.jsonl"]
     return sorted(names)
+
+
+def _poll_key(line: bytes) -> tuple[int, str | None] | None:
+    """(timestamp in integer µs, digest) for a poll row; None if it has no key."""
+    try:
+        row = json.loads(line)
+        micros = round(float(row["timestamp"]) * 1_000_000)
+        digest = row.get("digest")
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+        return None
+    if digest is not None and not isinstance(digest, str):
+        return None
+    return micros, digest
+
+
+def dedupe_metadata_lines(chunks: Iterable[bytes]) -> bytes:
+    """Join a day's selected metadata files, dropping repeated poll rows.
+
+    Rows are the same poll when (timestamp to the µs, digest) match; the
+    first occurrence's original bytes are kept. Lines with no key (malformed,
+    or no timestamp) pass through untouched: dropping data is the caller's
+    decision, not this layer's.
+    """
+    seen: set[tuple[int, str | None]] = set()
+    out: list[bytes] = []
+    for chunk in chunks:
+        for line in chunk.splitlines():
+            if not line.strip():
+                continue
+            key = _poll_key(line)
+            if key is not None:
+                if key in seen:
+                    continue
+                seen.add(key)
+            out.append(line + b"\n")
+    return b"".join(out)
 
 
 class LocalSource:
@@ -91,7 +128,7 @@ class LocalSource:
             / f"day={day.day}"
         )
         names = select_metadata_names(p.name for p in day_dir.glob("*.jsonl"))
-        return b"".join((day_dir / name).read_bytes() for name in names)
+        return dedupe_metadata_lines((day_dir / name).read_bytes() for name in names)
 
     def iter_bins(self, feed: str, day: date) -> Iterator[tuple[str, bytes]]:
         """Yield (bin_name, bytes) for every bin for the given feed and day.
@@ -285,7 +322,7 @@ class S3Source:
             for k in self._list_keys(self._bucket, prefix)
             if k.endswith(".jsonl")
         }
-        return b"".join(
+        return dedupe_metadata_lines(
             self._uploader.get_bytes(self._bucket, by_name[name])
             for name in select_metadata_names(by_name)
         )
