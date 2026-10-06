@@ -2,7 +2,7 @@ import io
 import tarfile
 from datetime import date
 from pathlib import Path
-from typing import Iterator, Protocol
+from typing import Iterable, Iterator, Protocol
 
 import zstandard
 
@@ -24,6 +24,25 @@ class Source(Protocol):
     ) -> Iterator[tuple[str, bytes]]: ...  # (name, bytes) per metadata file
 
 
+def select_metadata_names(names: Iterable[str]) -> list[str]:
+    """Pick which of a day's metadata `.jsonl` files make up its poll log.
+
+    A day dir can hold the append-only daily `data.jsonl` (box-local, the
+    whole day), `window=*.jsonl` slices re-serialized from it for shipping,
+    and legacy `hour=*.jsonl`. When `data.jsonl` is present it is a superset
+    of the slices beside it, so reading both would double every poll.
+
+    Takes bare file names (callers strip their own Path / S3 key) and returns
+    the selected names in the order to concatenate them. read_metadata
+    applies this; iter_metadata deliberately does not — the cold tarball
+    keeps every file, and restores re-apply the selection on read.
+    """
+    names = list(names)
+    if "data.jsonl" in names:
+        return ["data.jsonl"]
+    return sorted(names)
+
+
 class LocalSource:
     def __init__(self, landing_dir: str | Path):
         self.landing_dir = Path(landing_dir)
@@ -36,31 +55,43 @@ class LocalSource:
             feed_name = metadata_dir.parent.name
             if feed is not None and feed_name != feed:
                 continue
-            for jsonl_path in metadata_dir.rglob("data.jsonl"):
-                partitions = {
-                    part.split("=")[0]: int(part.split("=")[1])
-                    for part in jsonl_path.parts
-                    if "=" in part
-                }
-                partition_day = date(
-                    partitions["year"], partitions["month"], partitions["day"]
-                )
+            seen: set[date] = set()  # per feed; ~24 window files share one day
+            for jsonl_path in metadata_dir.rglob("*.jsonl"):
+                # Directory parts only, relative to metadata_dir: the file
+                # name itself is now "window=....jsonl", which the old
+                # all-parts parse would feed to int() and blow up on.
+                partitions = {}
+                for part in jsonl_path.relative_to(metadata_dir).parent.parts:
+                    k, sep, v = part.partition("=")
+                    if sep:
+                        partitions[k] = v
+                try:
+                    partition_day = date(
+                        int(partitions["year"]),
+                        int(partitions["month"]),
+                        int(partitions["day"]),
+                    )
+                except (KeyError, ValueError):
+                    continue  # not a year=/month=/day= layout; skip
                 if day is not None and partition_day != day:
                     continue
+                if partition_day in seen:
+                    continue
+                seen.add(partition_day)
                 yield feed_name, partition_day
 
     def read_metadata(self, feed: str, day: date) -> bytes:
         """Read the full metadata jsonl for the given feed and day, or b"" if absent."""
-        path = (
+        day_dir = (
             self.landing_dir
             / feed
             / "metadata"
             / f"year={day.year}"
             / f"month={day.month}"
             / f"day={day.day}"
-            / "data.jsonl"
         )
-        return path.read_bytes() if path.exists() else b""
+        names = select_metadata_names(p.name for p in day_dir.glob("*.jsonl"))
+        return b"".join((day_dir / name).read_bytes() for name in names)
 
     def iter_bins(self, feed: str, day: date) -> Iterator[tuple[str, bytes]]:
         """Yield (bin_name, bytes) for every bin for the given feed and day.
@@ -249,11 +280,15 @@ class S3Source:
 
     def read_metadata(self, feed, day):
         prefix = self._day_prefix(feed, "metadata", day)
-        keys = sorted(
-            k for k in self._list_keys(self._bucket, prefix) if k.endswith(".jsonl")
+        by_name = {
+            k.rsplit("/", 1)[-1]: k
+            for k in self._list_keys(self._bucket, prefix)
+            if k.endswith(".jsonl")
+        }
+        return b"".join(
+            self._uploader.get_bytes(self._bucket, by_name[name])
+            for name in select_metadata_names(by_name)
         )
-        chunks = [self._uploader.get_bytes(self._bucket, k) for k in keys]
-        return b"".join(chunks)
 
     def iter_metadata(self, feed, day):
         prefix = self._day_prefix(feed, "metadata", day)

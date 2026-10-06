@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from archiver.source import LocalSource, S3Source
+from archiver.source import LocalSource, S3Source, select_metadata_names
 import gzip
 import hashlib
 import io
@@ -159,10 +159,12 @@ def test_iter_bins_no_bins_is_empty(source):
 
 def test_iter_metadata_concats_to_read_metadata(source):
     # Per-file form (for the cold tarball) must contain the same bytes as the
-    # concatenated stream (for the rollup), regardless of backend file naming.
+    # concatenated stream (for the rollup) once the shared selection is
+    # applied — iter_metadata ships every file, read_metadata reads the
+    # selected ones, regardless of backend file naming.
     got = dict(source.iter_metadata("feedA", D_A1))
     assert got, "iter_metadata yielded nothing"
-    joined = b"".join(got[k] for k in sorted(got))
+    joined = b"".join(got[k] for k in select_metadata_names(got))
     assert joined == source.read_metadata("feedA", D_A1)
 
 
@@ -196,6 +198,77 @@ def test_local_discover_single_digit_partitions(tmp_path):
     assert set(src.discover()) == {("f", date(2024, 1, 5))}
 
 
+# A day as it lands on the poller box: the append-only daily data.jsonl plus
+# the window slices re-serialized from it (compact, sort_keys — see
+# LandingUploader._materialize_window_metadata), so the slices are the same
+# rows but not the same bytes.
+MIXED_DAY_FILES = {
+    "data.jsonl": b'{"id": 1}\n{"id": 2}\n',
+    "window=00.jsonl": b'{"id":1}\n',
+    "window=01.jsonl": b'{"id":2}\n',
+}
+
+
+def _write_metadata_files(root, feed, day, files):
+    md = root / feed / "metadata" / f"year={day.year}/month={day.month}/day={day.day}"
+    md.mkdir(parents=True, exist_ok=True)
+    for name, data in files.items():
+        (md / name).write_bytes(data)
+
+
+def test_local_read_metadata_window_and_hour_only_day(tmp_path):
+    # Cold tarballs from 6/11 on carry no data.jsonl — just the slices.
+    _write_metadata_files(
+        tmp_path,
+        "f",
+        D_A1,
+        {"window=01.jsonl": b"B\n", "hour=00.jsonl": b"A\n", "window=02.jsonl": b"C\n"},
+    )
+    assert LocalSource(tmp_path).read_metadata("f", D_A1) == b"A\nB\nC\n"
+
+
+def test_local_discover_yields_a_window_day_once(tmp_path):
+    # list, not set: a set() would hide the duplicates this is checking for.
+    _write_metadata_files(
+        tmp_path, "f", D_A1, {f"window=0{w}.jsonl": b"x\n" for w in range(3)}
+    )
+    assert list(LocalSource(tmp_path).discover()) == [("f", D_A1)]
+
+
+def test_local_mixed_day_reads_only_data_jsonl(tmp_path):
+    _write_metadata_files(tmp_path, "f", D_A1, MIXED_DAY_FILES)
+    src = LocalSource(tmp_path)
+    assert src.read_metadata("f", D_A1) == MIXED_DAY_FILES["data.jsonl"]
+
+
+def test_local_mixed_day_iter_metadata_keeps_every_file(tmp_path):
+    # Pins the cold-archive decision: selection happens on read, never on
+    # ship, so a tarball keeps the slices alongside data.jsonl.
+    _write_metadata_files(tmp_path, "f", D_A1, MIXED_DAY_FILES)
+    assert dict(LocalSource(tmp_path).iter_metadata("f", D_A1)) == MIXED_DAY_FILES
+
+
+# --------------------------------------------------------------------------- #
+# select_metadata_names
+# --------------------------------------------------------------------------- #
+def test_select_prefers_data_jsonl_when_present():
+    names = ["window=01.jsonl", "data.jsonl", "hour=00.jsonl"]
+    assert select_metadata_names(names) == ["data.jsonl"]
+
+
+def test_select_sorts_slices_when_no_data_jsonl():
+    names = ["window=02.jsonl", "hour=00.jsonl", "window=01.jsonl"]
+    assert select_metadata_names(names) == [
+        "hour=00.jsonl",
+        "window=01.jsonl",
+        "window=02.jsonl",
+    ]
+
+
+def test_select_empty_is_empty():
+    assert select_metadata_names([]) == []
+
+
 # --------------------------------------------------------------------------- #
 # S3Source-specific tests
 # --------------------------------------------------------------------------- #
@@ -220,6 +293,16 @@ def test_s3_read_metadata_ignores_non_jsonl():
 def test_s3_read_metadata_absent_returns_empty():
     src = S3Source(FakeUploader(), "bucket")
     assert src.read_metadata("f", D_A1) == b""
+
+
+def test_s3_mixed_day_reads_only_data_jsonl():
+    # Same shared rule as LocalSource. S3 landing never holds data.jsonl
+    # today, so this guards the rule, not a live case.
+    up = FakeUploader()
+    for name, data in MIXED_DAY_FILES.items():
+        up.put(f"f/metadata/year=2024/month=1/day=5/{name}", data)
+    src = S3Source(up, "bucket")
+    assert src.read_metadata("f", D_A1) == MIXED_DAY_FILES["data.jsonl"]
 
 
 def test_s3_iter_bins_ignores_non_bin():
