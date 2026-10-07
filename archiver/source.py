@@ -8,6 +8,7 @@ import json
 import zstandard
 
 from archiver.logger import logger
+from archiver.metadata_schema import to_us
 
 
 class Source(Protocol):
@@ -48,7 +49,7 @@ def _poll_key(line: bytes) -> tuple[int, str | None] | None:
     """(timestamp in integer µs, digest) for a poll row; None if it has no key."""
     try:
         row = json.loads(line)
-        micros = round(float(row["timestamp"]) * 1_000_000)
+        micros = to_us(row["timestamp"])
         digest = row.get("digest")
     except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return None

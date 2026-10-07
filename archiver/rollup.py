@@ -1,6 +1,5 @@
 from contextlib import ExitStack, contextmanager
 import dataclasses
-import io
 import json
 import typing
 from dataclasses import asdict
@@ -8,7 +7,6 @@ from pathlib import Path
 from typing import Iterator
 from archiver.source import Source
 import pyarrow as pa
-import pyarrow.json as paj
 import pyarrow.parquet as pq
 from datetime import date, datetime, timezone
 from archiver.decoder import (
@@ -20,6 +18,7 @@ from archiver.parser import ParseFailure
 from archiver.logger import logger
 from archiver.payloads import digest_timestamps, iter_payloads
 from archiver.telemetry import Telemetry, NoOpTelemetry
+from archiver.metadata_schema import metadata_table, parse_metadata_lines
 
 _PY_TO_ARROW = {
     int: pa.int64(),
@@ -202,8 +201,13 @@ class Rollup:
         if not force and out_path.exists():
             return pq.read_metadata(out_path).num_rows
         data = self._source.read_metadata(feed_name, day)
-        table = paj.read_json(io.BytesIO(data)) if data else None
-        if table is None or table.num_rows == 0:
+        # Both calls can raise, and both run before anything is written: too
+        # many unusable lines, or a row METADATA_SCHEMA doesn't describe.
+        # rollup_one has already removed the marker, so the day fails with no
+        # output and the next nightly retries it.
+        rows, skipped = parse_metadata_lines(data)
+        table = metadata_table(rows, skipped=skipped)
+        if table.num_rows == 0:
             logger.warning("nothing to roll up for %s/%s", feed_name, day)
             # Under force, an older file here would contradict the count of 0.
             out_path.unlink(missing_ok=True)

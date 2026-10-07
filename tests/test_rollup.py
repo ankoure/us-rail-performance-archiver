@@ -736,3 +736,76 @@ def test_iter_payloads_all_digit_digest_takes_hash_branch_not_legacy():
     # what the legacy branch would have produced instead: no exception to catch,
     # just a number far outside any plausible unix timestamp
     assert int(float(stem)) > 10**60
+
+
+# --------------------------------------------------------------------------- #
+# metadata: declared schema (archiver.metadata_schema)
+# --------------------------------------------------------------------------- #
+def _metadata_rollup(tmp_path) -> Rollup:
+    return Rollup(
+        feeds=[_echo_feed()],
+        source=LocalSource(tmp_path / "landing"),
+        curated_dir=tmp_path / "curated",
+    )
+
+
+def test_rollup_metadata_writes_one_schema_on_error_free_and_error_days(tmp_path):
+    from archiver.metadata_schema import METADATA_SCHEMA, SCHEMA_VERSION_KEY
+
+    ok = {"timestamp": 1000, "status_code": 200, "digest": "abc"}
+    err = {"timestamp": 1060, "error_type": "ConnectTimeout", "error_message": "x"}
+    quiet, noisy = date(2026, 5, 1), date(2026, 5, 2)
+    _write_metadata(tmp_path / "landing", "echo-feed", quiet, [ok])
+    _write_metadata(tmp_path / "landing", "echo-feed", noisy, [ok, err])
+
+    rollup = _metadata_rollup(tmp_path)
+    schemas = []
+    for day in (quiet, noisy):
+        rollup.rollup_one("echo-feed", day)
+        schemas.append(
+            pq.read_schema(rollup._curated_path("metadata", "echo-feed", day))
+        )
+
+    for schema in schemas:
+        assert schema.equals(METADATA_SCHEMA)
+        assert SCHEMA_VERSION_KEY in schema.metadata
+
+
+def test_rollup_metadata_skips_a_torn_final_line_and_records_it(tmp_path):
+    from archiver.metadata_schema import SKIPPED_LINES_KEY
+
+    day = date(2026, 5, 1)
+    path = _write_metadata(
+        tmp_path / "landing",
+        "echo-feed",
+        day,
+        [{"timestamp": 1000, "digest": "a"}, {"timestamp": 1060, "digest": "b"}],
+    )
+    with path.open("a") as f:
+        f.write('{"timestamp": 1120, "dig')  # crash mid-append
+
+    rollup = _metadata_rollup(tmp_path)
+    rollup.rollup_one("echo-feed", day)
+
+    out = pq.read_table(rollup._curated_path("metadata", "echo-feed", day))
+    assert out.num_rows == 2
+    assert out.schema.metadata[SKIPPED_LINES_KEY] == b"1"
+    assert rollup._marker_path("echo-feed", day).exists()
+
+
+def test_rollup_metadata_unknown_key_fails_the_day_without_a_marker(tmp_path):
+    day = date(2026, 5, 1)
+    _write_metadata(
+        tmp_path / "landing",
+        "echo-feed",
+        day,
+        [{"timestamp": 1000, "digest": "a", "surprise": "new poller field"}],
+    )
+
+    rollup = _metadata_rollup(tmp_path)
+    with pytest.raises(ValueError, match="surprise"):
+        rollup.rollup_one("echo-feed", day)
+
+    # No marker, so prune keeps the landing day and the next nightly retries it.
+    assert not rollup._marker_path("echo-feed", day).exists()
+    assert not rollup._curated_path("metadata", "echo-feed", day).exists()
