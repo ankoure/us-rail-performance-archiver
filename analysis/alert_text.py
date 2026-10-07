@@ -69,6 +69,7 @@ from pyarrow.fs import FileType
 from analysis.curated_fs import curated_fs
 from archiver.feed import Feed
 from archiver.logger import logger
+from archiver.metadata_schema import parse_metadata_lines, to_us
 from archiver.parser import ParseFailure
 from archiver.payloads import digest_timestamps, iter_payloads
 from archiver.source import Source
@@ -721,13 +722,9 @@ class _Clock:
     last_feed_ts: int | None = None
 
 
-def _to_us(ts: float) -> int:
-    return int(round(float(ts) * 1_000_000))
-
-
 def _dt_us(value) -> int:
     if isinstance(value, datetime):
-        return int(round(value.timestamp() * 1_000_000))
+        return to_us(value.timestamp())
     return int(value)
 
 
@@ -758,18 +755,15 @@ def _run_id(*parts) -> str:
 def _read_polls(
     source: Source, feed_name: str, day: date
 ) -> list[tuple[int, str | None]]:
-    """(fetched_at_us, digest or None) per metadata row, in time order."""
-    polls = []
-    for line in source.read_metadata(feed_name, day).decode().splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue  # digest_timestamps already warns about these
-        if row.get("timestamp") is None:
-            continue
-        polls.append((_to_us(row["timestamp"]), row.get("digest")))
+    """(fetched_at_us, digest or None) per metadata row, in time order.
+
+    Parsed by the rollup's own parse_metadata_lines and timed by to_us, so these
+    polls are exactly the rows of the day's `metadata` table: a line the rollup
+    skips is skipped here, a day the rollup fails on (too many unusable lines)
+    fails here, and fetched_at joins to `metadata.timestamp` on equality.
+    """
+    rows, _ = parse_metadata_lines(source.read_metadata(feed_name, day))
+    polls = [(to_us(row["timestamp"]), row.get("digest")) for row in rows]
     polls.sort(key=lambda p: p[0])
     return polls
 
@@ -836,7 +830,7 @@ def build_alert_tables(
             feed.name,
             day,
         )
-        polls = sorted((_to_us(ts), d) for d, ts in stored_at.items())
+        polls = sorted((to_us(ts), d) for d, ts in stored_at.items())
 
     # Pass 2: fold. Open runs are grouped by alert so a content change only
     # touches the alerts whose body changed (MBTA rolls active_period.end on
