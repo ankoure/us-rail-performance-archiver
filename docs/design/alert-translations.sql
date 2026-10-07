@@ -17,16 +17,23 @@
 -- null. A digest can recur on the next day (a 304 of yesterday's content),
 -- which is why the join includes the day.
 --
--- NOTE: `metadata`'s schema is inferred per day until the explicit-schema fix
--- in archiver/rollup.py lands and the hot partitions are rewritten (see the
--- design doc). Until then `timestamp` is epoch seconds (a double) and the error
--- columns exist only on days that had errors; union_by_name papers over the
--- latter. Once rewritten, `timestamp` is already a timestamp: drop to_timestamp.
+-- `metadata` has a declared schema (archiver/metadata_schema.py): every
+-- partition has the same columns in the same order, and `timestamp` is
+-- timestamp[us, UTC], equal to alert_text's fetched_at for the same poll.
+-- Partitions from before it (no `schema_version` in the parquet key-value
+-- metadata) had `timestamp` as epoch-seconds doubles and can't be read in the
+-- same scan; pipeline/rewrite_metadata_schema.py rewrites them. union_by_name
+-- stays so a later nullable column doesn't break reading older partitions.
+--
+-- `metadata.alert_count` is the poller's own per-poll count, written until
+-- 2026-08-21; it is exposed as poller_alert_count. `alert_count` is decoded
+-- from the payload by the alert_text build.
 CREATE OR REPLACE VIEW poll_log AS
 SELECT
     m.feed AS feed_id,
-    to_timestamp(m."timestamp") AS fetched_at,
-    m.* EXCLUDE (feed, "timestamp"),
+    m."timestamp" AS fetched_at,
+    m.* EXCLUDE (feed, "timestamp", alert_count),
+    m.alert_count AS poller_alert_count,
     p.first_fetched_at AS payload_first_fetched_at,
     p.parsed,
     p.carried_from_prev_day,

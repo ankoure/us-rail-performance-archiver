@@ -286,11 +286,27 @@ have to write it.
 - `timestamp` as `timestamp[us, UTC]`;
 - `schema_version` in the key-value metadata.
 
-Old partitions can be rewritten in place by a one-off script (hot copies only;
-the jsonl in cold is untouched). This isn't a blocker. Until it lands, the view
-reads `metadata` with `union_by_name = true` and casts `timestamp`, which
-handles every era we've seen. It is also worth doing for its own sake, since
-every other reader of `metadata` has the same problem.
+**Done (2026-10-07):** [archiver/metadata_schema.py](../../archiver/metadata_schema.py)
+declares 13 columns: the 11 above the poller has written, plus
+`DecodeFailureResponse`'s `drift_missing_required` / `drift_extras`. A
+subclass-walk test keeps it in step with `response.py`. Unusable lines (torn
+appends) are skipped and counted in the `skipped_lines` key-value field, up
+to 3 per feed-day. A row with a key the schema doesn't have fails the
+feed-day: no marker is written, landing is kept, and the existing "Batch step
+errored" monitor alerts on the failed `rollup.day` span. `alert_text` reads
+polls through the same parser and `to_us`, so `fetched_at` equals
+`metadata.timestamp` for the same poll.
+
+Old partitions are rewritten in place by
+[pipeline/rewrite_metadata_schema.py](../../pipeline/rewrite_metadata_schema.py)
+(hot copies only; the jsonl in cold is untouched). It deduplicates on the same
+key as `read_metadata`, so it also removes the 9/7–9/8 duplicates. The
+2026-10-07 footer inventory: 44,741 partitions (8.9 GB), all inferred-era. Every
+column seen is in the schema with the declared type: one partition has the
+`drift_*` columns, and 1,226 have no `digest` column. A dry run of the three
+MBTA feeds converted 351/351 partitions and removed 9,064 duplicate rows, all
+on 9/7 and 9/8. The `poll_log` view now reads `timestamp` directly, so it needs
+every partition rewritten.
 
 ### Gaps
 
