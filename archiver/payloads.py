@@ -49,7 +49,7 @@ def digest_timestamps(source: Source, feed_name: str, day: date) -> dict[str, in
             row = json.loads(raw)
         except json.JSONDecodeError as exc:
             logger.warning(
-                "Skipping malformed metadata row %s:%d: %s",
+                "Skipping malformed metadata row %s/%s:%d: %s",
                 feed_name,
                 day,
                 lineno,
