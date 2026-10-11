@@ -41,11 +41,13 @@ def _alert(
     header: dict[str, str] | list[tuple[str | None, str]],
     *,
     effect: int | None = None,
+    routes: list[str] = (),
     extra: bytes = b"",
 ) -> bytes:
     """Serialized Alert. `header` is {language: text} or [(language, text)];
-    a None language leaves the field unset. `extra` is appended raw wire bytes
-    (fields these bindings don't know)."""
+    a None language leaves the field unset. `routes` become informed_entity
+    selectors, in order. `extra` is appended raw wire bytes (fields these
+    bindings don't know)."""
     alert = Alert()
     items = header.items() if isinstance(header, dict) else header
     for language, text in items:
@@ -55,6 +57,8 @@ def _alert(
             tr.language = language
     if effect is not None:
         alert.effect = effect
+    for route_id in routes:
+        alert.informed_entity.add(route_id=route_id)
     return alert.SerializeToString() + extra
 
 
@@ -279,6 +283,39 @@ def test_metadata_change_is_a_new_version_but_not_a_new_text_run(tmp_path):
     versions = sorted(rows["alert_versions"], key=lambda r: r["first_seen"])
     assert [v["effect"] for v in versions] == ["DETOUR", "NO_SERVICE"]
     assert versions[0]["version_sha256"] != versions[1]["version_sha256"]
+
+
+def test_informed_entity_reorder_is_not_a_new_version(tmp_path):
+    # MBTA reshuffled informed_entity on nearly every poll in June 2026.
+    _land(
+        tmp_path / "landing",
+        "test-alerts",
+        DAY,
+        [
+            (0, _message(T0, {"1": _alert({"en": "A"}, routes=["Red", "Orange"])})),
+            (
+                30,
+                _message(T0 + 30, {"1": _alert({"en": "A"}, routes=["Orange", "Red"])}),
+            ),
+            (
+                60,
+                _message(
+                    T0 + 60, {"1": _alert({"en": "A"}, routes=["Orange", "Red", "Red"])}
+                ),
+            ),
+        ],
+    )
+
+    rows, _ = _build(tmp_path)
+
+    versions = sorted(rows["alert_versions"], key=lambda r: r["first_seen"])
+    # The reorder extends the first run, which keeps its first published
+    # order; a repeated selector is a real change.
+    assert [[e["route_id"] for e in v["informed_entity"]] for v in versions] == [
+        ["Red", "Orange"],
+        ["Orange", "Red", "Red"],
+    ]
+    assert [v["poll_count"] for v in versions] == [2, 1]
 
 
 def test_unknown_enum_and_spec_fields_newer_than_the_bindings(tmp_path):

@@ -226,10 +226,10 @@ _DESCRIPTIONS: dict[str, dict[str, str]] = {
         "cause_detail": "Alert.cause_detail translations (also emitted as alert_text rows).",
         "effect_detail": "Alert.effect_detail translations (also emitted as alert_text rows).",
         "active_period": "Alert.active_period in published order. Some feeds (MBTA) roll end forward every minute on ongoing alerts, so each roll is a new version.",
-        "informed_entity": "Alert.informed_entity in published order.",
+        "informed_entity": "Alert.informed_entity in the order published at the run's first poll. Order isn't part of the version: the same selectors in a different order are the same version.",
         "image": "Alert.image (TranslatedImage.localized_image).",
         "extensions_raw": "Every field on the Alert these bindings don't know (unknown fields and extensions), serialized byte-for-byte; null if none.",
-        "version_sha256": "SHA-256 over the version columns above; a change starts a new version run.",
+        "version_sha256": "SHA-256 over the version columns above, with informed_entity sorted; a change starts a new version run.",
     },
     "alert_payloads": {
         **{
@@ -553,13 +553,18 @@ def _version_sha256(version: dict[str, Any]) -> str:
             return int(value.timestamp())
         raise TypeError(type(value))
 
-    canonical = json.dumps(
-        {c: version.get(c) for c in _VERSION_COLUMNS},
-        sort_keys=True,
-        separators=(",", ":"),
-        default=default,
-    )
-    return hashlib.sha256(canonical.encode()).hexdigest()
+    def dumps(value) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), default=default)
+
+    hashed = {c: version.get(c) for c in _VERSION_COLUMNS}
+    # informed_entity is a set of selectors; its order means nothing. MBTA
+    # republished it in a new order on nearly every June poll, which made
+    # each poll a new version. Hash it sorted (duplicates kept), so a reorder
+    # is the same version; the stored column keeps the run's first published
+    # order. Same idea as translation_index not being part of the text key.
+    if hashed["informed_entity"] is not None:
+        hashed["informed_entity"] = sorted(hashed["informed_entity"], key=dumps)
+    return hashlib.sha256(dumps(hashed).encode()).hexdigest()
 
 
 class _Reducer:

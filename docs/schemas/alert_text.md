@@ -70,10 +70,10 @@ One row per run of one set of non-text alert metadata per alert, clipped to the 
 | `cause_detail` | `list<item: struct<text: string, language: string>>` | yes | Alert.cause_detail translations (also emitted as alert_text rows). |
 | `effect_detail` | `list<item: struct<text: string, language: string>>` | yes | Alert.effect_detail translations (also emitted as alert_text rows). |
 | `active_period` | `list<item: struct<start: timestamp[us, tz=UTC], end: timestamp[us, tz=UTC]>>` | yes | Alert.active_period in published order. Some feeds (MBTA) roll end forward every minute on ongoing alerts, so each roll is a new version. |
-| `informed_entity` | `list<item: struct<agency_id: string, route_id: string, route_type: int32, direction_id: int32, trip: struct<trip_id: string, route_id: string, direction_id: int32, start_time: string, start_date: string, schedule_relationship: string>, stop_id: string>>` | yes | Alert.informed_entity in published order. |
+| `informed_entity` | `list<item: struct<agency_id: string, route_id: string, route_type: int32, direction_id: int32, trip: struct<trip_id: string, route_id: string, direction_id: int32, start_time: string, start_date: string, schedule_relationship: string>, stop_id: string>>` | yes | Alert.informed_entity in the order published at the run's first poll. Order isn't part of the version: the same selectors in a different order are the same version. |
 | `image` | `list<item: struct<url: string, media_type: string, language: string>>` | yes | Alert.image (TranslatedImage.localized_image). |
 | `extensions_raw` | `binary` | yes | Every field on the Alert these bindings don't know (unknown fields and extensions), serialized byte-for-byte; null if none. |
-| `version_sha256` | `string` | no | SHA-256 over the version columns above; a change starts a new version run. |
+| `version_sha256` | `string` | no | SHA-256 over the version columns above, with informed_entity sorted; a change starts a new version run. |
 
 ## `alert_payloads`
 

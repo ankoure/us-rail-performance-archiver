@@ -47,9 +47,10 @@ which is generated from the code. Reader views: [alert-translations.sql](alert-t
 - All 2,884 metadata rows (1,441 `ProtobufResponse`, 1,443 `NotModifiedResponse`) join to an `alert_payloads` row.
 - The last run per key matches the day's `snapshots/alerts` text exactly for all 2,428 translations the snapshot has.
 
-Two things the data showed:
+What the data showed:
 - **MBTA does publish `cause_detail`, `effect_detail` and `image_alternative_text`**: 220, 224 and 2 runs that day. The Jul 31 check below couldn't see them, because `MessageToDict` drops unknown fields.
 - **MBTA rolls `active_period.end` forward every minute on ongoing delay alerts.** That's why there are about 7k version runs a day for 216 alerts; one alert had 580. They are real versions. Readers who only want substantive changes should compare versions without `active_period`.
+- **MBTA reshuffled `informed_entity` on nearly every poll in June** (found in the cold backfill, 2026-10-07). On Jun 9, 70,077 of 70,080 `informed_entity` changes were the same selectors in a new order, which made 87k version runs. Order means nothing there, so `version_sha256` now hashes `informed_entity` sorted, and the stored column keeps the order published at the run's first poll. `translation[]` order already didn't count (see `translation_index`). No `schema_version` bump: nothing had been published yet.
 
 ## Summary
 
@@ -197,10 +198,10 @@ here, because `alert_text` already covers them.
 | `severity_level` | string, nullable | same |
 | `cause_detail`, `effect_detail` | struct(`field`, `translation` list) nullable | these are `TranslatedString`s too, so they are **also** emitted in `alert_text`. Here they're kept only so the version row is self-contained |
 | `active_period` | list<struct<start: timestamp[s,UTC], end: timestamp[s,UTC]>> | order preserved |
-| `informed_entity` | list<struct<agency_id, route_id, route_type: int32, direction_id: int32, trip: struct<trip_id, route_id, direction_id, start_time, start_date, schedule_relationship: string>, stop_id>> | order preserved |
+| `informed_entity` | list<struct<agency_id, route_id, route_type: int32, direction_id: int32, trip: struct<trip_id, route_id, direction_id, start_time, start_date, schedule_relationship: string>, stop_id>> | order as published at the run's first poll; a reorder is not a new version |
 | `image` | list<struct<url, media_type, language>>, nullable | `TranslatedImage.localized_image` |
 | `extensions_raw` | binary, nullable | serialized unknown fields / extensions on the `Alert` message (see below) |
-| `version_sha256` | string | digest of all the above, used for change detection |
+| `version_sha256` | string | digest of all the above with `informed_entity` sorted, used for change detection |
 
 **Agency extensions: a finding that changes the plan.** The spec asks for
 created / last-modified / lifecycle timestamps. **MBTA's `Alerts.pb` doesn't
