@@ -24,7 +24,8 @@ Runbook:
     uv run python pipeline/rewrite_metadata_schema.py
 
     # 3. rewrite in place. Each original is first copied to
-    #    _backup/metadata-v0/<key> (the hot bucket isn't versioned).
+    #    _backup/metadata-v0/<key>. Hot is versioned now too, but old versions
+    #    expire after 30 days and the backup stays until you delete it.
     uv run python pipeline/rewrite_metadata_schema.py --apply
 
     # 4. confirm nothing stale is left (a nightly on the old image can write
