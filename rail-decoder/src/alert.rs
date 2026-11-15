@@ -1,3 +1,4 @@
+use crate::enums::{enum_name, enum_name_uncounted, with_unknown_count};
 use crate::transit_realtime::{self};
 use arrow::array::{Int32Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder};
 use arrow::datatypes::{DataType, Field, Schema};
@@ -19,6 +20,7 @@ pub struct AlertRowBuilder {
     trip_id: StringBuilder,
     stop_id: StringBuilder,
     severity_level: StringBuilder,
+    unknown_enum_values: u64,
 }
 
 impl AlertRowBuilder {
@@ -38,6 +40,7 @@ impl AlertRowBuilder {
             trip_id: StringBuilder::new(),
             stop_id: StringBuilder::new(),
             severity_level: StringBuilder::new(),
+            unknown_enum_values: 0,
         }
     }
 
@@ -46,25 +49,18 @@ impl AlertRowBuilder {
         alert: &transit_realtime::Alert,
         alert_id: &str,
         header: &transit_realtime::FeedHeader,
-    ) -> Result<(), prost::UnknownEnumValue> {
+    ) {
+        use transit_realtime::alert::{Cause, Effect, SeverityLevel};
+
         // Alert-level values, computed once — same expressions as decode_alert's
         // hoisted `let` bindings.
         let feed_timestamp = header.timestamp.unwrap_or(0);
 
-        let cause = alert
-            .cause
-            .map(|raw| transit_realtime::alert::Cause::try_from(raw).map(|v| v.as_str_name()))
-            .transpose()?;
-        let effect = alert
-            .effect
-            .map(|raw| transit_realtime::alert::Effect::try_from(raw).map(|v| v.as_str_name()))
-            .transpose()?;
-        let severity_level = alert
-            .severity_level
-            .map(|raw| {
-                transit_realtime::alert::SeverityLevel::try_from(raw).map(|v| v.as_str_name())
-            })
-            .transpose()?;
+        // An unknown enum value becomes null and is counted (see crate::enums).
+        let unknown = &mut self.unknown_enum_values;
+        let cause = enum_name(alert.cause, Cause::as_str_name, unknown);
+        let effect = enum_name(alert.effect, Effect::as_str_name, unknown);
+        let severity_level = enum_name(alert.severity_level, SeverityLevel::as_str_name, unknown);
 
         let header_text = alert
             .header_text
@@ -102,26 +98,28 @@ impl AlertRowBuilder {
                 .append_option(entity.trip.as_ref().and_then(|t| t.trip_id.clone()));
             self.stop_id.append_option(entity.stop_id.clone());
         }
-        Ok(())
     }
 
     pub fn finish(mut self) -> RecordBatch {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("feed_timestamp", DataType::UInt64, false),
-            Field::new("alert_id", DataType::Utf8, false),
-            Field::new("cause", DataType::Utf8, true),
-            Field::new("effect", DataType::Utf8, true),
-            Field::new("url", DataType::Utf8, true),
-            Field::new("header_text", DataType::Utf8, true),
-            Field::new("description_text", DataType::Utf8, true),
-            Field::new("agency_id", DataType::Utf8, true),
-            Field::new("route_id", DataType::Utf8, true),
-            Field::new("route_type", DataType::Int32, true),
-            Field::new("direction_id", DataType::UInt32, true),
-            Field::new("trip_id", DataType::Utf8, true),
-            Field::new("stop_id", DataType::Utf8, true),
-            Field::new("severity_level", DataType::Utf8, true),
-        ]));
+        let schema = Arc::new(with_unknown_count(
+            Schema::new(vec![
+                Field::new("feed_timestamp", DataType::UInt64, false),
+                Field::new("alert_id", DataType::Utf8, false),
+                Field::new("cause", DataType::Utf8, true),
+                Field::new("effect", DataType::Utf8, true),
+                Field::new("url", DataType::Utf8, true),
+                Field::new("header_text", DataType::Utf8, true),
+                Field::new("description_text", DataType::Utf8, true),
+                Field::new("agency_id", DataType::Utf8, true),
+                Field::new("route_id", DataType::Utf8, true),
+                Field::new("route_type", DataType::Int32, true),
+                Field::new("direction_id", DataType::UInt32, true),
+                Field::new("trip_id", DataType::Utf8, true),
+                Field::new("stop_id", DataType::Utf8, true),
+                Field::new("severity_level", DataType::Utf8, true),
+            ]),
+            self.unknown_enum_values,
+        ));
 
         RecordBatch::try_new(
             schema,
@@ -194,21 +192,14 @@ pub fn decode_alert(
     alert: &transit_realtime::Alert,
     alert_id: &str,
     header: &transit_realtime::FeedHeader,
-) -> Result<Vec<AlertRow>, prost::UnknownEnumValue> {
+) -> Vec<AlertRow> {
+    use transit_realtime::alert::{Cause, Effect, SeverityLevel};
+
     let feed_timestamp = header.timestamp.unwrap_or(0);
 
-    let cause = alert
-        .cause
-        .map(|raw| transit_realtime::alert::Cause::try_from(raw).map(|v| v.as_str_name()))
-        .transpose()?;
-    let effect = alert
-        .effect
-        .map(|raw| transit_realtime::alert::Effect::try_from(raw).map(|v| v.as_str_name()))
-        .transpose()?;
-    let severity_level = alert
-        .severity_level
-        .map(|raw| transit_realtime::alert::SeverityLevel::try_from(raw).map(|v| v.as_str_name()))
-        .transpose()?;
+    let cause = enum_name_uncounted(alert.cause, Cause::as_str_name);
+    let effect = enum_name_uncounted(alert.effect, Effect::as_str_name);
+    let severity_level = enum_name_uncounted(alert.severity_level, SeverityLevel::as_str_name);
 
     let header_text = alert
         .header_text
@@ -242,7 +233,7 @@ pub fn decode_alert(
             stop_id: entity.stop_id.clone(),
         });
     }
-    Ok(rows)
+    rows
 }
 
 #[cfg(test)]
@@ -299,7 +290,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-1", &header).unwrap();
+        let rows = decode_alert(&alert, "alert-1", &header);
 
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.alert_id == "alert-1"));
@@ -331,11 +322,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        assert!(
-            decode_alert(&alert, "alert-empty", &header)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(decode_alert(&alert, "alert-empty", &header).is_empty());
     }
 
     /// Translated-string fallback, branch 1: an "en" translation is present
@@ -364,7 +351,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-i18n", &header).unwrap();
+        let rows = decode_alert(&alert, "alert-i18n", &header);
         assert_eq!(
             rows[0].header_text.as_deref(),
             Some("Delay on the red line")
@@ -390,7 +377,7 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-fr-only", &header).unwrap();
+        let rows = decode_alert(&alert, "alert-fr-only", &header);
         assert_eq!(
             rows[0].description_text.as_deref(),
             Some("Retard sur la ligne rouge")
@@ -413,7 +400,45 @@ mod decode_alert_tests {
             ..Default::default()
         };
 
-        let rows = decode_alert(&alert, "alert-no-url", &header).unwrap();
+        let rows = decode_alert(&alert, "alert-no-url", &header);
         assert_eq!(rows[0].url, None);
+    }
+
+    #[test]
+    fn unknown_cause_becomes_none_and_keeps_the_row() {
+        let header = FeedHeader::default();
+        let alert = Alert {
+            cause: Some(999),
+            effect: Some(Effect::Detour as i32),
+            informed_entity: vec![EntitySelector {
+                route_id: Some("route-A".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let rows = decode_alert(&alert, "alert-x", &header);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].cause, None);
+        assert_eq!(rows[0].effect, Some("DETOUR"));
+    }
+
+    #[test]
+    fn builder_counts_unknown_values() {
+        use crate::enums::UNKNOWN_ENUM_VALUES_KEY;
+
+        let header = FeedHeader::default();
+        let alert = Alert {
+            cause: Some(999),
+            severity_level: Some(999),
+            informed_entity: vec![EntitySelector::default(), EntitySelector::default()],
+            ..Default::default()
+        };
+        let mut builder = AlertRowBuilder::new();
+        builder.append(&alert, "alert-x", &header);
+        let batch = builder.finish();
+
+        assert_eq!(batch.num_rows(), 2);
+        assert_eq!(batch.schema_ref().metadata()[UNKNOWN_ENUM_VALUES_KEY], "2");
     }
 }

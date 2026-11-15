@@ -36,17 +36,18 @@ class RecordingTelemetry:
 
     # gauge/histogram/timing analogous
 
-
-@contextmanager
-def span(self, name, *, resource=None, tags=None):
-    self.calls.append(
-        Call("span_enter", name, tags=dict(tags) if tags else None, resource=resource)
-    )
-    rec_span = _RecordingSpan(self.calls, name)
-    try:
-        yield rec_span
-    except BaseException as e:
-        self.calls.append(Call("span_error", name, value=type(e).__name__))
-        raise
-    finally:
-        self.calls.append(Call("span_exit", name))
+    @contextmanager
+    def span(self, name, *, resource=None, tags=None):
+        self.calls.append(
+            Call(
+                "span_enter", name, tags=dict(tags) if tags else None, resource=resource
+            )
+        )
+        rec_span = _RecordingSpan(self.calls, name)
+        try:
+            yield rec_span
+        except BaseException as e:
+            self.calls.append(Call("span_error", name, value=type(e).__name__))
+            raise
+        finally:
+            self.calls.append(Call("span_exit", name))

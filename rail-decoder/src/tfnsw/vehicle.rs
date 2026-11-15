@@ -10,6 +10,7 @@
 //! carriage in `vp.consist` (observed stream).
 
 use super::consist::{ConsistOrigin, ConsistRowBuilder};
+use crate::enums::{enum_name, with_unknown_count};
 use crate::tfnsw_realtime;
 use arrow::array::{
     BooleanBuilder, Float32Builder, Int32Builder, RecordBatch, StringBuilder, UInt32Builder,
@@ -49,6 +50,7 @@ pub struct TfnswVehicleRowBuilder {
     wheelchair_accessible: Int32Builder,
     // TfNSW-only, from Position.track_direction (tag 1007). UP / DOWN.
     track_direction: StringBuilder,
+    unknown_enum_values: u64,
 }
 
 impl TfnswVehicleRowBuilder {
@@ -76,6 +78,7 @@ impl TfnswVehicleRowBuilder {
             air_conditioned: BooleanBuilder::new(),
             wheelchair_accessible: Int32Builder::new(),
             track_direction: StringBuilder::new(),
+            unknown_enum_values: 0,
         }
     }
 
@@ -90,7 +93,7 @@ impl TfnswVehicleRowBuilder {
         vp: &tfnsw_realtime::VehiclePosition,
         header: &tfnsw_realtime::FeedHeader,
         consist: &mut ConsistRowBuilder,
-    ) -> Result<(), prost::UnknownEnumValue> {
+    ) {
         use tfnsw_realtime::TrackDirection;
         use tfnsw_realtime::trip_descriptor::ScheduleRelationship;
         use tfnsw_realtime::vehicle_position::{OccupancyStatus, VehicleStopStatus};
@@ -100,29 +103,29 @@ impl TfnswVehicleRowBuilder {
         let position = vp.position.as_ref();
         let tfnsw = vehicle.and_then(|v| v.tfnsw_vehicle_descriptor.as_ref());
 
-        // All four enum decodes above the first append, so an unknown value
-        // cannot leave the columns at unequal lengths. Same reason the raw
-        // Option is read instead of prost's accessors: absent stays absent.
-        let schedule_relationship = trip
-            .and_then(|t| t.schedule_relationship)
-            .map(ScheduleRelationship::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
-        let current_status = vp
-            .current_status
-            .map(VehicleStopStatus::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
-        let occupancy_status = vp
-            .occupancy_status
-            .map(OccupancyStatus::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
-        let track_direction = position
-            .and_then(|p| p.track_direction)
-            .map(TrackDirection::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
+        // An unknown enum value becomes null and is counted (see crate::enums).
+        // The raw Option is read instead of prost's accessors so that absent
+        // stays absent.
+        let schedule_relationship = enum_name(
+            trip.and_then(|t| t.schedule_relationship),
+            ScheduleRelationship::as_str_name,
+            &mut self.unknown_enum_values,
+        );
+        let current_status = enum_name(
+            vp.current_status,
+            VehicleStopStatus::as_str_name,
+            &mut self.unknown_enum_values,
+        );
+        let occupancy_status = enum_name(
+            vp.occupancy_status,
+            OccupancyStatus::as_str_name,
+            &mut self.unknown_enum_values,
+        );
+        let track_direction = enum_name(
+            position.and_then(|p| p.track_direction),
+            TrackDirection::as_str_name,
+            &mut self.unknown_enum_values,
+        );
 
         let vehicle_id = vehicle.and_then(|v| v.id.as_deref());
         let trip_id = trip.and_then(|t| t.trip_id.as_deref());
@@ -175,10 +178,8 @@ impl TfnswVehicleRowBuilder {
                 trip_id,
                 None,
                 None,
-            )?;
+            );
         }
-
-        Ok(())
     }
 
     pub fn schema() -> Schema {
@@ -213,7 +214,7 @@ impl TfnswVehicleRowBuilder {
 
     pub fn finish(mut self) -> RecordBatch {
         RecordBatch::try_new(
-            Arc::new(Self::schema()),
+            Arc::new(with_unknown_count(Self::schema(), self.unknown_enum_values)),
             vec![
                 Arc::new(self.feed_timestamp.finish()),
                 Arc::new(self.vehicle_id.finish()),

@@ -14,6 +14,7 @@
 //!     carriage streams -- ~15,020 rows per payload vs ~1883 observed.
 
 use super::consist::{ConsistOrigin, ConsistRowBuilder};
+use crate::enums::{enum_name, with_unknown_count};
 use crate::tfnsw_realtime;
 use arrow::array::{
     Int32Builder, Int64Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder,
@@ -45,6 +46,7 @@ pub struct TfnswStopTimeUpdateRowBuilder {
     // positionally identical to crate::trip_update's, which keeps a diff of the
     // two schema() bodies readable.
     departure_occupancy_status: StringBuilder,
+    unknown_enum_values: u64,
 }
 
 impl TfnswStopTimeUpdateRowBuilder {
@@ -70,21 +72,18 @@ impl TfnswStopTimeUpdateRowBuilder {
             departure_uncertainty: Int32Builder::new(),
             stop_time_schedule_relationship: StringBuilder::new(),
             departure_occupancy_status: StringBuilder::new(),
+            unknown_enum_values: 0,
         }
     }
 
     /// One row per `tu.stop_time_update`, and one consist row per carriage in
     /// each STU's `carriage_seq_predictive_occupancy`.
-    ///
-    /// Error boundary is per-STU: a failure leaves rows for earlier STUs
-    /// already appended, but every column at equal length. See the note on the
-    /// consist fan-out for the one place that guarantee does not span builders.
     pub fn append(
         &mut self,
         tu: &tfnsw_realtime::TripUpdate,
         header: &tfnsw_realtime::FeedHeader,
         consist: &mut ConsistRowBuilder,
-    ) -> Result<(), prost::UnknownEnumValue> {
+    ) {
         use tfnsw_realtime::trip_descriptor::ScheduleRelationship as TripRel;
         use tfnsw_realtime::trip_update::stop_time_update::ScheduleRelationship as StuRel;
         use tfnsw_realtime::vehicle_position::OccupancyStatus;
@@ -103,33 +102,28 @@ impl TfnswStopTimeUpdateRowBuilder {
         let start_date = tu.trip.start_date.as_deref();
         let start_time = tu.trip.start_time.as_deref();
 
-        // TfNSW keeps REPLACEMENT = 5, which canonical GTFS-RT dropped. On the
-        // canonical path this try_from returns Err and takes the whole payload
-        // with it; here it resolves. Second reason this module is separate.
-        let schedule_relationship = tu
-            .trip
-            .schedule_relationship
-            .map(TripRel::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
+        // An unknown enum value becomes null and is counted (see crate::enums).
+        let schedule_relationship = enum_name(
+            tu.trip.schedule_relationship,
+            TripRel::as_str_name,
+            &mut self.unknown_enum_values,
+        );
 
         let vehicle = tu.vehicle.as_ref();
         let vehicle_id = vehicle.and_then(|v| v.id.as_deref());
         let vehicle_label = vehicle.and_then(|v| v.label.as_deref());
 
         for stu in &tu.stop_time_update {
-            // Both fallible decodes hoisted above this STU's first append, so
-            // an unknown value cannot desync the columns mid-row.
-            let stop_time_schedule_relationship = stu
-                .schedule_relationship
-                .map(StuRel::try_from)
-                .transpose()?
-                .map(|v| v.as_str_name());
-            let departure_occupancy_status = stu
-                .departure_occupancy_status
-                .map(OccupancyStatus::try_from)
-                .transpose()?
-                .map(|v| v.as_str_name());
+            let stop_time_schedule_relationship = enum_name(
+                stu.schedule_relationship,
+                StuRel::as_str_name,
+                &mut self.unknown_enum_values,
+            );
+            let departure_occupancy_status = enum_name(
+                stu.departure_occupancy_status,
+                OccupancyStatus::as_str_name,
+                &mut self.unknown_enum_values,
+            );
 
             let arrival = stu.arrival.as_ref();
             let departure = stu.departure.as_ref();
@@ -165,10 +159,7 @@ impl TfnswStopTimeUpdateRowBuilder {
             self.departure_occupancy_status
                 .append_option(departure_occupancy_status);
 
-            // Fan out predictive occupancy. NB: this row is already appended
-            // above, so a consist decode error leaves the STU row present with
-            // only some of its carriages. Each builder stays internally
-            // consistent; the pair does not roll back together.
+            // Fan out predictive occupancy.
             for car in &stu.carriage_seq_predictive_occupancy {
                 consist.append(
                     car,
@@ -178,11 +169,9 @@ impl TfnswStopTimeUpdateRowBuilder {
                     trip_id,
                     stu.stop_sequence,
                     stu.stop_id.as_deref(),
-                )?;
+                );
             }
         }
-
-        Ok(())
     }
 
     pub fn schema() -> Schema {
@@ -212,7 +201,7 @@ impl TfnswStopTimeUpdateRowBuilder {
 
     pub fn finish(mut self) -> RecordBatch {
         RecordBatch::try_new(
-            Arc::new(Self::schema()),
+            Arc::new(with_unknown_count(Self::schema(), self.unknown_enum_values)),
             vec![
                 Arc::new(self.feed_timestamp.finish()),
                 Arc::new(self.trip_update_timestamp.finish()),

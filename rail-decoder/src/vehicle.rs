@@ -1,3 +1,4 @@
+use crate::enums::{enum_name, enum_name_uncounted, with_unknown_count};
 use crate::transit_realtime;
 use arrow::array::{Float32Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder};
 use arrow::datatypes::{DataType, Field, Schema};
@@ -24,6 +25,7 @@ pub struct VehicleRowBuilder {
     occupancy_status: StringBuilder,
     occupancy_percentage: UInt32Builder,
     vehicle_timestamp: UInt64Builder,
+    unknown_enum_values: u64,
 }
 
 impl VehicleRowBuilder {
@@ -48,6 +50,7 @@ impl VehicleRowBuilder {
             occupancy_status: StringBuilder::new(),
             occupancy_percentage: UInt32Builder::new(),
             vehicle_timestamp: UInt64Builder::new(),
+            unknown_enum_values: 0,
         }
     }
 }
@@ -57,7 +60,22 @@ impl VehicleRowBuilder {
         &mut self,
         vp: &transit_realtime::VehiclePosition,
         header: &transit_realtime::FeedHeader,
-    ) -> Result<(), prost::UnknownEnumValue> {
+    ) {
+        use transit_realtime::trip_descriptor::ScheduleRelationship;
+        use transit_realtime::vehicle_position::{OccupancyStatus, VehicleStopStatus};
+
+        // Enum names resolved up front. An unknown value becomes null and is
+        // counted (see crate::enums).
+        let unknown = &mut self.unknown_enum_values;
+        let schedule_relationship = enum_name(
+            vp.trip.as_ref().and_then(|t| t.schedule_relationship),
+            ScheduleRelationship::as_str_name,
+            unknown,
+        );
+        let current_status = enum_name(vp.current_status, VehicleStopStatus::as_str_name, unknown);
+        let occupancy_status =
+            enum_name(vp.occupancy_status, OccupancyStatus::as_str_name, unknown);
+
         // Shape 1: non-optional
         self.feed_timestamp
             .append_value(header.timestamp.unwrap_or(0));
@@ -82,16 +100,8 @@ impl VehicleRowBuilder {
             .append_option(vp.trip.as_ref().and_then(|t| t.start_time.clone()));
 
         // Shape 7: nested enum
-        self.schedule_relationship.append_option(
-            vp.trip
-                .as_ref()
-                .and_then(|t| t.schedule_relationship)
-                .map(|raw| {
-                    transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                        .map(|v| v.as_str_name())
-                })
-                .transpose()?,
-        );
+        self.schedule_relationship
+            .append_option(schedule_relationship);
 
         // Position sub-message: latitude/longitude are required within Position,
         // bearing/speed are optional within Position, and Position itself is optional.
@@ -110,53 +120,41 @@ impl VehicleRowBuilder {
         self.stop_id.append_option(vp.stop_id.clone());
 
         // Shape 6: top-level optional enum
-        self.current_status.append_option(
-            vp.current_status
-                .map(|raw| {
-                    transit_realtime::vehicle_position::VehicleStopStatus::try_from(raw)
-                        .map(|v| v.as_str_name())
-                })
-                .transpose()?,
-        );
-        self.occupancy_status.append_option(
-            vp.occupancy_status
-                .map(|raw| {
-                    transit_realtime::vehicle_position::OccupancyStatus::try_from(raw)
-                        .map(|v| v.as_str_name())
-                })
-                .transpose()?,
-        );
+        self.current_status.append_option(current_status);
+        self.occupancy_status.append_option(occupancy_status);
 
         self.occupancy_percentage
             .append_option(vp.occupancy_percentage);
         self.vehicle_timestamp.append_option(vp.timestamp);
-        Ok(())
     }
 }
 
 impl VehicleRowBuilder {
     pub fn finish(mut self) -> RecordBatch {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("feed_timestamp", DataType::UInt64, false),
-            Field::new("vehicle_id", DataType::Utf8, true),
-            Field::new("vehicle_label", DataType::Utf8, true),
-            Field::new("trip_id", DataType::Utf8, true),
-            Field::new("route_id", DataType::Utf8, true),
-            Field::new("direction_id", DataType::UInt32, true),
-            Field::new("start_date", DataType::Utf8, true),
-            Field::new("start_time", DataType::Utf8, true),
-            Field::new("schedule_relationship", DataType::Utf8, true),
-            Field::new("latitude", DataType::Float32, true),
-            Field::new("longitude", DataType::Float32, true),
-            Field::new("bearing", DataType::Float32, true),
-            Field::new("speed", DataType::Float32, true),
-            Field::new("current_stop_sequence", DataType::UInt32, true),
-            Field::new("stop_id", DataType::Utf8, true),
-            Field::new("current_status", DataType::Utf8, true),
-            Field::new("occupancy_status", DataType::Utf8, true),
-            Field::new("occupancy_percentage", DataType::UInt32, true),
-            Field::new("vehicle_timestamp", DataType::UInt64, true),
-        ]));
+        let schema = Arc::new(with_unknown_count(
+            Schema::new(vec![
+                Field::new("feed_timestamp", DataType::UInt64, false),
+                Field::new("vehicle_id", DataType::Utf8, true),
+                Field::new("vehicle_label", DataType::Utf8, true),
+                Field::new("trip_id", DataType::Utf8, true),
+                Field::new("route_id", DataType::Utf8, true),
+                Field::new("direction_id", DataType::UInt32, true),
+                Field::new("start_date", DataType::Utf8, true),
+                Field::new("start_time", DataType::Utf8, true),
+                Field::new("schedule_relationship", DataType::Utf8, true),
+                Field::new("latitude", DataType::Float32, true),
+                Field::new("longitude", DataType::Float32, true),
+                Field::new("bearing", DataType::Float32, true),
+                Field::new("speed", DataType::Float32, true),
+                Field::new("current_stop_sequence", DataType::UInt32, true),
+                Field::new("stop_id", DataType::Utf8, true),
+                Field::new("current_status", DataType::Utf8, true),
+                Field::new("occupancy_status", DataType::Utf8, true),
+                Field::new("occupancy_percentage", DataType::UInt32, true),
+                Field::new("vehicle_timestamp", DataType::UInt64, true),
+            ]),
+            self.unknown_enum_values,
+        ));
 
         RecordBatch::try_new(
             schema,
@@ -232,8 +230,11 @@ pub struct VehicleRow {
 pub fn decode_vehicle(
     vp: &transit_realtime::VehiclePosition,
     header: &transit_realtime::FeedHeader,
-) -> Result<VehicleRow, prost::UnknownEnumValue> {
-    Ok(VehicleRow {
+) -> VehicleRow {
+    use transit_realtime::trip_descriptor::ScheduleRelationship;
+    use transit_realtime::vehicle_position::{OccupancyStatus, VehicleStopStatus};
+
+    VehicleRow {
         feed_timestamp: header.timestamp.unwrap_or(0),
         vehicle_id: vp.vehicle.as_ref().and_then(|v| v.id.clone()),
         vehicle_label: vp.vehicle.as_ref().and_then(|v| v.label.clone()),
@@ -242,38 +243,21 @@ pub fn decode_vehicle(
         direction_id: vp.trip.as_ref().and_then(|t| t.direction_id),
         start_date: vp.trip.as_ref().and_then(|t| t.start_date.clone()),
         start_time: vp.trip.as_ref().and_then(|t| t.start_time.clone()),
-        schedule_relationship: vp
-            .trip
-            .as_ref()
-            .and_then(|t| t.schedule_relationship)
-            .map(|raw| {
-                transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                    .map(|v| v.as_str_name())
-            })
-            .transpose()?,
+        schedule_relationship: enum_name_uncounted(
+            vp.trip.as_ref().and_then(|t| t.schedule_relationship),
+            ScheduleRelationship::as_str_name,
+        ),
         latitude: vp.position.as_ref().map(|p| p.latitude),
         longitude: vp.position.as_ref().map(|p| p.longitude),
         bearing: vp.position.as_ref().and_then(|p| p.bearing),
         speed: vp.position.as_ref().and_then(|p| p.speed),
         current_stop_sequence: vp.current_stop_sequence,
         stop_id: vp.stop_id.clone(),
-        current_status: vp
-            .current_status
-            .map(|raw| {
-                transit_realtime::vehicle_position::VehicleStopStatus::try_from(raw)
-                    .map(|v| v.as_str_name())
-            })
-            .transpose()?,
-        occupancy_status: vp
-            .occupancy_status
-            .map(|raw| {
-                transit_realtime::vehicle_position::OccupancyStatus::try_from(raw)
-                    .map(|v| v.as_str_name())
-            })
-            .transpose()?,
+        current_status: enum_name_uncounted(vp.current_status, VehicleStopStatus::as_str_name),
+        occupancy_status: enum_name_uncounted(vp.occupancy_status, OccupancyStatus::as_str_name),
         occupancy_percentage: vp.occupancy_percentage,
         vehicle_timestamp: vp.timestamp,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -348,7 +332,7 @@ mod decode_vehicle_tests {
             vehicle_timestamp: Some(1_700_000_050),
         };
 
-        assert_eq!(decode_vehicle(&vp, &header).unwrap(), expected);
+        assert_eq!(decode_vehicle(&vp, &header), expected);
     }
 
     /// Mirrors Python's `make_minimal_feed()`: header.timestamp IS set,
@@ -396,7 +380,7 @@ mod decode_vehicle_tests {
             vehicle_timestamp: None,
         };
 
-        assert_eq!(decode_vehicle(&vp, &header).unwrap(), expected);
+        assert_eq!(decode_vehicle(&vp, &header), expected);
     }
 
     /// No Python test covers a missing feed header timestamp — `make_feed`
@@ -411,7 +395,7 @@ mod decode_vehicle_tests {
         };
         let vp = VehiclePosition::default();
 
-        let row = decode_vehicle(&vp, &header).unwrap();
+        let row = decode_vehicle(&vp, &header);
         assert_eq!(row.feed_timestamp, 0);
     }
 
@@ -437,7 +421,7 @@ mod decode_vehicle_tests {
             ..Default::default()
         };
 
-        let row = decode_vehicle(&vp, &header).unwrap();
+        let row = decode_vehicle(&vp, &header);
 
         assert_eq!(row.latitude, Some(40.7128));
         assert_eq!(row.longitude, Some(-74.0060));
@@ -477,7 +461,7 @@ mod vehicle_row_builder_tests {
         };
 
         let mut builder = VehicleRowBuilder::new();
-        builder.append(&vp, &header).unwrap();
+        builder.append(&vp, &header);
         let batch = builder.finish();
 
         assert_eq!(batch.num_rows(), 1);
