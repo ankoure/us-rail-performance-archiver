@@ -6,6 +6,32 @@ use arrow::datatypes::{DataType, Field, Schema};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
+/// `TripDescriptor.schedule_relationship` → enum name. Shared by
+/// `StopTimeUpdateRowBuilder` and `decode_trip_update` so the two paths
+/// can't pick different enums.
+fn trip_schedule_relationship(
+    raw: Option<i32>,
+) -> Result<Option<&'static str>, prost::UnknownEnumValue> {
+    raw.map(|raw| {
+        transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
+            .map(|v| v.as_str_name())
+    })
+    .transpose()
+}
+
+/// `StopTimeUpdate.schedule_relationship` → enum name. Not the same enum as
+/// `TripDescriptor`'s: the integers overlap but mean different things
+/// (1 is SKIPPED here and ADDED there). See issue #120.
+fn stop_time_schedule_relationship(
+    raw: Option<i32>,
+) -> Result<Option<&'static str>, prost::UnknownEnumValue> {
+    raw.map(|raw| {
+        transit_realtime::trip_update::stop_time_update::ScheduleRelationship::try_from(raw)
+            .map(|v| v.as_str_name())
+    })
+    .transpose()
+}
+
 pub struct StopTimeUpdateRowBuilder {
     feed_timestamp: UInt64Builder,
     trip_update_timestamp: UInt64Builder,
@@ -66,14 +92,7 @@ impl StopTimeUpdateRowBuilder {
         let direction_id = tu.trip.direction_id;
         let start_date = tu.trip.start_date.clone();
         let start_time = tu.trip.start_time.clone();
-        let schedule_relationship = tu
-            .trip
-            .schedule_relationship
-            .map(|raw| {
-                transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                    .map(|v| v.as_str_name())
-            })
-            .transpose()?;
+        let schedule_relationship = trip_schedule_relationship(tu.trip.schedule_relationship)?;
         let vehicle_id = tu.vehicle.as_ref().and_then(|v| v.id.clone());
         let vehicle_label = tu.vehicle.as_ref().and_then(|v| v.label.clone());
         let trip_update_timestamp = tu.timestamp;
@@ -110,14 +129,8 @@ impl StopTimeUpdateRowBuilder {
                 .append_option(stu.departure.as_ref().and_then(|d| d.time));
             self.departure_uncertainty
                 .append_option(stu.departure.as_ref().and_then(|d| d.uncertainty));
-            self.stop_time_schedule_relationship.append_option(
-                stu.schedule_relationship
-                    .map(|raw| {
-                        transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                            .map(|v| v.as_str_name())
-                    })
-                    .transpose()?,
-            )
+            self.stop_time_schedule_relationship
+                .append_option(stop_time_schedule_relationship(stu.schedule_relationship)?);
         }
         Ok(())
     }
@@ -225,14 +238,7 @@ pub fn decode_trip_update(
     let direction_id = tu.trip.direction_id;
     let start_date = tu.trip.start_date.clone();
     let start_time = tu.trip.start_time.clone();
-    let schedule_relationship = tu
-        .trip
-        .schedule_relationship
-        .map(|raw| {
-            transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                .map(|v| v.as_str_name())
-        })
-        .transpose()?;
+    let schedule_relationship = trip_schedule_relationship(tu.trip.schedule_relationship)?;
     let vehicle_id = tu.vehicle.as_ref().and_then(|v| v.id.clone());
     let vehicle_label = tu.vehicle.as_ref().and_then(|v| v.label.clone());
     let feed_timestamp = header.timestamp.unwrap_or(0);
@@ -259,15 +265,9 @@ pub fn decode_trip_update(
             departure_delay: stu.departure.as_ref().and_then(|d| d.delay),
             departure_time: stu.departure.as_ref().and_then(|d| d.time),
             departure_uncertainty: stu.departure.as_ref().and_then(|d| d.uncertainty),
-            stop_time_schedule_relationship: stu
-                .schedule_relationship
-                .map(|raw| {
-                    transit_realtime::trip_update::stop_time_update::ScheduleRelationship::try_from(
-                        raw,
-                    )
-                    .map(|v| v.as_str_name())
-                })
-                .transpose()?,
+            stop_time_schedule_relationship: stop_time_schedule_relationship(
+                stu.schedule_relationship,
+            )?,
         });
     }
     Ok(rows)
@@ -486,5 +486,181 @@ mod decode_trip_update_tests {
         };
 
         assert!(decode_trip_update(&tu, &header).is_err());
+    }
+
+    /// One stop per StopTimeUpdate.ScheduleRelationship value, plus an unset
+    /// one, under a non-SCHEDULED trip so the trip- and stop-level enums are
+    /// both exercised.
+    fn mixed_schedule_relationship_trip_update() -> TripUpdate {
+        use transit_realtime::trip_update::stop_time_update::ScheduleRelationship as Stu;
+        let stop = |seq: u32, rel: Option<Stu>| StopTimeUpdate {
+            stop_sequence: Some(seq),
+            stop_id: Some(format!("stop-{seq}")),
+            arrival: Some(StopTimeEvent {
+                delay: Some(seq as i32),
+                time: Some(1_700_000_000 + seq as i64),
+                uncertainty: None,
+            }),
+            schedule_relationship: rel.map(|r| r as i32),
+            ..Default::default()
+        };
+        TripUpdate {
+            trip: TripDescriptor {
+                trip_id: Some("trip-1".to_string()),
+                route_id: Some("route-A".to_string()),
+                direction_id: Some(1),
+                start_date: Some("20240101".to_string()),
+                start_time: Some("08:15:00".to_string()),
+                schedule_relationship: Some(ScheduleRelationship::Added as i32),
+            },
+            vehicle: Some(VehicleDescriptor {
+                id: Some("v1".to_string()),
+                label: Some("Train 1".to_string()),
+                ..Default::default()
+            }),
+            timestamp: Some(1_700_000_030),
+            stop_time_update: vec![
+                stop(1, Some(Stu::Scheduled)),
+                stop(2, Some(Stu::Skipped)),
+                stop(3, Some(Stu::NoData)),
+                stop(4, Some(Stu::Unscheduled)),
+                stop(5, None),
+            ],
+            ..Default::default()
+        }
+    }
+
+    const EXPECTED_STOP_RELATIONSHIPS: [Option<&str>; 5] = [
+        Some("SCHEDULED"),
+        Some("SKIPPED"),
+        Some("NO_DATA"),
+        Some("UNSCHEDULED"),
+        None,
+    ];
+
+    #[test]
+    fn stop_time_schedule_relationship_uses_stop_time_update_enum() {
+        let header = FeedHeader {
+            timestamp: Some(1_700_000_000),
+            ..Default::default()
+        };
+        let rows = decode_trip_update(&mixed_schedule_relationship_trip_update(), &header).unwrap();
+
+        assert_eq!(
+            rows.iter()
+                .map(|r| r.stop_time_schedule_relationship)
+                .collect::<Vec<_>>(),
+            EXPECTED_STOP_RELATIONSHIPS
+        );
+        assert!(
+            rows.iter()
+                .all(|r| r.schedule_relationship == Some("ADDED"))
+        );
+    }
+
+    /// Regression for #120: the arrow builder decoded the stop-level field
+    /// with the TripDescriptor enum (SKIPPED -> "ADDED").
+    #[test]
+    fn arrow_stop_time_schedule_relationship_uses_stop_time_update_enum() {
+        use arrow::array::{Array, StringArray};
+
+        let header = FeedHeader {
+            timestamp: Some(1_700_000_000),
+            ..Default::default()
+        };
+        let mut builder = StopTimeUpdateRowBuilder::new();
+        builder
+            .append(&mixed_schedule_relationship_trip_update(), &header)
+            .unwrap();
+        let batch = builder.finish();
+
+        let col = batch
+            .column_by_name("stop_time_schedule_relationship")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let actual: Vec<Option<&str>> = (0..col.len())
+            .map(|i| col.is_valid(i).then(|| col.value(i)))
+            .collect();
+        assert_eq!(actual, EXPECTED_STOP_RELATIONSHIPS);
+    }
+
+    /// `decode` (rows) and `decode_arrow` (builder) must agree on every
+    /// column. Both sides are stringified (arrow's cast on one, to_string on
+    /// the other) so one comparison covers every type; a column added to only
+    /// one side fails the width check.
+    #[test]
+    fn builder_matches_decode_trip_update_on_every_column() {
+        use arrow::array::{Array, StringArray};
+        use arrow::compute::cast;
+        use arrow::datatypes::DataType;
+
+        let header = FeedHeader {
+            timestamp: Some(1_700_000_000),
+            ..Default::default()
+        };
+        let tu = mixed_schedule_relationship_trip_update();
+
+        let rows = decode_trip_update(&tu, &header).unwrap();
+        let mut builder = StopTimeUpdateRowBuilder::new();
+        builder.append(&tu, &header).unwrap();
+        let batch = builder.finish();
+
+        fn s<T: ToString>(v: Option<T>) -> Option<String> {
+            v.map(|v| v.to_string())
+        }
+        let expected: Vec<Vec<Option<String>>> = rows
+            .iter()
+            .map(|r| {
+                vec![
+                    Some(r.feed_timestamp.to_string()),
+                    s(r.trip_update_timestamp),
+                    r.trip_id.clone(),
+                    r.route_id.clone(),
+                    s(r.direction_id),
+                    r.start_date.clone(),
+                    r.start_time.clone(),
+                    s(r.schedule_relationship),
+                    r.vehicle_id.clone(),
+                    r.vehicle_label.clone(),
+                    s(r.stop_sequence),
+                    r.stop_id.clone(),
+                    s(r.arrival_delay),
+                    s(r.arrival_time),
+                    s(r.arrival_uncertainty),
+                    s(r.departure_delay),
+                    s(r.departure_time),
+                    s(r.departure_uncertainty),
+                    s(r.stop_time_schedule_relationship),
+                ]
+            })
+            .collect();
+
+        assert_eq!(batch.num_rows(), rows.len());
+        assert_eq!(batch.num_columns(), expected[0].len());
+
+        let columns: Vec<StringArray> = batch
+            .columns()
+            .iter()
+            .map(|c| {
+                cast(c, &DataType::Utf8)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap()
+                    .clone()
+            })
+            .collect();
+        let actual: Vec<Vec<Option<String>>> = (0..batch.num_rows())
+            .map(|i| {
+                columns
+                    .iter()
+                    .map(|c| c.is_valid(i).then(|| c.value(i).to_string()))
+                    .collect()
+            })
+            .collect();
+
+        assert_eq!(actual, expected);
     }
 }
