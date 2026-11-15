@@ -1,5 +1,4 @@
 # dashboard/api/routers/stop_day_otp.py
-from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
@@ -13,8 +12,7 @@ router = APIRouter(prefix="/agencies/{agency}", tags=["stop_day_otp"])
 
 @router.get("/stop_day_otp", response_model=list[StopDayOtp])
 def get_stop_day_otp(
-    start_date: date,
-    end_date: date,
+    dates: dependencies.DateRange = Depends(dependencies.date_range()),
     stop_id: list[str] | None = Query(None),
     route_id: list[str] | None = Query(None),
     agency: Agency = Depends(dependencies.get_agency),
@@ -26,6 +24,10 @@ def get_stop_day_otp(
         filters["route_id"] = route_id
 
     table = data.read_kind(
-        "stop_day_otp", agency.feed_names, start_date, end_date, filters=filters
+        "stop_day_otp",
+        agency.feed_names,
+        dates.start_date,
+        dates.end_date,
+        filters=filters,
     )
     return table.to_pylist()

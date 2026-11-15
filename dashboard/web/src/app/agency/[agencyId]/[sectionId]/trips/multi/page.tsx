@@ -8,6 +8,7 @@ import { StatTile } from "@/components/StatTile";
 import { StopPairPicker } from "@/components/StopPairPicker";
 import { TimeSeriesChart } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
+import { MAX_EVENTS_RANGE_DAYS } from "@/lib/dates";
 import { formatDuration } from "@/lib/durations";
 import type { TripMetrics } from "@/lib/types";
 import { useApiData } from "@/lib/useApiData";
@@ -29,7 +30,7 @@ export default function MultiDayTripsPage() {
   const scope = useSection();
   const { section } = scope;
   const line = useLine();
-  const { start, end } = useDateRange();
+  const { start, end } = useDateRange(MAX_EVENTS_RANGE_DAYS);
   const pair = useStopPair();
 
   const stops = useRouteStops(scope.agencyId, line, pair.direction);
@@ -62,7 +63,7 @@ export default function MultiDayTripsPage() {
       <div className="filter-bar">
         {scope.routes && scope.routes.length > 0 && <LinePicker routes={scope.routes} />}
         <StopPairPicker stops={stops} pair={pair} directions={[0, 1]} />
-        <DateRangePicker />
+        <DateRangePicker maxDays={MAX_EVENTS_RANGE_DAYS} />
       </div>
       <FilterContext scope={section.label} line={line || undefined} when={`${start} – ${end}`} />
       <main>

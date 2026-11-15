@@ -34,3 +34,37 @@ export function previousPeriod(start: string, end: string): { start: string; end
   prevStart.setUTCDate(prevStart.getUTCDate() - (lengthDays - 1));
   return { start: toISODate(prevStart), end: toISODate(prevEnd) };
 }
+
+/**
+ * Widest end - start span (in days) the API accepts for its parquet-backed
+ * endpoints; mirrors MAX_RANGE_DAYS in dashboard/api/dependencies.py.
+ */
+export const MAX_RANGE_DAYS = 366;
+
+/**
+ * Tighter limit for endpoints that scan raw events or one alert snapshot per
+ * day (trip_metrics, line_delays); mirrors MAX_EVENTS_RANGE_DAYS in
+ * dashboard/api/dependencies.py.
+ */
+export const MAX_EVENTS_RANGE_DAYS = 62;
+
+export function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return toISODate(d);
+}
+
+/**
+ * Pull a (possibly hand-edited) range back inside what the API accepts:
+ * a reversed range collapses to the end day, and a too-wide one keeps its end
+ * and moves its start forward to maxDays before it.
+ */
+export function clampRange(
+  start: string,
+  end: string,
+  maxDays: number,
+): { start: string; end: string } {
+  if (start > end) return { start: end, end };
+  const earliest = addDays(end, -maxDays);
+  return { start: start < earliest ? earliest : start, end };
+}
