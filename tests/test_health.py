@@ -47,8 +47,25 @@ def test_backoff_base_override():
     h = FeedHealth(backoff_base=10, quarantine_after=99)
     h.record_failure("f")
     h.record_failure("f")
-    # uses backoff_base (10), not the feed's base_interval (60): 10 * 2**1 = 20
-    assert h.next_interval("f", 60) == 20
+    # uses backoff_base (10), not the feed's base_interval (5): 10 * 2**1 = 20
+    assert h.next_interval("f", 5) == 20
+    # ...but never below the feed's own interval
+    assert h.next_interval("f", 60) == 60
+
+
+def test_backoff_never_faster_than_base_interval():
+    # Regression for #117: a feed slower than the cap must not be sped up.
+    h = FeedHealth()  # production defaults: cap 600, quarantine after 5
+    for _ in range(4):
+        h.record_failure("f")
+        assert h.next_interval("f", 1800) == 1800
+        assert h.next_interval("f", 1000) >= 1000
+
+
+def test_quarantine_never_faster_than_base_interval():
+    h = FeedHealth(quarantine_after=1, quarantine_interval=3600)
+    h.record_failure("f")
+    assert h.next_interval("f", 7200) == 7200
 
 
 def test_quarantine_after_k_and_alerts_once():

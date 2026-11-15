@@ -788,3 +788,82 @@ def test_discover_filters_today_and_future(tmp_path):
         landing_dir=tmp_path,
     )
     assert list(shipper._discover()) == [(FEED, date(2020, 1, 1))]
+
+
+# --- prune: unshipped landing windows (issue #116) ------------------------ #
+WINDOW_S = 3600
+
+
+def _window_shipper(dirs) -> Shipper:
+    return Shipper(
+        source=LocalSource(dirs / "landing"),
+        curated_dir=dirs / "curated",
+        uploader=FakeUploader(),
+        cold_bucket="cold-bucket",
+        hot_bucket="hot-bucket",
+        cold_prefix="archive/",
+        hot_prefix="curated/",
+        feed_names=[FEED],
+        landing_dir=dirs / "landing",
+        ship_window_seconds=WINDOW_S,
+    )
+
+
+def _write_windows(shipper) -> list[int]:
+    """Two rows in two different windows on DAY; returns their window starts."""
+    base = int(datetime(DAY.year, DAY.month, DAY.day, tzinfo=timezone.utc).timestamp())
+    meta = (
+        shipper.landing_dir
+        / FEED
+        / "metadata"
+        / f"year={DAY.year}"
+        / f"month={DAY.month}"
+        / f"day={DAY.day}"
+        / "data.jsonl"
+    )
+    meta.write_text(
+        json.dumps({"timestamp": base + 10})
+        + "\n"
+        + "not json\n"
+        + json.dumps({"timestamp": base + WINDOW_S + 10})
+        + "\n"
+    )
+    return [base, base + WINDOW_S]
+
+
+def _mark(shipper, ws):
+    m = shipper.landing_dir / FEED / ".shipped" / str(ws)
+    m.parent.mkdir(parents=True, exist_ok=True)
+    m.touch()
+
+
+def test_prune_skips_day_with_an_unshipped_window(dirs):
+    """Cold tarball exists (built from the S3 landing), but one window never
+    reached S3: deleting the day would lose it for good."""
+    shipper = _window_shipper(dirs)
+    starts = _write_windows(shipper)
+    _mark(shipper, starts[0])
+    shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+
+    result = shipper.prune(keep_days=3)
+
+    assert result == {"deleted": 0, "skipped": 1}
+    assert _raw_dir(shipper, FEED, DAY).exists()
+
+
+def test_prune_deletes_day_once_every_window_is_marked(dirs):
+    shipper = _window_shipper(dirs)
+    for ws in _write_windows(shipper):
+        _mark(shipper, ws)
+    shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+
+    assert shipper.prune(keep_days=3) == {"deleted": 1, "skipped": 0}
+    assert not _raw_dir(shipper, FEED, DAY).exists()
+
+
+def test_prune_ignores_markers_without_an_uploader(shipper):
+    """landing_mode=local: no LandingUploader, no markers, no window check."""
+    _write_windows(shipper)
+    shipper.uploader.mark_existing("cold-bucket", shipper._cold_key(FEED, DAY))
+
+    assert shipper.prune(keep_days=3) == {"deleted": 1, "skipped": 0}

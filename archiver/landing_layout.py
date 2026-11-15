@@ -98,3 +98,20 @@ def window_tar_key(prefix: str, feed: str, window_unix: int, shipped_unix: int) 
         f"{prefix}{feed}/raw/{y}/{m}/{d}"
         f"/window={window_unix}--shipped={shipped_unix}.tar.zst"
     )
+
+
+SHIPPED_DIR = ".shipped"
+
+
+def shipped_marker_path(landing_dir: Path, feed: str, window_start: int) -> Path:
+    """Sentinel that LandingUploader touches once a raw window (tar + metadata
+    slice) has been handed off. Lives here so the uploader that writes it and
+    Shipper.prune, which refuses to delete a day with an unmarked window, can't
+    disagree about where it is.
+    """
+    return landing_dir / feed / SHIPPED_DIR / str(window_start)
+
+
+def window_start_for(unix_ts: float, window_seconds: float) -> int:
+    """Start of the ship window containing ``unix_ts``."""
+    return int(unix_ts // window_seconds) * int(window_seconds)

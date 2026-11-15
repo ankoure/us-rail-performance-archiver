@@ -1,7 +1,5 @@
 # dashboard/api/routers/segment_day.py
 
-from datetime import date
-
 from fastapi import APIRouter, Depends, Query
 
 from api import dependencies
@@ -14,8 +12,7 @@ router = APIRouter(prefix="/agencies/{agency}", tags=["segment_day"])
 
 @router.get("/segment_day", response_model=list[SegmentDayRow])
 def get_segment_day(
-    start_date: date,
-    end_date: date,
+    dates: dependencies.DateRange = Depends(dependencies.date_range()),
     route_id: list[str] | None = Query(None),
     from_stop_id: list[str] | None = Query(None),
     to_stop_id: list[str] | None = Query(None),
@@ -31,6 +28,10 @@ def get_segment_day(
         filters["to_stop_id"] = to_stop_id
 
     table = data.read_kind(
-        "segment_day", agency.feed_names, start_date, end_date, filters=filters
+        "segment_day",
+        agency.feed_names,
+        dates.start_date,
+        dates.end_date,
+        filters=filters,
     )
     return table.to_pylist()

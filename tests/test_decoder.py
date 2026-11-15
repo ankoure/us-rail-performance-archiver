@@ -35,7 +35,7 @@ from archiver.decoder import (
     VehicleRow,
     validate_record_keys,
 )
-from dataclasses import fields as _dc_fields
+from dataclasses import asdict, fields as _dc_fields
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1393,29 +1393,49 @@ def test_decode_arrow_unknown_enum_nulls_the_field_and_keeps_every_row():
     ]
 
 
-def test_decode_arrow_stop_time_schedule_relationship_matches_python():
-    """The stop-level enum is StopTimeUpdate.ScheduleRelationship. decode_arrow
-    used to read it as TripDescriptor's, so SKIPPED (1) came out as ADDED."""
+def test_decode_arrow_trip_updates_match_python_for_every_schedule_relationship():
+    """#120: decode_arrow labelled stop-level schedule_relationship with the
+    TripDescriptor enum (SKIPPED -> "ADDED"). The nyct-l golden payloads are
+    all SCHEDULED, so check_rust_parity.py couldn't see it. This feed sets
+    every StopTimeUpdate value (and an unset one) under an ADDED trip, then
+    requires the Rust rows to match the Python decoder's field for field.
+    """
     import rail_decoder
 
-    feed = gtfs.FeedMessage()
-    feed.header.gtfs_realtime_version = "2.0"
-    feed.header.timestamp = 1_700_000_000
-    tu = feed.entity.add(id="tu-1").trip_update
-    tu.trip.trip_id = "trip-1"
-    rel = gtfs.TripUpdate.StopTimeUpdate
-    for seq, value in enumerate(
-        [rel.SCHEDULED, rel.SKIPPED, rel.NO_DATA, rel.UNSCHEDULED]
-    ):
-        stu = tu.stop_time_update.add(stop_sequence=seq)
-        stu.schedule_relationship = value
+    stu_rel = gtfs.TripUpdate.StopTimeUpdate.ScheduleRelationship
+    rels = [
+        stu_rel.Value("SCHEDULED"),
+        stu_rel.Value("SKIPPED"),
+        stu_rel.Value("NO_DATA"),
+        stu_rel.Value("UNSCHEDULED"),
+        None,
+    ]
+    feed = _make_trip_update_feed(
+        stop_time_updates=tuple(
+            (f"stop-{i}", 1_700_000_100 + i) for i in range(len(rels))
+        )
+    )
+    tu = feed.entity[0].trip_update
+    tu.trip.schedule_relationship = gtfs.TripDescriptor.ScheduleRelationship.Value(
+        "ADDED"
+    )
+    for stu, rel in zip(tu.stop_time_update, rels):
+        if rel is not None:
+            stu.schedule_relationship = rel
 
-    batch = rail_decoder.decode_arrow(feed.SerializeToString())["trip_updates"]
-    python_rows = list(StandardDecoder().decode(feed))
+    expected = [asdict(r) for r in StandardDecoder().decode(feed)]
+    actual = rail_decoder.decode_arrow(feed.SerializeToString())[
+        "trip_updates"
+    ].to_pylist()
 
-    expected = ["SCHEDULED", "SKIPPED", "NO_DATA", "UNSCHEDULED"]
-    assert batch.column("stop_time_schedule_relationship").to_pylist() == expected
-    assert [r.stop_time_schedule_relationship for r in python_rows] == expected
+    assert [r["stop_time_schedule_relationship"] for r in actual] == [
+        "SCHEDULED",
+        "SKIPPED",
+        "NO_DATA",
+        "UNSCHEDULED",
+        None,
+    ]
+    assert actual == expected
 
 
 def test_rust_decode_names_resolve():

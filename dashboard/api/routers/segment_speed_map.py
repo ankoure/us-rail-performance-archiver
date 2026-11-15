@@ -1,7 +1,5 @@
 # dashboard/api/routers/segment_speed_map.py
 
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from api import dependencies
@@ -15,8 +13,7 @@ router = APIRouter(prefix="/agencies/{agency}", tags=["segment_speed_map"])
 @router.get("/segment_speed_map", response_model=SegmentSpeedMapResponse)
 def get_segment_speed_map(
     route_id: str,
-    start_date: date,
-    end_date: date,
+    dates: dependencies.DateRange = Depends(dependencies.date_range()),
     agency: Agency = Depends(dependencies.get_agency),
 ) -> dict:
     """Ready-to-render segment speeds for one route/date-range: per-segment
@@ -29,4 +26,4 @@ def get_segment_speed_map(
         raise HTTPException(
             status_code=404, detail=f"Agency {agency.agency_id!r} has no feeds"
         )
-    return build_segment_speed_map(agency, route_id, start_date, end_date)
+    return build_segment_speed_map(agency, route_id, dates.start_date, dates.end_date)

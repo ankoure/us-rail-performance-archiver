@@ -1,5 +1,4 @@
 # dashboard/api/routers/adherence.py
-from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
@@ -13,8 +12,7 @@ router = APIRouter(prefix="/agencies/{agency}", tags=["adherence"])
 
 @router.get("/adherence", response_model=list[Adherence])
 def get_adherence(
-    start_date: date,
-    end_date: date,
+    dates: dependencies.DateRange = Depends(dependencies.date_range()),
     stop_id: list[str] | None = Query(None),
     route_id: list[str] | None = Query(None),
     trip_id: list[str] | None = Query(None),
@@ -32,8 +30,8 @@ def get_adherence(
     table = data.read_kind(
         "adherence",
         agency.feed_names,
-        start_date,
-        end_date,
+        dates.start_date,
+        dates.end_date,
         filters=filters,
         limit=limit,
     )

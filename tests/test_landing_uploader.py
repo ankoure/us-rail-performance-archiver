@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -868,3 +869,127 @@ def test_retry_after_materialize_failure_ships_under_a_distinct_key(
     assert not bin_path.exists()
     assert (tmp_path / FEED / ".shipped" / str(ws)).exists()
     assert lu._ready_raw_windows(NOW + WINDOW) == []
+
+
+# --- windows older than yesterday (issue #116) ---------------------------
+
+DAY = 86400.0
+
+
+def _old_windows(tmp_path) -> list[int]:
+    """One response 1, 2 and 3 days back, each in its own window."""
+    starts = []
+    for days in (3, 2, 1):
+        ws = int((NOW - days * DAY) // WINDOW * WINDOW)
+        add_response(tmp_path, FEED, ws + 10, payload=f"d{days}".encode())
+        starts.append(ws)
+    return starts
+
+
+def test_steady_state_reads_only_today_and_yesterday(tmp_path):
+    """The cheap path is unchanged: it can't see a two-day-old window."""
+    lu, _, _ = make_uploader(tmp_path, ship_window_seconds=WINDOW)
+    starts = _old_windows(tmp_path)
+
+    assert [w for _, w, _ in lu._ready_raw_windows(NOW)] == starts[2:]
+
+
+def test_full_sweep_finds_windows_older_than_yesterday(tmp_path):
+    lu, _, _ = make_uploader(tmp_path, ship_window_seconds=WINDOW)
+    starts = _old_windows(tmp_path)
+
+    assert [w for _, w, _ in lu._ready_raw_windows(NOW, full_sweep=True)] == starts
+
+
+def test_boot_pass_ships_every_stranded_window(tmp_path, monkeypatch):
+    """The first raw pass is a full sweep, so a box that was down for days
+    ships everything on its first tick, and a clean pass drops back to the
+    cheap two-day path."""
+    lu, up, _ = make_uploader(tmp_path, ship_window_seconds=WINDOW)
+    starts = _old_windows(tmp_path)
+    monkeypatch.setattr("archiver.landing_uploader.time", FrozenClock(NOW))
+
+    lu._maybe_ship_raw_windows(ignore_cadence=True)
+
+    assert len(up.calls) == 3
+    for ws in starts:
+        assert (tmp_path / FEED / ".shipped" / str(ws)).exists()
+    assert lu._full_sweep_due is False
+
+
+def test_failure_keeps_full_sweep_armed_until_a_clean_pass(tmp_path, monkeypatch):
+    """S3 down for days: the lookback must not move past the stranded window."""
+    lu, up, _ = make_uploader(tmp_path, ship_window_seconds=WINDOW)
+    starts = _old_windows(tmp_path)
+    clock = FrozenClock(NOW)
+    monkeypatch.setattr("archiver.landing_uploader.time", clock)
+
+    real_upload = up.upload
+    state = {"down": True}
+
+    def flaky(bucket, key, path):
+        if state["down"]:
+            raise OSError("ExpiredToken")
+        return real_upload(bucket, key, path)
+
+    up.upload = flaky
+    lu._maybe_ship_raw_windows(ignore_cadence=True)
+    assert lu._full_sweep_due is True
+
+    # Two days later S3 is back; the oldest window is now five days old.
+    state["down"] = False
+    clock.now = NOW + 2 * DAY
+    lu._maybe_ship_raw_windows(ignore_cadence=True)
+
+    for ws in starts:
+        assert (tmp_path / FEED / ".shipped" / str(ws)).exists()
+    assert lu._full_sweep_due is False
+
+
+def test_oldest_unshipped_age_is_gauged(tmp_path, monkeypatch, caplog):
+    lu, up, tel = make_uploader(tmp_path, ship_window_seconds=WINDOW)
+    starts = _old_windows(tmp_path)
+    monkeypatch.setattr("archiver.landing_uploader.time", FrozenClock(NOW))
+
+    def down(bucket, key, path):
+        raise OSError("down")
+
+    up.upload = down
+
+    with caplog.at_level(logging.WARNING):
+        lu._maybe_ship_raw_windows(ignore_cadence=True)
+
+    ages = [v for n, v in tel.gauges if n == "landing.raw_oldest_unshipped_age_s"]
+    assert ages == [NOW - (starts[0] + WINDOW)]
+    assert any("oldest unshipped raw window" in r.message for r in caplog.records)
+
+
+def test_oldest_unshipped_age_is_zero_with_no_backlog(tmp_path, monkeypatch):
+    lu, _, tel = make_uploader(tmp_path, ship_window_seconds=WINDOW)
+    monkeypatch.setattr("archiver.landing_uploader.time", FrozenClock(NOW))
+
+    lu._maybe_ship_raw_windows(ignore_cadence=True)
+
+    assert ("landing.raw_oldest_unshipped_age_s", 0.0) in tel.gauges
+
+
+def test_markers_pruned_by_day_dir_not_age(tmp_path):
+    """A marker stays while its day's metadata is on disk (however old) and
+    goes once the day is pruned, so a full sweep never re-ships it."""
+    lu, up, _ = make_uploader(tmp_path, ship_window_seconds=WINDOW)
+    starts = _old_windows(tmp_path)
+    for f, w, r in lu._ready_raw_windows(NOW, full_sweep=True):
+        lu._ship_raw_window(f, w, r)
+    assert len(up.calls) == 3
+
+    # Days later, nothing pruned locally yet: markers survive, nothing re-ships.
+    later = NOW + 5 * DAY
+    assert lu._ready_raw_windows(later, full_sweep=True) == []
+    for ws in starts:
+        assert (tmp_path / FEED / ".shipped" / str(ws)).exists()
+
+    # Local prune removes the oldest day; only its marker goes.
+    shutil.rmtree(_day_dir(tmp_path, FEED, "metadata", starts[0]))
+    lu._ready_raw_windows(later, full_sweep=True)
+    assert not (tmp_path / FEED / ".shipped" / str(starts[0])).exists()
+    assert (tmp_path / FEED / ".shipped" / str(starts[1])).exists()
