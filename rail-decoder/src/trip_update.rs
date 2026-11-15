@@ -1,3 +1,4 @@
+use crate::enums::{enum_name, enum_name_uncounted, with_unknown_count};
 use crate::transit_realtime::{self};
 use arrow::array::{
     Int32Builder, Int64Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder,
@@ -26,6 +27,7 @@ pub struct StopTimeUpdateRowBuilder {
     departure_time: Int64Builder,
     departure_uncertainty: Int32Builder,
     stop_time_schedule_relationship: StringBuilder,
+    unknown_enum_values: u64,
 }
 
 impl StopTimeUpdateRowBuilder {
@@ -50,6 +52,7 @@ impl StopTimeUpdateRowBuilder {
             departure_time: Int64Builder::new(),
             departure_uncertainty: Int32Builder::new(),
             stop_time_schedule_relationship: StringBuilder::new(),
+            unknown_enum_values: 0,
         }
     }
 
@@ -57,7 +60,10 @@ impl StopTimeUpdateRowBuilder {
         &mut self,
         tu: &transit_realtime::TripUpdate,
         header: &transit_realtime::FeedHeader,
-    ) -> Result<(), prost::UnknownEnumValue> {
+    ) {
+        use transit_realtime::trip_descriptor::ScheduleRelationship as TripRel;
+        use transit_realtime::trip_update::stop_time_update::ScheduleRelationship as StuRel;
+
         // Trip-level values, computed once — same expressions as decode_trip_update's
         // hoisted `let` bindings.
         let feed_timestamp = header.timestamp.unwrap_or(0);
@@ -66,19 +72,25 @@ impl StopTimeUpdateRowBuilder {
         let direction_id = tu.trip.direction_id;
         let start_date = tu.trip.start_date.clone();
         let start_time = tu.trip.start_time.clone();
-        let schedule_relationship = tu
-            .trip
-            .schedule_relationship
-            .map(|raw| {
-                transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                    .map(|v| v.as_str_name())
-            })
-            .transpose()?;
+        // An unknown enum value becomes null and is counted (see crate::enums).
+        let schedule_relationship = enum_name(
+            tu.trip.schedule_relationship,
+            TripRel::as_str_name,
+            &mut self.unknown_enum_values,
+        );
         let vehicle_id = tu.vehicle.as_ref().and_then(|v| v.id.clone());
         let vehicle_label = tu.vehicle.as_ref().and_then(|v| v.label.clone());
         let trip_update_timestamp = tu.timestamp;
 
         for stu in &tu.stop_time_update {
+            // Resolved before this row's first append, like the trip-level
+            // name above.
+            let stop_time_schedule_relationship = enum_name(
+                stu.schedule_relationship,
+                StuRel::as_str_name,
+                &mut self.unknown_enum_values,
+            );
+
             // Trip-level fields, repeated across every exploded row — each
             // .clone()'d in since they're reused across the loop.
             self.feed_timestamp.append_value(feed_timestamp);
@@ -110,40 +122,36 @@ impl StopTimeUpdateRowBuilder {
                 .append_option(stu.departure.as_ref().and_then(|d| d.time));
             self.departure_uncertainty
                 .append_option(stu.departure.as_ref().and_then(|d| d.uncertainty));
-            self.stop_time_schedule_relationship.append_option(
-                stu.schedule_relationship
-                    .map(|raw| {
-                        transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                            .map(|v| v.as_str_name())
-                    })
-                    .transpose()?,
-            )
+            self.stop_time_schedule_relationship
+                .append_option(stop_time_schedule_relationship);
         }
-        Ok(())
     }
 
     pub fn finish(mut self) -> RecordBatch {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("feed_timestamp", DataType::UInt64, false),
-            Field::new("trip_update_timestamp", DataType::UInt64, true),
-            Field::new("trip_id", DataType::Utf8, true),
-            Field::new("route_id", DataType::Utf8, true),
-            Field::new("direction_id", DataType::UInt32, true),
-            Field::new("start_date", DataType::Utf8, true),
-            Field::new("start_time", DataType::Utf8, true),
-            Field::new("schedule_relationship", DataType::Utf8, true),
-            Field::new("vehicle_id", DataType::Utf8, true),
-            Field::new("vehicle_label", DataType::Utf8, true),
-            Field::new("stop_sequence", DataType::UInt32, true),
-            Field::new("stop_id", DataType::Utf8, true),
-            Field::new("arrival_delay", DataType::Int32, true),
-            Field::new("arrival_time", DataType::Int64, true),
-            Field::new("arrival_uncertainty", DataType::Int32, true),
-            Field::new("departure_delay", DataType::Int32, true),
-            Field::new("departure_time", DataType::Int64, true),
-            Field::new("departure_uncertainty", DataType::Int32, true),
-            Field::new("stop_time_schedule_relationship", DataType::Utf8, true),
-        ]));
+        let schema = Arc::new(with_unknown_count(
+            Schema::new(vec![
+                Field::new("feed_timestamp", DataType::UInt64, false),
+                Field::new("trip_update_timestamp", DataType::UInt64, true),
+                Field::new("trip_id", DataType::Utf8, true),
+                Field::new("route_id", DataType::Utf8, true),
+                Field::new("direction_id", DataType::UInt32, true),
+                Field::new("start_date", DataType::Utf8, true),
+                Field::new("start_time", DataType::Utf8, true),
+                Field::new("schedule_relationship", DataType::Utf8, true),
+                Field::new("vehicle_id", DataType::Utf8, true),
+                Field::new("vehicle_label", DataType::Utf8, true),
+                Field::new("stop_sequence", DataType::UInt32, true),
+                Field::new("stop_id", DataType::Utf8, true),
+                Field::new("arrival_delay", DataType::Int32, true),
+                Field::new("arrival_time", DataType::Int64, true),
+                Field::new("arrival_uncertainty", DataType::Int32, true),
+                Field::new("departure_delay", DataType::Int32, true),
+                Field::new("departure_time", DataType::Int64, true),
+                Field::new("departure_uncertainty", DataType::Int32, true),
+                Field::new("stop_time_schedule_relationship", DataType::Utf8, true),
+            ]),
+            self.unknown_enum_values,
+        ));
 
         RecordBatch::try_new(
             schema,
@@ -219,20 +227,17 @@ pub struct StopTimeUpdateRow {
 pub fn decode_trip_update(
     tu: &transit_realtime::TripUpdate,
     header: &transit_realtime::FeedHeader,
-) -> Result<Vec<StopTimeUpdateRow>, prost::UnknownEnumValue> {
+) -> Vec<StopTimeUpdateRow> {
+    use transit_realtime::trip_descriptor::ScheduleRelationship as TripRel;
+    use transit_realtime::trip_update::stop_time_update::ScheduleRelationship as StuRel;
+
     let trip_id = tu.trip.trip_id.clone();
     let route_id = tu.trip.route_id.clone();
     let direction_id = tu.trip.direction_id;
     let start_date = tu.trip.start_date.clone();
     let start_time = tu.trip.start_time.clone();
-    let schedule_relationship = tu
-        .trip
-        .schedule_relationship
-        .map(|raw| {
-            transit_realtime::trip_descriptor::ScheduleRelationship::try_from(raw)
-                .map(|v| v.as_str_name())
-        })
-        .transpose()?;
+    let schedule_relationship =
+        enum_name_uncounted(tu.trip.schedule_relationship, TripRel::as_str_name);
     let vehicle_id = tu.vehicle.as_ref().and_then(|v| v.id.clone());
     let vehicle_label = tu.vehicle.as_ref().and_then(|v| v.label.clone());
     let feed_timestamp = header.timestamp.unwrap_or(0);
@@ -259,18 +264,13 @@ pub fn decode_trip_update(
             departure_delay: stu.departure.as_ref().and_then(|d| d.delay),
             departure_time: stu.departure.as_ref().and_then(|d| d.time),
             departure_uncertainty: stu.departure.as_ref().and_then(|d| d.uncertainty),
-            stop_time_schedule_relationship: stu
-                .schedule_relationship
-                .map(|raw| {
-                    transit_realtime::trip_update::stop_time_update::ScheduleRelationship::try_from(
-                        raw,
-                    )
-                    .map(|v| v.as_str_name())
-                })
-                .transpose()?,
+            stop_time_schedule_relationship: enum_name_uncounted(
+                stu.schedule_relationship,
+                StuRel::as_str_name,
+            ),
         });
     }
-    Ok(rows)
+    rows
 }
 
 #[cfg(test)]
@@ -337,7 +337,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        let rows = decode_trip_update(&tu, &header).unwrap();
+        let rows = decode_trip_update(&tu, &header);
 
         assert_eq!(rows.len(), 3);
         assert_eq!(
@@ -390,7 +390,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        let rows = decode_trip_update(&tu, &header).unwrap();
+        let rows = decode_trip_update(&tu, &header);
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trip_update_timestamp, None);
@@ -426,7 +426,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        assert!(decode_trip_update(&tu, &header).unwrap().is_empty());
+        assert!(decode_trip_update(&tu, &header).is_empty());
     }
 
     /// Targets the arrival/departure StopTimeEvent split specifically:
@@ -452,6 +452,7 @@ mod decode_trip_update_tests {
                     delay: Some(30),
                     time: Some(1_700_000_100),
                     uncertainty: Some(60),
+                    ..Default::default()
                 }),
                 departure: None,
                 ..Default::default()
@@ -459,7 +460,7 @@ mod decode_trip_update_tests {
             ..Default::default()
         };
 
-        let rows = decode_trip_update(&tu, &header).unwrap();
+        let rows = decode_trip_update(&tu, &header);
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].arrival_delay, Some(30));
@@ -470,7 +471,7 @@ mod decode_trip_update_tests {
         assert_eq!(rows[0].departure_uncertainty, None);
     }
     #[test]
-    fn unrecognized_schedule_relationship_returns_err_not_panic() {
+    fn unrecognized_schedule_relationship_becomes_none_and_keeps_the_row() {
         let header = FeedHeader {
             timestamp: Some(1),
             ..Default::default()
@@ -478,13 +479,127 @@ mod decode_trip_update_tests {
         let tu = TripUpdate {
             trip: TripDescriptor {
                 trip_id: Some("trip-1".to_string()),
-                schedule_relationship: Some(8), // out-of-spec value seen in real PRT (prt-trips) data
+                // Not in the proto. 8 used to be the example here (seen in real
+                // prt-trips data) until the proto picked up NEW = 8.
+                schedule_relationship: Some(99),
                 ..Default::default()
             },
             stop_time_update: vec![StopTimeUpdate::default()],
             ..Default::default()
         };
 
-        assert!(decode_trip_update(&tu, &header).is_err());
+        let rows = decode_trip_update(&tu, &header);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].trip_id.as_deref(), Some("trip-1"));
+        assert_eq!(rows[0].schedule_relationship, None);
+    }
+
+    #[test]
+    fn new_and_deleted_schedule_relationships_resolve() {
+        let header = FeedHeader::default();
+        for (raw, name) in [(7, "DELETED"), (8, "NEW")] {
+            let tu = TripUpdate {
+                trip: TripDescriptor {
+                    schedule_relationship: Some(raw),
+                    ..Default::default()
+                },
+                stop_time_update: vec![StopTimeUpdate::default()],
+                ..Default::default()
+            };
+            assert_eq!(
+                decode_trip_update(&tu, &header)[0].schedule_relationship,
+                Some(name)
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod stop_time_update_row_builder_tests {
+    use super::*;
+    use crate::enums::UNKNOWN_ENUM_VALUES_KEY;
+    use arrow::array::{Array, StringArray};
+    use transit_realtime::{FeedHeader, TripDescriptor, TripUpdate, trip_update::StopTimeUpdate};
+
+    fn string_col<'a>(batch: &'a RecordBatch, name: &str) -> &'a StringArray {
+        batch
+            .column_by_name(name)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+    }
+
+    fn unknown_count(batch: &RecordBatch) -> &str {
+        batch.schema_ref().metadata()[UNKNOWN_ENUM_VALUES_KEY].as_str()
+    }
+
+    fn stu(schedule_relationship: Option<i32>) -> StopTimeUpdate {
+        StopTimeUpdate {
+            schedule_relationship,
+            ..Default::default()
+        }
+    }
+
+    /// Stop-level schedule_relationship is StopTimeUpdate.ScheduleRelationship,
+    /// not TripDescriptor's: 1 is SKIPPED, not ADDED.
+    #[test]
+    fn stop_time_schedule_relationship_uses_the_stop_level_enum() {
+        let tu = TripUpdate {
+            trip: TripDescriptor::default(),
+            stop_time_update: vec![stu(Some(1)), stu(Some(2)), stu(Some(3))],
+            ..Default::default()
+        };
+        let mut builder = StopTimeUpdateRowBuilder::new();
+        builder.append(&tu, &FeedHeader::default());
+        let batch = builder.finish();
+
+        let col = string_col(&batch, "stop_time_schedule_relationship");
+        assert_eq!(col.value(0), "SKIPPED");
+        assert_eq!(col.value(1), "NO_DATA");
+        assert_eq!(col.value(2), "UNSCHEDULED");
+        assert_eq!(unknown_count(&batch), "0");
+    }
+
+    /// One unknown value nulls that one field and is counted. Every row survives
+    /// and every column stays the same length.
+    #[test]
+    fn unknown_values_become_null_and_are_counted() {
+        let header = FeedHeader::default();
+        let bad_trip = TripUpdate {
+            trip: TripDescriptor {
+                trip_id: Some("bad-trip".to_string()),
+                schedule_relationship: Some(99),
+                ..Default::default()
+            },
+            stop_time_update: vec![stu(Some(0)), stu(Some(42))],
+            ..Default::default()
+        };
+        let good_trip = TripUpdate {
+            trip: TripDescriptor {
+                trip_id: Some("good-trip".to_string()),
+                schedule_relationship: Some(0),
+                ..Default::default()
+            },
+            stop_time_update: vec![stu(Some(1))],
+            ..Default::default()
+        };
+
+        let mut builder = StopTimeUpdateRowBuilder::new();
+        builder.append(&bad_trip, &header);
+        builder.append(&good_trip, &header);
+        let batch = builder.finish();
+
+        assert_eq!(batch.num_rows(), 3);
+        let trip_rel = string_col(&batch, "schedule_relationship");
+        assert!(trip_rel.is_null(0) && trip_rel.is_null(1));
+        assert_eq!(trip_rel.value(2), "SCHEDULED");
+        let stop_rel = string_col(&batch, "stop_time_schedule_relationship");
+        assert_eq!(stop_rel.value(0), "SCHEDULED");
+        assert!(stop_rel.is_null(1));
+        assert_eq!(stop_rel.value(2), "SKIPPED");
+        // Counted once per value in the payload, not once per exploded row:
+        // the bad trip-level value covers two rows but counts once.
+        assert_eq!(unknown_count(&batch), "2");
     }
 }

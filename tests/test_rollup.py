@@ -320,6 +320,40 @@ def test_if_force_true_bypasses_skip(tmp_path, monkeypatch):
     assert json.loads(marker.read_text())["rows"] == {"metadata": 7, "fakes": 5}
 
 
+def test_unknown_enum_values_reach_marker_and_telemetry(
+    tmp_path, monkeypatch, telemetry
+):
+    """Counts _rollup_data reports go into the marker (outside "rows", which
+    shipper reads as {kind: rows}) and out as a metric."""
+    feed = _fake_feed()
+    day = date(2026, 5, 1)
+    rollup = Rollup(
+        feeds=[feed],
+        source=LocalSource(tmp_path / "landing"),
+        curated_dir=tmp_path / "curated",
+        telemetry=telemetry,
+    )
+
+    def fake_rollup_data(*a, unknown_enum_values, **kw):
+        unknown_enum_values["fakes"] = 3
+        return {"fakes": 5}
+
+    monkeypatch.setattr(rollup, "_rollup_metadata", lambda *a, **kw: 7)
+    monkeypatch.setattr(rollup, "_rollup_data", fake_rollup_data)
+
+    rollup.rollup_one(feed_name="fake-feed", day=day)
+
+    marker = json.loads(rollup._marker_path(feed.name, day).read_text())
+    assert marker["rows"] == {"metadata": 7, "fakes": 5}
+    assert marker["unknown_enum_values"] == {"fakes": 3}
+    incrs = [
+        (c.value, c.tags)
+        for c in telemetry.calls
+        if c.kind == "incr" and c.name == "rollup.unknown_enum_values"
+    ]
+    assert incrs == [(3, {"feed": "fake-feed", "kind": "fakes"})]
+
+
 def test_framed_window_rolls_up_with_joined_fetched_at(tmp_path):
     """A framed window yields one payload per frame, and each frame's fetched_at is
     recovered by joining its content digest to the metadata jsonl's timestamp."""

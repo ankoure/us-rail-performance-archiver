@@ -1348,6 +1348,76 @@ def test_decode_arrow_keys_match_table_specs():
     assert set(batches) == expected
 
 
+def _with_raw_schedule_relationship(trip: gtfs.TripDescriptor, raw: int) -> None:
+    """Set trip.schedule_relationship to `raw` even if the bindings don't define it.
+
+    upb refuses an unknown value for a closed enum, so the value is appended as
+    a raw varint (field 4) and parsed back. upb keeps it as an unknown field and
+    re-serializes it, so the bytes still carry it.
+    """
+    trip.ClearField("schedule_relationship")
+    trip.ParseFromString(trip.SerializeToString() + bytes([4 << 3, raw]))
+
+
+def test_decode_arrow_unknown_enum_nulls_the_field_and_keeps_every_row():
+    """Issue #121: one unrecognised enum value used to raise ValueError for the
+    whole payload. It must come out null, like the Python path, and be counted.
+    """
+    import rail_decoder
+
+    feed = make_feed()
+    for vid in ("v2", "v3"):
+        e = feed.entity.add()
+        e.CopyFrom(feed.entity[0])
+        e.id = f"ent-{vid}"
+        e.vehicle.vehicle.id = vid
+    _with_raw_schedule_relationship(feed.entity[1].vehicle.trip, 99)
+    payload = feed.SerializeToString()
+
+    batches = rail_decoder.decode_arrow(payload)
+    vehicles = batches["vehicles"]
+
+    assert vehicles.column("schedule_relationship").to_pylist() == [
+        "SCHEDULED",
+        None,
+        "SCHEDULED",
+    ]
+    assert vehicles.schema.metadata[b"unknown_enum_values"] == b"1"
+    assert batches["trip_updates"].schema.metadata[b"unknown_enum_values"] == b"0"
+    # Same answer as the Python path.
+    python_rows = list(StandardDecoder().decode(gtfs.FeedMessage.FromString(payload)))
+    assert [r.schedule_relationship for r in python_rows] == [
+        "SCHEDULED",
+        None,
+        "SCHEDULED",
+    ]
+
+
+def test_decode_arrow_stop_time_schedule_relationship_matches_python():
+    """The stop-level enum is StopTimeUpdate.ScheduleRelationship. decode_arrow
+    used to read it as TripDescriptor's, so SKIPPED (1) came out as ADDED."""
+    import rail_decoder
+
+    feed = gtfs.FeedMessage()
+    feed.header.gtfs_realtime_version = "2.0"
+    feed.header.timestamp = 1_700_000_000
+    tu = feed.entity.add(id="tu-1").trip_update
+    tu.trip.trip_id = "trip-1"
+    rel = gtfs.TripUpdate.StopTimeUpdate
+    for seq, value in enumerate(
+        [rel.SCHEDULED, rel.SKIPPED, rel.NO_DATA, rel.UNSCHEDULED]
+    ):
+        stu = tu.stop_time_update.add(stop_sequence=seq)
+        stu.schedule_relationship = value
+
+    batch = rail_decoder.decode_arrow(feed.SerializeToString())["trip_updates"]
+    python_rows = list(StandardDecoder().decode(feed))
+
+    expected = ["SCHEDULED", "SKIPPED", "NO_DATA", "UNSCHEDULED"]
+    assert batch.column("stop_time_schedule_relationship").to_pylist() == expected
+    assert [r.stop_time_schedule_relationship for r in python_rows] == expected
+
+
 def test_rust_decode_names_resolve():
     """A typo in a decoder's rust_decode would only surface mid-rollup."""
     import rail_decoder
