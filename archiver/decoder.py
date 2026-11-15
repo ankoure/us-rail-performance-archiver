@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Iterator
 from zoneinfo import ZoneInfo
 import pyarrow as pa
 from google.transit import gtfs_realtime_pb2 as gtfs
+from archiver import nyct_subway_pb2 as nyct
 from archiver.logger import logger
 
 
@@ -681,12 +682,171 @@ class StandardDecoder(GtfsRtDecoder):
         return ts.translation[0].text  # fall back to first available
 
 
+@dataclass
+class NyctVehicleRow(VehicleRow):
+    """VehicleRow plus the trip-level NYCT extension (NyctTripDescriptor).
+
+    NYCT has no VehicleDescriptor, so vehicle_id is null on every row.
+    nyct_train_id is the closest thing to a train identity, but it is a
+    *trip-run* label (trip type, line, origin time, origin/destination), not
+    a physical-car identifier, so it is kept separate rather than copied into
+    vehicle_id.
+    """
+
+    nyct_train_id: str | None = None
+    nyct_is_assigned: bool | None = None
+    nyct_direction: str | None = None  # NyctTripDescriptor.Direction
+
+
+@dataclass
+class NyctStopTimeUpdateRow(StopTimeUpdateRow):
+    """StopTimeUpdateRow plus NyctTripDescriptor (repeated per STU, like the
+    other trip-level fields) and NyctStopTimeUpdate's tracks."""
+
+    nyct_train_id: str | None = None
+    nyct_is_assigned: bool | None = None
+    nyct_direction: str | None = None
+    nyct_scheduled_track: str | None = None
+    # NYCT sets this only on the first stop of the remaining trip.
+    nyct_actual_track: str | None = None
+
+
+@dataclass
+class NyctTripReplacementPeriodRow(Row):
+    """One NyctFeedHeader.trip_replacement_period per row.
+
+    Inside [replacement_start, replacement_end] the feed is a full dataset for
+    route_id: a scheduled trip that is absent from it is cancelled, not just
+    unreported.
+    """
+
+    feed_timestamp: int | None = None
+    nyct_subway_version: str | None = None
+    route_id: str | None = None
+    replacement_start: int | None = None
+    replacement_end: int | None = None
+
+
+# NyctTripDescriptor.Direction -> static GTFS direction_id. NYCT's trips.txt
+# uses 0 for northbound (..N) trips and 1 for southbound (..S). EAST/WEST are
+# defined but unused by NYCT, so they are left unmapped.
+_NYCT_DIRECTION_ID = {"NORTH": 0, "SOUTH": 1}
+
+_STD_VEHICLE = StandardDecoder.produces[VehicleRow]
+_STD_STU = StandardDecoder.produces[StopTimeUpdateRow]
+_NYCT_TRIP_COLUMNS = {
+    "nyct_train_id": "trip.nyct.train_id",
+    "nyct_is_assigned": "trip.nyct.is_assigned",
+    "nyct_direction": "trip.nyct.direction",
+}
+
+
 @Decoder.register("mta_nyct")
 class MTADecoder(StandardDecoder):
-    def _decode_vehicle(self, vp, header, fetched_at: int | None = None) -> VehicleRow:
-        base = super()._decode_vehicle(vp, header)
-        # add NYCT-specific fields by reading vp's extensions
-        return base
+    """NYCT subway: canonical GTFS-RT plus the field-1001 extensions in
+    rail-decoder/proto/nyct-subway.proto.
+
+    The NYCT fields replace placeholders in the standard ones. NYCT publishes
+    direction_id = 0 on every trip, so direction_id is *derived* from
+    NyctTripDescriptor.direction (see _NYCT_DIRECTION_ID), and the raw enum is
+    kept in nyct_direction. If the direction is absent, unknown, EAST or WEST,
+    the published direction_id is kept as it is.
+
+    Rollup goes through rail_decoder.decode_arrow_nyct (rail-decoder/src/nyct).
+    These Python hooks are the reference implementation and must agree with it;
+    tests/test_decoder.py checks that on the nyct-l golden payloads.
+    """
+
+    rust_decode: ClassVar[str | None] = "decode_arrow_nyct"
+
+    produces: ClassVar[dict[type[Row], TableSpec]] = {
+        NyctVehicleRow: TableSpec(
+            "vehicles",
+            dedup_keys=_STD_VEHICLE.dedup_keys,
+            column_names={
+                **_STD_VEHICLE.column_names,
+                **{k: f"vehicle.{v}" for k, v in _NYCT_TRIP_COLUMNS.items()},
+            },
+            extra_columns=_STD_VEHICLE.extra_columns,
+        ),
+        NyctStopTimeUpdateRow: TableSpec(
+            "trip_updates",
+            column_names={
+                **_STD_STU.column_names,
+                **{k: f"trip_update.{v}" for k, v in _NYCT_TRIP_COLUMNS.items()},
+                "nyct_scheduled_track": "trip_update.stop_time_update.nyct.scheduled_track",
+                "nyct_actual_track": "trip_update.stop_time_update.nyct.actual_track",
+            },
+        ),
+        AlertRow: TableSpec("alerts"),
+        NyctTripReplacementPeriodRow: TableSpec(
+            "nyct_trip_replacement_periods",
+            dedup_keys=("feed_timestamp", "route_id"),
+        ),
+    }
+
+    def decode(
+        self, parsed: gtfs.FeedMessage, *, fetched_at: int | None = None
+    ) -> Iterator[Row]:
+        yield from super().decode(parsed, fetched_at=fetched_at)
+        yield from self._decode_header(parsed.header)
+
+    def _decode_vehicle(
+        self, vp, header, fetched_at: int | None = None
+    ) -> NyctVehicleRow:
+        base = super()._decode_vehicle(vp, header, fetched_at)
+        trip = self._nyct_trip(vp.trip)
+        return NyctVehicleRow(**{**vars(base), **self._with_direction(base, trip)})
+
+    def _decode_trip_update(
+        self, tu, header, fetched_at: int | None = None
+    ) -> Iterator[NyctStopTimeUpdateRow]:
+        trip = self._nyct_trip(tu.trip)
+        # super() yields exactly one row per stop_time_update, in order.
+        rows = super()._decode_trip_update(tu, header, fetched_at)
+        for base, stu in zip(rows, tu.stop_time_update, strict=True):
+            ext = stu.Extensions[nyct.nyct_stop_time_update]
+            yield NyctStopTimeUpdateRow(
+                **{**vars(base), **self._with_direction(base, trip)},
+                nyct_scheduled_track=self._opt(ext, "scheduled_track"),
+                nyct_actual_track=self._opt(ext, "actual_track"),
+            )
+
+    def _decode_header(self, header) -> Iterator[NyctTripReplacementPeriodRow]:
+        if not header.HasExtension(nyct.nyct_feed_header):
+            return
+        ext = header.Extensions[nyct.nyct_feed_header]
+        version = self._opt(ext, "nyct_subway_version")
+        for period in ext.trip_replacement_period:
+            yield NyctTripReplacementPeriodRow(
+                feed_timestamp=header.timestamp,
+                nyct_subway_version=version,
+                route_id=self._opt(period, "route_id"),
+                replacement_start=self._opt(period.replacement_period, "start"),
+                replacement_end=self._opt(period.replacement_period, "end"),
+            )
+
+    def _nyct_trip(self, trip) -> dict[str, Any]:
+        # Reading Extensions[...] on an unset extension returns a default
+        # message whose HasField() calls are all False, so no HasExtension
+        # guard is needed. An unknown Direction value is kept by upb as an
+        # unknown field, so HasField("direction") is False and it reads as
+        # None -- the same as the Rust path.
+        ext = trip.Extensions[nyct.nyct_trip_descriptor]
+        return {
+            "nyct_train_id": self._opt(ext, "train_id"),
+            "nyct_is_assigned": self._opt(ext, "is_assigned"),
+            "nyct_direction": self._opt(
+                ext, "direction", nyct.NyctTripDescriptor.Direction.Name
+            ),
+        }
+
+    @staticmethod
+    def _with_direction(base: Row, trip: dict[str, Any]) -> dict[str, Any]:
+        derived = _NYCT_DIRECTION_ID.get(trip["nyct_direction"])
+        if derived is None:
+            return trip
+        return {**trip, "direction_id": derived}
 
 
 @Decoder.register("marta_json")

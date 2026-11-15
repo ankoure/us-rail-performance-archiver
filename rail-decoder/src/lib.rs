@@ -9,44 +9,45 @@ use trip_update::{StopTimeUpdateRow, StopTimeUpdateRowBuilder, decode_trip_updat
 use vehicle::{VehicleRow, VehicleRowBuilder, decode_vehicle};
 
 mod alert;
+mod nyct;
+mod nyct_realtime;
 mod tfnsw;
 mod tfnsw_realtime;
 mod transit_realtime;
 mod trip_update;
 mod vehicle;
 
-#[pyfunction]
-fn decode_arrow<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyDict>> {
-    let feed = transit_realtime::FeedMessage::decode(bytes)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
+/// The three canonical tables for one feed, keyed by `TableSpec.name`.
+/// Shared by `decode_arrow` and the NYCT path, which extends these batches.
+pub(crate) fn decode_canonical(
+    feed: &transit_realtime::FeedMessage,
+) -> Result<Vec<(&'static str, RecordBatch)>, prost::UnknownEnumValue> {
     let mut vehicles = VehicleRowBuilder::new();
     let mut trip_updates = StopTimeUpdateRowBuilder::new();
     let mut alerts = AlertRowBuilder::new();
 
     for entity in &feed.entity {
         if let Some(vp) = &entity.vehicle {
-            vehicles
-                .append(vp, &feed.header)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            vehicles.append(vp, &feed.header)?;
         } else if let Some(tu) = &entity.trip_update {
-            trip_updates
-                .append(tu, &feed.header)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            trip_updates.append(tu, &feed.header)?;
         } else if let Some(alert) = &entity.alert {
-            alerts
-                .append(alert, &entity.id, &feed.header)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            alerts.append(alert, &entity.id, &feed.header)?;
         }
     }
-    batches_to_pydict(
-        py,
-        vec![
-            ("vehicles", vehicles.finish()),
-            ("trip_updates", trip_updates.finish()),
-            ("alerts", alerts.finish()),
-        ],
-    )
+    Ok(vec![
+        ("vehicles", vehicles.finish()),
+        ("trip_updates", trip_updates.finish()),
+        ("alerts", alerts.finish()),
+    ])
+}
+
+#[pyfunction]
+fn decode_arrow<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+    let feed = transit_realtime::FeedMessage::decode(bytes)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let batches = decode_canonical(&feed).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    batches_to_pydict(py, batches)
 }
 
 #[pyclass(skip_from_py_object)]
@@ -109,11 +110,19 @@ fn decode_arrow_tfnsw<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py,
     batches_to_pydict(py, batches)
 }
 
+/// NYCT subway: canonical tables plus the field-1001 extensions. See src/nyct.
+#[pyfunction]
+fn decode_arrow_nyct<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+    let batches = nyct::decode_feed(bytes).map_err(PyValueError::new_err)?;
+    batches_to_pydict(py, batches)
+}
+
 #[pymodule]
 fn rail_decoder(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decode, m)?)?;
     m.add_function(wrap_pyfunction!(decode_arrow, m)?)?;
     m.add_function(wrap_pyfunction!(decode_arrow_tfnsw, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_arrow_nyct, m)?)?;
     m.add_class::<VehicleRow>()?;
     m.add_class::<StopTimeUpdateRow>()?;
     m.add_class::<AlertRow>()?;

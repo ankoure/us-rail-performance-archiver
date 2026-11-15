@@ -1,0 +1,82 @@
+// NYCT subway extensions, restated as plain fields so prost can decode them.
+//
+// DERIVED from ../nyct-subway.proto (the pristine upstream file, kept
+// byte-for-byte for diffing). See README.md in this directory for the edits.
+//
+// This is an *overlay*, not a full schema: each message below declares only
+// the path from FeedMessage down to a field-1001 extension, plus the extension
+// payload itself. Every other field is unknown to it and skipped. The
+// canonical fields are decoded separately, by transit_realtime, from the same
+// bytes -- src/nyct/mod.rs zips the two decodes together by position.
+
+syntax = "proto2";
+
+package nyct_realtime;
+
+// --- Path messages: same names and field numbers as gtfs-realtime.proto ----
+
+message FeedMessage {
+  optional FeedHeader header = 1;
+  repeated FeedEntity entity = 2;
+}
+
+message FeedHeader {
+  optional NyctFeedHeader nyct_feed_header = 1001;
+}
+
+message FeedEntity {
+  optional TripUpdate trip_update = 3;
+  optional VehiclePosition vehicle = 4;
+}
+
+message TripUpdate {
+  optional TripDescriptor trip = 1;
+  repeated StopTimeUpdate stop_time_update = 2;
+}
+
+message StopTimeUpdate {
+  optional NyctStopTimeUpdate nyct_stop_time_update = 1001;
+}
+
+message VehiclePosition {
+  optional TripDescriptor trip = 1;
+}
+
+message TripDescriptor {
+  optional NyctTripDescriptor nyct_trip_descriptor = 1001;
+}
+
+message TimeRange {
+  optional uint64 start = 1;
+  optional uint64 end = 2;
+}
+
+// --- Extension payloads: copied from nyct-subway.proto ---------------------
+
+message TripReplacementPeriod {
+  optional string route_id = 1;
+  optional TimeRange replacement_period = 2;
+}
+
+message NyctFeedHeader {
+  // `required` upstream; relaxed so a header without it still decodes.
+  optional string nyct_subway_version = 1;
+  repeated TripReplacementPeriod trip_replacement_period = 2;
+}
+
+message NyctTripDescriptor {
+  optional string train_id = 1;
+  optional bool is_assigned = 2;
+  enum Direction {
+    NORTH = 1;
+    EAST = 2;
+    SOUTH = 3;
+    WEST = 4;
+  }
+  optional Direction direction = 3;
+}
+
+message NyctStopTimeUpdate {
+  optional string scheduled_track = 1;
+  optional string actual_track = 2;
+}

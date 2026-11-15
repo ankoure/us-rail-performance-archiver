@@ -9,7 +9,7 @@ from typing import Iterator
 from archiver.feed import Feed
 import pyarrow.parquet as pq
 import pyarrow as pa
-from archiver.decoder import VehicleRow, StandardDecoder
+from archiver.decoder import MTADecoder, VehicleRow, StandardDecoder
 from archiver.payloads import digest_timestamps
 from archiver.rollup import _schema_for_spec, Rollup
 from archiver.writer import FrameWriter
@@ -624,7 +624,8 @@ def test_second_run_does_not_redo_work(tmp_path):
         assert path.read_bytes() == original_bytes, f"{path} was rewritten"
 
 
-def test_rollup_uses_rust_decoder_for_standard_decoder_feeds(tmp_path):
+@pytest.mark.parametrize("decoder_cls", [StandardDecoder, MTADecoder])
+def test_rollup_uses_rust_decoder_for_standard_decoder_feeds(tmp_path, decoder_cls):
     """Covers the rust branch of _rollup_data, which no other test reaches.
 
     Every other test here uses FakeDecoder/EchoDecoder, so
@@ -660,7 +661,7 @@ def test_rollup_uses_rust_decoder_for_standard_decoder_feeds(tmp_path):
         name="nyct-l",
         path="/whatever",
         parser=None,  # unused on the rust path -- it decodes bytes directly
-        decoder=StandardDecoder(),  # <- the whole point; an *instance*, not the class
+        decoder=decoder_cls(),  # <- the whole point; an *instance*, not the class
         agency_id="MTA",
         poll_interval_seconds=60,
     )
@@ -681,6 +682,19 @@ def test_rollup_uses_rust_decoder_for_standard_decoder_feeds(tmp_path):
             assert pq.read_metadata(path).num_rows == n, kind
         else:
             assert not path.exists(), kind
+
+    if decoder_cls is MTADecoder:
+        # NYCT extension columns land under their dotted names, populated.
+        tu = pq.read_table(rollup._curated_path("trip_updates", feed.name, day))
+        assert tu.column("trip_update.trip.nyct.train_id").null_count == 0
+        assert set(tu.column("trip_update.trip.direction_id").to_pylist()) == {0, 1}
+        assert (
+            tu.column("trip_update.stop_time_update.nyct.scheduled_track").null_count
+            == 0
+        )
+        veh = pq.read_table(rollup._curated_path("vehicles", feed.name, day))
+        assert veh.column("vehicle.trip.nyct.is_assigned").null_count == 0
+        assert rows["nyct_trip_replacement_periods"] == len(payloads)
 
     # TODO: also check the counts against the goldens -- 291 vehicles, 6950
     # trip_updates. Read the golden JSON lengths rather than hardcoding, so

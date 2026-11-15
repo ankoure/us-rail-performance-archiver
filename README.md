@@ -392,6 +392,17 @@ One row per `StopTimeUpdate` (not per trip). `feed_timestamp`, `trip_update_time
 
 One row per `InformedEntity` (a single alert may produce many rows). `feed_timestamp`, `alert_id`, `cause`, `effect`, `severity_level`, `header_text`, `description_text`, `url`, `agency_id`, `route_id`, `route_type`, `direction_id`, `trip_id`, `stop_id`. See [AlertRow](archiver/decoder.py#L131).
 
+### NYCT extensions (decoder: `mta_nyct`)
+
+NYCT subway feeds carry proto2 extensions at tag 1001 ([nyct-subway.proto](rail-decoder/proto/nyct-subway.proto)). The standard fields they come with are placeholders: NYCT publishes `direction_id = 0` on every trip and sends no `VehicleDescriptor`. `mta_nyct` therefore writes the same three tables with extra columns, plus a fourth table:
+
+- `vehicles`: `vehicle.trip.nyct.train_id`, `vehicle.trip.nyct.is_assigned`, `vehicle.trip.nyct.direction` (`NORTH`/`SOUTH`/`EAST`/`WEST`).
+- `trip_updates`: the same three as `trip_update.trip.nyct.*`, plus `trip_update.stop_time_update.nyct.scheduled_track` and `trip_update.stop_time_update.nyct.actual_track`. NYCT sets `actual_track` only on the next stop.
+- `direction_id` on both tables is **derived** from `nyct.direction` using the static-GTFS convention (NORTH → 0, SOUTH → 1). It falls back to the published value when the direction is absent, unknown, EAST or WEST.
+- `nyct_trip_replacement_periods`: one row per route per poll, with `feed_timestamp`, `nyct_subway_version`, `route_id`, `replacement_start` and `replacement_end`. Within that window a scheduled trip missing from the feed is cancelled, not just unreported.
+
+`vehicle_id` stays null. `nyct.train_id` identifies a trip run (line, origin time, origin/destination), not a physical train. See [NyctVehicleRow](archiver/decoder.py) and [rail-decoder/proto/nyct/README.md](rail-decoder/proto/nyct/README.md) for how the Rust decoder reads the extensions.
+
 ### `marta_predictions` (decoder: `marta_json`)
 
 MARTA exposes its own JSON prediction API (not GTFS-RT). See [MartaPredictionRow](archiver/decoder.py#L27).
@@ -630,7 +641,7 @@ Sync them with [scripts/sync_datadog.py](scripts/sync_datadog.py) (idempotent up
 
 ## Roadmap / known gaps
 
-- **MTA NYCT decoder is a stub.** `MTADecoder` extends `StandardDecoder` but doesn't yet read the NYCT protobuf extensions.
+- **LIRR / Metro-North protobuf extensions are unread.** [gtfs-realtime-MTARR.proto](rail-decoder/proto/gtfs-realtime-MTARR.proto) is vendored but unused. The NYCT overlay approach ([rail-decoder/proto/nyct/](rail-decoder/proto/nyct/README.md)) would carry over.
 - **Feed health is in-memory.** Backoff/quarantine state resets on restart (poll-state dedup does persist).
 - **Local disk is not auto-pruned.** The shipper uploads but never deletes — a retention/prune step is still needed before the cost model holds long-term.
 - **Several agencies are disabled.** See commented blocks in [feeds.yaml](config/feeds.yaml); some endpoints are unreachable, others were never enabled.

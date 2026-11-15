@@ -38,6 +38,11 @@ postgis = [
     "psycopg[binary]>=3.2.10",
 ]
 
+[tool.ruff]
+# protoc output (hand-edited; see its header). Not linted or reformatted, so a
+# regeneration diff stays readable.
+extend-exclude = ["archiver/nyct_subway_pb2.py"]
+
 [tool.ruff.lint.per-file-ignores]
 # The vulture whitelist is intentionally a list of bare, undefined names so each
 # counts as a "use" — F821 (undefined name) is expected here, not a bug.
