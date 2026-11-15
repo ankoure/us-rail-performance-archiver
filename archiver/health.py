@@ -18,7 +18,9 @@ class FeedHealth:
     """Per-feed consecutive-failure tracking that drives the next poll interval.
 
     Healthy feeds poll at their normal interval. A failing feed backs off
-    exponentially (``base * 2**(n-1)``, capped). After ``quarantine_after``
+    exponentially (``base * 2**(n-1)``, capped), but never polls *faster* than its
+    normal interval — a feed slower than the cap (e.g. a rate-limited 1800s feed)
+    just stays at its own interval while failing. After ``quarantine_after``
     consecutive failures it drops to a long ``quarantine_interval`` and an alert
     is emitted once (the caller fires it on the boundary-crossing return of
     :meth:`record_failure`). A single success resets the feed to healthy.
@@ -61,11 +63,16 @@ class FeedHealth:
         return self._failures.get(feed_name, 0) >= self._quarantine_after
 
     def next_interval(self, feed_name: str, base_interval: float) -> float:
-        """Interval to use for this feed's next poll, given its failure streak."""
+        """Interval to use for this feed's next poll, given its failure streak.
+
+        Never shorter than ``base_interval``: backoff must not speed up a feed
+        whose normal interval already exceeds ``backoff_cap`` (or
+        ``quarantine_interval``), which would hammer a rate-limited endpoint.
+        """
         n = self._failures.get(feed_name, 0)
         if n == 0:
             return base_interval
         if n >= self._quarantine_after:
-            return self._quarantine_interval
+            return max(base_interval, self._quarantine_interval)
         base = self._backoff_base if self._backoff_base is not None else base_interval
-        return min(self._backoff_cap, base * (2 ** (n - 1)))
+        return max(base_interval, min(self._backoff_cap, base * (2 ** (n - 1))))
