@@ -32,10 +32,13 @@ from archiver.decoder import (
     PassioVehicleRow,
     StopTimeUpdateRow,
     MTADecoder,
+    NyctVehicleRow,
     VehicleRow,
     validate_record_keys,
 )
 from dataclasses import asdict, fields as _dc_fields
+
+from archiver import nyct_subway_pb2 as nyct_pb2
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -343,8 +346,33 @@ class TestOptHelper:
 
 
 # ---------------------------------------------------------------------------
-# MTADecoder – smoke test (subclass parity)
+# MTADecoder – NYCT subway extensions (field 1001)
 # ---------------------------------------------------------------------------
+
+
+def _nyct_golden_payloads() -> list[bytes]:
+    payloads = json.loads((GOLDEN / "nyct-l" / "payloads.json").read_text())
+    return [base64.b64decode(p["payload"]) for p in payloads]
+
+
+def _decode_nyct_python(payload: bytes) -> dict[str, list[dict]]:
+    """Python MTADecoder output, grouped by table name like the Rust dict."""
+    from archiver.parser import ProtobufParser
+
+    decoder = MTADecoder()
+    out: dict[str, list[dict]] = {s.name: [] for s in decoder.produces.values()}
+    for row in decoder.decode(ProtobufParser().parse(payload)):
+        out[decoder.produces[type(row)].name].append(asdict(row))
+    return out
+
+
+def _with_nyct_trip_ext(trip, ext_bytes: bytes) -> None:
+    """Attach raw NyctTripDescriptor bytes to `trip` as field 1001. Going
+    through bytes is the only way to plant an enum value the schema doesn't
+    know -- the Python setter refuses it."""
+    tag = b"\xca\x3e"  # (1001 << 3) | 2, as a varint
+    raw = trip.SerializeToString() + tag + bytes([len(ext_bytes)]) + ext_bytes
+    trip.ParseFromString(raw)
 
 
 class TestMTADecoder:
@@ -355,14 +383,151 @@ class TestMTADecoder:
         results = list(self.decoder.decode(feed))
 
         assert len(results) == 1
-        assert isinstance(results[0], VehicleRow)
+        assert isinstance(results[0], NyctVehicleRow)
 
-    def test_base_fields_preserved(self):
-        """MTADecoder currently delegates to StandardDecoder; spot-check a few fields."""
-        feed = make_feed(vehicle_id="mta-bus", route_id="M15")
-        pos = list(self.decoder.decode(feed))[0]
-        assert pos.vehicle_id == "mta-bus"
-        assert pos.route_id == "M15"
+    def test_without_extensions_matches_standard(self):
+        """A trip with no NYCT extension keeps the published direction_id and
+        gets null nyct_* columns -- otherwise identical to StandardDecoder."""
+        feed = make_feed(vehicle_id="mta-bus", route_id="M15", direction_id=1)
+        (row,) = self.decoder.decode(feed)
+        (std,) = StandardDecoder().decode(feed)
+        assert {
+            k: v for k, v in asdict(row).items() if not k.startswith("nyct_")
+        } == asdict(std)
+        assert row.direction_id == 1
+        assert (row.nyct_train_id, row.nyct_is_assigned, row.nyct_direction) == (
+            None,
+            None,
+            None,
+        )
+
+    def test_direction_id_derived_from_nyct_direction(self):
+        feed = make_feed(direction_id=0)
+        ext = feed.entity[0].vehicle.trip.Extensions[nyct_pb2.nyct_trip_descriptor]
+        ext.direction = nyct_pb2.NyctTripDescriptor.SOUTH
+        ext.train_id = "0L 0732 8AV/BWJ"
+        ext.is_assigned = False
+        (row,) = self.decoder.decode(feed)
+        assert row.direction_id == 1
+        assert row.nyct_direction == "SOUTH"
+        assert row.nyct_train_id == "0L 0732 8AV/BWJ"
+        assert row.nyct_is_assigned is False
+
+    @pytest.mark.parametrize("direction", ["EAST", "WEST"])
+    def test_unused_directions_keep_published_direction_id(self, direction):
+        feed = make_feed(direction_id=0)
+        ext = feed.entity[0].vehicle.trip.Extensions[nyct_pb2.nyct_trip_descriptor]
+        ext.direction = nyct_pb2.NyctTripDescriptor.Direction.Value(direction)
+        (row,) = self.decoder.decode(feed)
+        assert row.direction_id == 0
+        assert row.nyct_direction == direction
+
+    def test_unknown_direction_is_null_on_both_paths(self):
+        """#121: an enum value the schema doesn't know must null the field, not
+        drop the payload. Direction 9 is not in NyctTripDescriptor.Direction."""
+        import rail_decoder
+
+        feed = make_feed(direction_id=0)
+        # train_id "x" (field 1), direction 9 (field 3)
+        _with_nyct_trip_ext(feed.entity[0].vehicle.trip, b"\x0a\x01x\x18\x09")
+        payload = feed.SerializeToString()
+
+        py = _decode_nyct_python(payload)["vehicles"]
+        rust = rail_decoder.decode_arrow_nyct(payload)["vehicles"].to_pylist()
+        for rows in (py, rust):
+            assert len(rows) == 1
+            assert rows[0]["nyct_train_id"] == "x"
+            assert rows[0]["nyct_direction"] is None
+            assert rows[0]["direction_id"] == 0
+
+    def test_golden_payload_extensions(self):
+        """Values checked against `protoc --decode_raw` of nyct-l payload 0."""
+        tables = _decode_nyct_python(_nyct_golden_payloads()[0])
+        stus, vehicles = tables["trip_updates"], tables["vehicles"]
+
+        # NYCT publishes direction_id=0 on every trip; the derived value must
+        # follow the ..N / ..S suffix that encodes direction in the trip_id.
+        for row in stus + vehicles:
+            assert row["direction_id"] == (0 if row["trip_id"].endswith("N") else 1)
+            assert row["nyct_direction"] == (
+                "NORTH" if row["direction_id"] == 0 else "SOUTH"
+            )
+            assert row["nyct_train_id"]
+
+        trips = {r["trip_id"]: r for r in stus + vehicles}
+        assert len(trips) == 14
+        assert sum(not r["nyct_is_assigned"] for r in trips.values()) == 6
+        assert all(r["nyct_scheduled_track"] for r in stus)
+        assert any(r["nyct_actual_track"] for r in stus)
+
+        assert tables["nyct_trip_replacement_periods"] == [
+            {
+                "feed_timestamp": 1780142262,
+                "nyct_subway_version": "1.0",
+                "route_id": "L",
+                "replacement_start": 1780142262,
+                "replacement_end": 1780144062,
+            }
+        ]
+
+    def test_rust_matches_python_on_golden_payloads(self):
+        """rollup only ever calls decode_arrow_nyct; the Python hooks are the
+        reference. Every row of every table must agree on all 30 payloads."""
+        import rail_decoder
+
+        for i, payload in enumerate(_nyct_golden_payloads()):
+            py = _decode_nyct_python(payload)
+            rust = rail_decoder.decode_arrow_nyct(payload)
+            assert set(rust) == set(py), i
+            for table, rows in py.items():
+                assert rust[table].to_pylist() == rows, (i, table)
+
+    def test_rust_canonical_columns_unchanged_apart_from_direction_id(self):
+        import rail_decoder
+
+        payload = _nyct_golden_payloads()[0]
+        std = rail_decoder.decode_arrow(payload)
+        nyc = rail_decoder.decode_arrow_nyct(payload)
+        for table in ("vehicles", "trip_updates", "alerts"):
+            for name in std[table].schema.names:
+                if name != "direction_id":
+                    assert nyc[table].column(name).equals(std[table].column(name)), (
+                        table,
+                        name,
+                    )
+
+
+def test_nyct_subway_pb2_matches_vendored_proto(tmp_path):
+    """archiver/nyct_subway_pb2.py is hand-edited protoc output; this catches
+    it drifting from rail-decoder/proto/nyct-subway.proto."""
+    import shutil
+    import subprocess
+
+    from google.protobuf import descriptor_pb2
+
+    protoc = shutil.which("protoc")
+    if protoc is None:
+        pytest.skip("protoc not installed")
+    out = tmp_path / "nyct.pb"
+    subprocess.run(
+        [
+            protoc,
+            "-Irail-decoder/proto",
+            f"--descriptor_set_out={out}",
+            "rail-decoder/proto/nyct-subway.proto",
+        ],
+        check=True,
+    )
+    (expected,) = descriptor_pb2.FileDescriptorSet.FromString(out.read_bytes()).file
+    # Python gencode omits json_name; the descriptor set includes it.
+    for field in [*expected.extension] + [
+        f for m in expected.message_type for f in m.field
+    ]:
+        field.ClearField("json_name")
+    actual = descriptor_pb2.FileDescriptorProto.FromString(
+        nyct_pb2.DESCRIPTOR.serialized_pb
+    )
+    assert actual == expected
 
 
 def test_marta_decode_smoke():
@@ -1347,6 +1512,9 @@ def test_decode_arrow_keys_match_table_specs():
     expected = {spec.name for spec in StandardDecoder.produces.values()}
     assert set(batches) == expected
 
+    batches = rail_decoder.decode_arrow_nyct(base64.b64decode(payloads[0]["payload"]))
+    assert set(batches) == {spec.name for spec in MTADecoder.produces.values()}
+
 
 def _with_raw_schedule_relationship(trip: gtfs.TripDescriptor, raw: int) -> None:
     """Set trip.schedule_relationship to `raw` even if the bindings don't define it.
@@ -1488,3 +1656,15 @@ def test_tfnsw_agencies_use_the_tfnsw_decoder():
         if f.decoder != "tfnsw"
     ]
     assert not wrong, f"TfNSW feeds not using the tfnsw decoder: {wrong}"
+
+
+def test_decode_arrow_nyct_keeps_unknown_enum_count():
+    """The NYCT path rebuilds the canonical batches to add its columns. It must
+    carry over the unknown_enum_values metadata, or rollup stops counting it."""
+    import rail_decoder
+
+    payloads = json.loads((GOLDEN / "nyct-l" / "payloads.json").read_text())
+    batches = rail_decoder.decode_arrow_nyct(base64.b64decode(payloads[0]["payload"]))
+
+    for table in ("vehicles", "trip_updates"):
+        assert batches[table].schema.metadata[b"unknown_enum_values"] == b"0"

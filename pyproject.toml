@@ -38,6 +38,11 @@ postgis = [
     "psycopg[binary]>=3.2.10",
 ]
 
+[tool.ruff]
+# protoc output (hand-edited; see its header). Not linted or reformatted, so a
+# regeneration diff stays readable.
+extend-exclude = ["archiver/nyct_subway_pb2.py"]
+
 [tool.ruff.lint.per-file-ignores]
 # The vulture whitelist is intentionally a list of bare, undefined names so each
 # counts as a "use" — F821 (undefined name) is expected here, not a bug.
@@ -54,7 +59,8 @@ asyncio_mode = "auto"
 # notebooks, and tests are excluded (tests are entrypoints pytest calls by name,
 # so vulture would flag every test_* as unused). Run with `make deadcode`.
 paths = ["analysis", "archiver", "pipeline", "scripts", "main.py", "tests/vulture_whitelist.py"]
-exclude = ["notebooks/", "__pycache__/"]
+# *_pb2.py is protoc output; its imports register proto deps as a side effect.
+exclude = ["notebooks/", "__pycache__/", "*_pb2.py"]
 # pydantic hooks are called by the framework, not our code — don't report them.
 ignore_decorators = ["@field_validator", "@model_validator", "@field_serializer", "@cached_property"]
 # 60 flags unused attributes (noisy with pydantic field models); 80 keeps it to
