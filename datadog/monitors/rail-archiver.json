@@ -181,5 +181,19 @@
       "include_tags": true,
       "require_full_window": false
     }
+  },
+  {
+    "name": "[rail-archiver] Landing raw windows not shipping to S3",
+    "type": "metric alert",
+    "query": "max(last_2h):max:landing.raw_oldest_unshipped_age_s{env:prod, service:rail-archiver} by {host} > 86400",
+    "message": "The oldest raw window on `{{host.name}}` has been closed for {{value}}s without reaching the S3 landing.\n\n`landing.raw_oldest_unshipped_age_s` is gauged once per raw ship pass (hourly) by the LandingUploader. Normal is under ~2h (one ship window plus grace). Anything older means windows are failing to ship. They are not lost: the uploader sweeps every on-disk day until a pass succeeds, and local prune (`prune.skipped_unshipped_windows`) refuses to delete a day that still has unshipped windows. The cost is disk: those days stay on the box until they ship, so a long backlog leads to `Host disk usage high`.\n\nMost common causes:\n- Expired or rotated AWS creds / IAM change on the poller box\n- Regional S3 outage\n- Box was down and is still catching up (the value should fall on its own within a pass or two)\n\nInvestigate:\n```\ndocker compose logs app --since 3h | grep -i 'raw window upload failed\\|oldest unshipped'\njournalctl -u rail-archiver-prune.service --no-pager | grep 'not yet shipped'\n```\n\n@andkoure@gmail.com @slack-rail-alerts",
+    "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
+    "options": {
+      "notify_no_data": false,
+      "renotify_interval": 360,
+      "thresholds": { "critical": 86400, "warning": 21600 },
+      "include_tags": true,
+      "require_full_window": false
+    }
   }
 ]
