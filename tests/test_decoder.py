@@ -35,7 +35,7 @@ from archiver.decoder import (
     VehicleRow,
     validate_record_keys,
 )
-from dataclasses import fields as _dc_fields
+from dataclasses import asdict, fields as _dc_fields
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1346,6 +1346,51 @@ def test_decode_arrow_keys_match_table_specs():
 
     expected = {spec.name for spec in StandardDecoder.produces.values()}
     assert set(batches) == expected
+
+
+def test_decode_arrow_trip_updates_match_python_for_every_schedule_relationship():
+    """#120: decode_arrow labelled stop-level schedule_relationship with the
+    TripDescriptor enum (SKIPPED -> "ADDED"). The nyct-l golden payloads are
+    all SCHEDULED, so check_rust_parity.py couldn't see it. This feed sets
+    every StopTimeUpdate value (and an unset one) under an ADDED trip, then
+    requires the Rust rows to match the Python decoder's field for field.
+    """
+    import rail_decoder
+
+    stu_rel = gtfs.TripUpdate.StopTimeUpdate.ScheduleRelationship
+    rels = [
+        stu_rel.Value("SCHEDULED"),
+        stu_rel.Value("SKIPPED"),
+        stu_rel.Value("NO_DATA"),
+        stu_rel.Value("UNSCHEDULED"),
+        None,
+    ]
+    feed = _make_trip_update_feed(
+        stop_time_updates=tuple(
+            (f"stop-{i}", 1_700_000_100 + i) for i in range(len(rels))
+        )
+    )
+    tu = feed.entity[0].trip_update
+    tu.trip.schedule_relationship = gtfs.TripDescriptor.ScheduleRelationship.Value(
+        "ADDED"
+    )
+    for stu, rel in zip(tu.stop_time_update, rels):
+        if rel is not None:
+            stu.schedule_relationship = rel
+
+    expected = [asdict(r) for r in StandardDecoder().decode(feed)]
+    actual = rail_decoder.decode_arrow(feed.SerializeToString())[
+        "trip_updates"
+    ].to_pylist()
+
+    assert [r["stop_time_schedule_relationship"] for r in actual] == [
+        "SCHEDULED",
+        "SKIPPED",
+        "NO_DATA",
+        "UNSCHEDULED",
+        None,
+    ]
+    assert actual == expected
 
 
 def test_rust_decode_names_resolve():
