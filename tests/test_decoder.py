@@ -1516,6 +1516,96 @@ def test_decode_arrow_keys_match_table_specs():
     assert set(batches) == {spec.name for spec in MTADecoder.produces.values()}
 
 
+def _with_raw_schedule_relationship(trip: gtfs.TripDescriptor, raw: int) -> None:
+    """Set trip.schedule_relationship to `raw` even if the bindings don't define it.
+
+    upb refuses an unknown value for a closed enum, so the value is appended as
+    a raw varint (field 4) and parsed back. upb keeps it as an unknown field and
+    re-serializes it, so the bytes still carry it.
+    """
+    trip.ClearField("schedule_relationship")
+    trip.ParseFromString(trip.SerializeToString() + bytes([4 << 3, raw]))
+
+
+def test_decode_arrow_unknown_enum_nulls_the_field_and_keeps_every_row():
+    """Issue #121: one unrecognised enum value used to raise ValueError for the
+    whole payload. It must come out null, like the Python path, and be counted.
+    """
+    import rail_decoder
+
+    feed = make_feed()
+    for vid in ("v2", "v3"):
+        e = feed.entity.add()
+        e.CopyFrom(feed.entity[0])
+        e.id = f"ent-{vid}"
+        e.vehicle.vehicle.id = vid
+    _with_raw_schedule_relationship(feed.entity[1].vehicle.trip, 99)
+    payload = feed.SerializeToString()
+
+    batches = rail_decoder.decode_arrow(payload)
+    vehicles = batches["vehicles"]
+
+    assert vehicles.column("schedule_relationship").to_pylist() == [
+        "SCHEDULED",
+        None,
+        "SCHEDULED",
+    ]
+    assert vehicles.schema.metadata[b"unknown_enum_values"] == b"1"
+    assert batches["trip_updates"].schema.metadata[b"unknown_enum_values"] == b"0"
+    # Same answer as the Python path.
+    python_rows = list(StandardDecoder().decode(gtfs.FeedMessage.FromString(payload)))
+    assert [r.schedule_relationship for r in python_rows] == [
+        "SCHEDULED",
+        None,
+        "SCHEDULED",
+    ]
+
+
+def test_decode_arrow_trip_updates_match_python_for_every_schedule_relationship():
+    """#120: decode_arrow labelled stop-level schedule_relationship with the
+    TripDescriptor enum (SKIPPED -> "ADDED"). The nyct-l golden payloads are
+    all SCHEDULED, so check_rust_parity.py couldn't see it. This feed sets
+    every StopTimeUpdate value (and an unset one) under an ADDED trip, then
+    requires the Rust rows to match the Python decoder's field for field.
+    """
+    import rail_decoder
+
+    stu_rel = gtfs.TripUpdate.StopTimeUpdate.ScheduleRelationship
+    rels = [
+        stu_rel.Value("SCHEDULED"),
+        stu_rel.Value("SKIPPED"),
+        stu_rel.Value("NO_DATA"),
+        stu_rel.Value("UNSCHEDULED"),
+        None,
+    ]
+    feed = _make_trip_update_feed(
+        stop_time_updates=tuple(
+            (f"stop-{i}", 1_700_000_100 + i) for i in range(len(rels))
+        )
+    )
+    tu = feed.entity[0].trip_update
+    tu.trip.schedule_relationship = gtfs.TripDescriptor.ScheduleRelationship.Value(
+        "ADDED"
+    )
+    for stu, rel in zip(tu.stop_time_update, rels):
+        if rel is not None:
+            stu.schedule_relationship = rel
+
+    expected = [asdict(r) for r in StandardDecoder().decode(feed)]
+    actual = rail_decoder.decode_arrow(feed.SerializeToString())[
+        "trip_updates"
+    ].to_pylist()
+
+    assert [r["stop_time_schedule_relationship"] for r in actual] == [
+        "SCHEDULED",
+        "SKIPPED",
+        "NO_DATA",
+        "UNSCHEDULED",
+        None,
+    ]
+    assert actual == expected
+
+
 def test_rust_decode_names_resolve():
     """A typo in a decoder's rust_decode would only surface mid-rollup."""
     import rail_decoder
@@ -1566,3 +1656,15 @@ def test_tfnsw_agencies_use_the_tfnsw_decoder():
         if f.decoder != "tfnsw"
     ]
     assert not wrong, f"TfNSW feeds not using the tfnsw decoder: {wrong}"
+
+
+def test_decode_arrow_nyct_keeps_unknown_enum_count():
+    """The NYCT path rebuilds the canonical batches to add its columns. It must
+    carry over the unknown_enum_values metadata, or rollup stops counting it."""
+    import rail_decoder
+
+    payloads = json.loads((GOLDEN / "nyct-l" / "payloads.json").read_text())
+    batches = rail_decoder.decode_arrow_nyct(base64.b64decode(payloads[0]["payload"]))
+
+    for table in ("vehicles", "trip_updates"):
+        assert batches[table].schema.metadata[b"unknown_enum_values"] == b"0"

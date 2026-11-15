@@ -1,7 +1,5 @@
 # dashboard/api/routers/trip_metrics.py
 
-from datetime import date
-
 from fastapi import APIRouter, Depends
 
 from api import dependencies
@@ -17,8 +15,9 @@ def get_trip_metrics(
     route_id: str,
     from_stop_id: str,
     to_stop_id: str,
-    start_date: date,
-    end_date: date,
+    dates: dependencies.DateRange = Depends(
+        dependencies.date_range(dependencies.MAX_EVENTS_RANGE_DAYS)
+    ),
     direction_id: int | None = None,
     aggregate: bool = False,
     agency: Agency = Depends(dependencies.get_agency),
@@ -35,8 +34,8 @@ def get_trip_metrics(
         route_id=route_id,
         from_stop_id=from_stop_id,
         to_stop_id=to_stop_id,
-        start_date=start_date,
-        end_date=end_date,
+        start_date=dates.start_date,
+        end_date=dates.end_date,
         direction_id=direction_id,
     )
     if aggregate:

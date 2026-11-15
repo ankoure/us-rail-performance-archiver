@@ -380,6 +380,13 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
         landing_dir=config.writer.landing_dir,
         landing_bucket=config.writer.landing_bucket,
         landing_prefix=config.writer.landing_prefix,
+        # Only an s3-mode poller runs a LandingUploader, so only then are there
+        # .shipped markers for prune to check.
+        ship_window_seconds=(
+            config.writer.ship_window_seconds
+            if config.writer.landing_mode == "s3"
+            else None
+        ),
     )
 
 

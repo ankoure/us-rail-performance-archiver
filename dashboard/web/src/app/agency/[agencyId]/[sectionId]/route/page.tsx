@@ -9,7 +9,7 @@ import { LinePicker, useLine } from "@/components/LinePicker";
 import { StatTile, type StatDelta } from "@/components/StatTile";
 import { TimeSeriesChart, type ChartAnnotation } from "@/components/TimeSeriesChart";
 import { api } from "@/lib/apiClient";
-import { previousPeriod } from "@/lib/dates";
+import { MAX_EVENTS_RANGE_DAYS, previousPeriod } from "@/lib/dates";
 import { useApiData } from "@/lib/useApiData";
 import { useSection } from "@/lib/useSection";
 import type {
@@ -99,7 +99,7 @@ export default function RoutePage() {
   const scope = useSection();
   const { section } = scope;
   const line = useLine();
-  const { start, end } = useDateRange();
+  const { start, end } = useDateRange(MAX_EVENTS_RANGE_DAYS);
 
   const enabled = scope.ready && Boolean(line);
 
@@ -192,7 +192,7 @@ export default function RoutePage() {
     <>
       <div className="filter-bar">
         {scope.routes && scope.routes.length > 0 && <LinePicker routes={scope.routes} />}
-        <DateRangePicker />
+        <DateRangePicker maxDays={MAX_EVENTS_RANGE_DAYS} />
       </div>
       <FilterContext scope={section.label} line={line || undefined} when={`${start} – ${end}`} />
       <main>

@@ -1,7 +1,6 @@
-from datetime import date
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from fastapi import APIRouter, HTTPException, Query
-
+from api import dependencies
 from api.schemas.agency import AgencyMetricsSummary, AgencySummary
 from api.services import agencies, agency_summary
 
@@ -30,8 +29,7 @@ def get_agencies() -> list[AgencySummary]:
 
 @router.get("/agencies_summary", response_model=list[AgencyMetricsSummary])
 def get_agencies_summary(
-    start_date: date,
-    end_date: date,
+    dates: dependencies.DateRange = Depends(dependencies.date_range()),
     agency: list[str] = Query(..., min_length=1),
 ) -> list[dict]:
     """Headline metrics (OTP %, avg speed, delay minutes) for several agencies
@@ -49,7 +47,9 @@ def get_agencies_summary(
 
     try:
         return [
-            agency_summary.get_agency_metrics_summary(a, start_date, end_date)
+            agency_summary.get_agency_metrics_summary(
+                a, dates.start_date, dates.end_date
+            )
             for a in resolved
         ]
     except ValueError as e:

@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
+from archiver.landing_layout import shipped_marker_path, window_start_for
 from archiver.source import Source, S3Source
 from archiver.uploader import Uploader
 from archiver.telemetry import Telemetry, NoOpTelemetry
@@ -49,6 +50,7 @@ class Shipper:
         landing_dir: Path | None = None,
         landing_bucket: str | None = None,
         landing_prefix: str = "",
+        ship_window_seconds: float | None = None,
     ) -> None:
         # Landing reads (discovery + the cold tarball's raw/metadata) go through
         # the Source seam, so ship works whether landing is local (on-box) or in
@@ -89,6 +91,13 @@ class Shipper:
         self.landing_dir = landing_dir
         self.landing_bucket = landing_bucket
         self.landing_prefix = landing_prefix
+        # Set only when a LandingUploader ships this landing dir to S3 window by
+        # window (landing_mode == "s3"). prune then also requires every window
+        # in a day to carry the uploader's .shipped marker: the cold tarball is
+        # built off-box from the S3 landing, so it can exist while rows that
+        # never reached S3 are still only on this disk. None = no uploader, no
+        # markers, no check.
+        self.ship_window_seconds = ship_window_seconds
 
     def run(
         self,
@@ -447,16 +456,61 @@ class Shipper:
                     continue
         return found
 
+    def _unshipped_windows(self, feed_name: str, day: date) -> list[int]:
+        """Sorted window starts in this day's local data.jsonl that have no
+        LandingUploader .shipped marker. Empty when there's no uploader
+        (ship_window_seconds is None) or no metadata file.
+
+        Malformed lines are skipped, matching LandingUploader._closed_windows:
+        a line the uploader can't parse never gets a marker, so counting it
+        here would hold the day forever.
+        """
+        if self.landing_dir is None or self.ship_window_seconds is None:
+            return []
+        path = (
+            self.landing_dir
+            / feed_name
+            / "metadata"
+            / f"year={day.year}"
+            / f"month={day.month}"
+            / f"day={day.day}"
+            / "data.jsonl"
+        )
+        starts: set[int] = set()
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ts = float(json.loads(line)["timestamp"])
+                    except (ValueError, TypeError, KeyError):
+                        continue
+                    starts.add(window_start_for(ts, self.ship_window_seconds))
+        except FileNotFoundError:
+            return []
+        return sorted(
+            ws
+            for ws in starts
+            if not shipped_marker_path(self.landing_dir, feed_name, ws).exists()
+        )
+
     def prune(
         self, *, keep_days: int = 3, day: date | None = None, dry_run: bool = False
     ) -> dict[str, int]:
         """Delete landing-zone raw+metadata day-partitions older than keep_days.
 
         SAFETY: a day is deleted only if its cold tarball is confirmed in S3
-        (same exists() check ship uses). A day not yet shipped is skipped, never
-        deleted — so this is crash-safe and idempotent. `keep_days` retains that
-        many recent days as a buffer for re-rollups; `day` restricts to one day;
-        `dry_run` logs what it would delete without touching disk.
+        (same exists() check ship uses) AND, when a LandingUploader ships this
+        landing dir (ship_window_seconds set), every window in its data.jsonl
+        has a .shipped marker. The second check matters because the cold
+        tarball is built from the S3 landing: it proves what reached S3, not
+        that everything on disk did. A day failing either check is skipped,
+        never deleted — so this is crash-safe and idempotent. `keep_days`
+        retains that many recent days as a buffer for re-rollups; `day`
+        restricts to one day; `dry_run` logs what it would delete without
+        touching disk.
         """
         if self.landing_dir is None:
             raise RuntimeError(
@@ -467,6 +521,21 @@ class Shipper:
         deleted = skipped = 0
         for feed_name, partition_day in sorted(self._discover_partitions()):
             if partition_day >= cutoff or (day is not None and partition_day != day):
+                continue
+            unshipped = self._unshipped_windows(feed_name, partition_day)
+            if unshipped:
+                logger.warning(
+                    "prune skip %s %s: %d window(s) not yet shipped to the S3 "
+                    "landing (oldest %d)",
+                    feed_name,
+                    partition_day,
+                    len(unshipped),
+                    unshipped[0],
+                )
+                self.telemetry.incr(
+                    "prune.skipped_unshipped_windows", tags={"feed": feed_name}
+                )
+                skipped += 1
                 continue
             key = self._cold_key(feed_name, partition_day)
             if not self.uploader.exists(self.cold_bucket, key):

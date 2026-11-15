@@ -31,7 +31,7 @@ use vehicle::TfnswVehicleRowBuilder;
 /// has no row type. Revisit only if it turns up populated in real payloads.
 pub fn decode_feed(
     feed: &tfnsw_realtime::FeedMessage,
-) -> Result<Vec<(&'static str, arrow::array::RecordBatch)>, prost::UnknownEnumValue> {
+) -> Vec<(&'static str, arrow::array::RecordBatch)> {
     let mut vehicles = TfnswVehicleRowBuilder::new();
     let mut stop_time_updates = TfnswStopTimeUpdateRowBuilder::new();
     let mut alerts = TfnswAlertRowBuilder::new();
@@ -39,21 +39,21 @@ pub fn decode_feed(
 
     for entity in &feed.entity {
         if let Some(vp) = &entity.vehicle {
-            vehicles.append(vp, &feed.header, &mut consist)?;
+            vehicles.append(vp, &feed.header, &mut consist);
         } else if let Some(tu) = &entity.trip_update {
-            stop_time_updates.append(tu, &feed.header, &mut consist)?;
+            stop_time_updates.append(tu, &feed.header, &mut consist);
         } else if let Some(a) = &entity.alert {
-            alerts.append(a, &entity.id, &feed.header)?;
+            alerts.append(a, &entity.id, &feed.header);
         }
     }
 
     // Keyed by TableSpec.name, not by row-class grain: the stop-time-update
     // builder feeds the "trip_updates" table. Emission order here becomes the
     // dict insertion order at the Python seam.
-    Ok(vec![
+    vec![
         ("vehicles", vehicles.finish()),
         ("trip_updates", stop_time_updates.finish()),
         ("alerts", alerts.finish()),
         ("consist", consist.finish()),
-    ])
+    ]
 }

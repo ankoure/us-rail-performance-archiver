@@ -10,6 +10,7 @@
 //! a trait instead of duplicated?" question -- if any of the four collapses
 //! back into its canonical sibling, it is this one.
 
+use crate::enums::{enum_name, with_unknown_count};
 use crate::tfnsw_realtime;
 use arrow::array::{Int32Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder};
 use arrow::datatypes::{DataType, Field, Schema};
@@ -38,6 +39,7 @@ pub struct TfnswAlertRowBuilder {
     trip_id: StringBuilder,
     stop_id: StringBuilder,
     severity_level: StringBuilder,
+    unknown_enum_values: u64,
 }
 
 impl TfnswAlertRowBuilder {
@@ -57,6 +59,7 @@ impl TfnswAlertRowBuilder {
             trip_id: StringBuilder::new(),
             stop_id: StringBuilder::new(),
             severity_level: StringBuilder::new(),
+            unknown_enum_values: 0,
         }
     }
 
@@ -68,32 +71,29 @@ impl TfnswAlertRowBuilder {
         alert: &tfnsw_realtime::Alert,
         alert_id: &str,
         header: &tfnsw_realtime::FeedHeader,
-    ) -> Result<(), prost::UnknownEnumValue> {
-        // All fallible work is hoisted above the loop, so an unknown enum value
-        // returns Err before any column is touched. That matters: a partial
-        // append would leave the columns at unequal lengths and RecordBatch
-        // construction would fail much later, far from the cause.
+    ) {
+        // An unknown enum value becomes null and is counted (see crate::enums).
         //
         // Matching on the raw Option rather than calling prost's cause() /
         // effect() / severity_level() accessors is what preserves absent-as-
         // absent. The accessors substitute the proto default (or the zero
         // variant when there is no `[default]`), which is exactly the
         // divergence called out in the module docs.
-        let cause = alert
-            .cause
-            .map(tfnsw_realtime::alert::Cause::try_from)
-            .transpose()?
-            .map(|c| c.as_str_name());
-        let effect = alert
-            .effect
-            .map(tfnsw_realtime::alert::Effect::try_from)
-            .transpose()?
-            .map(|e| e.as_str_name());
-        let severity_level = alert
-            .severity_level
-            .map(tfnsw_realtime::alert::SeverityLevel::try_from)
-            .transpose()?
-            .map(|s| s.as_str_name());
+        let cause = enum_name(
+            alert.cause,
+            tfnsw_realtime::alert::Cause::as_str_name,
+            &mut self.unknown_enum_values,
+        );
+        let effect = enum_name(
+            alert.effect,
+            tfnsw_realtime::alert::Effect::as_str_name,
+            &mut self.unknown_enum_values,
+        );
+        let severity_level = enum_name(
+            alert.severity_level,
+            tfnsw_realtime::alert::SeverityLevel::as_str_name,
+            &mut self.unknown_enum_values,
+        );
 
         // Alert-level values, computed once and repeated across every entity
         // row -- same hoisting pattern as StopTimeUpdateRowBuilder's trip-level
@@ -121,8 +121,6 @@ impl TfnswAlertRowBuilder {
             self.stop_id.append_option(entity.stop_id.clone());
             self.severity_level.append_option(severity_level);
         }
-
-        Ok(())
     }
 
     pub fn schema() -> Schema {
@@ -146,7 +144,7 @@ impl TfnswAlertRowBuilder {
 
     pub fn finish(mut self) -> RecordBatch {
         RecordBatch::try_new(
-            Arc::new(Self::schema()),
+            Arc::new(with_unknown_count(Self::schema(), self.unknown_enum_values)),
             vec![
                 Arc::new(self.feed_timestamp.finish()),
                 Arc::new(self.alert_id.finish()),

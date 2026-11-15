@@ -60,7 +60,7 @@ pub fn decode_feed(bytes: &[u8]) -> Result<Vec<(&'static str, RecordBatch)>, Str
     });
 
     let mut out = Vec::with_capacity(4);
-    for (name, batch) in crate::decode_canonical(&feed).map_err(|e| e.to_string())? {
+    for (name, batch) in crate::decode_canonical(&feed) {
         let ext = match name {
             "vehicles" => vehicle_ext.take(),
             "trip_updates" => stu_ext.take(),
@@ -191,8 +191,9 @@ fn extend_batch(
         fields.push(field);
         columns.push(array);
     }
-    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
-        .map_err(|e| format!("nyct {table}: {e}"))
+    // Keep the canonical schema metadata (e.g. unknown_enum_values, see crate::enums).
+    let schema = Schema::new_with_metadata(fields, schema.metadata().clone());
+    RecordBatch::try_new(Arc::new(schema), columns).map_err(|e| format!("nyct {table}: {e}"))
 }
 
 /// One row per `NyctFeedHeader.trip_replacement_period`. Within a period, a

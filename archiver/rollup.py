@@ -174,11 +174,31 @@ class Rollup:
             # half-rewritten files.
             marker.unlink(missing_ok=True)
             meta_rows = self._rollup_metadata(feed_name, day, force=force)
-            data_rows = self._rollup_data(feed, day, force=force)
+            unknown_enums: dict[str, int] = {}
+            data_rows = self._rollup_data(
+                feed, day, force=force, unknown_enum_values=unknown_enums
+            )
+            if unknown_enums:
+                logger.warning(
+                    "%s/%s: enum values missing from the proto were written as "
+                    "null: %s",
+                    feed_name,
+                    day,
+                    unknown_enums,
+                )
+                for kind, n in unknown_enums.items():
+                    self.telemetry.incr(
+                        "rollup.unknown_enum_values",
+                        n,
+                        tags={"feed": feed_name, "kind": kind},
+                    )
             # Reached only if nothing above raised. Parse/decode failures are
             # handled per .bin inside _rollup_data and don't block the marker.
             self._write_marker(
-                feed_name, day, {self._METADATA_KIND: meta_rows, **data_rows}
+                feed_name,
+                day,
+                {self._METADATA_KIND: meta_rows, **data_rows},
+                unknown_enum_values=unknown_enums,
             )
 
     def discover(
@@ -216,14 +236,26 @@ class Rollup:
         return table.num_rows
 
     def _rollup_data(
-        self, feed: Feed, day: date, *, force: bool = False
+        self,
+        feed: Feed,
+        day: date,
+        *,
+        force: bool = False,
+        unknown_enum_values: dict[str, int] | None = None,
     ) -> dict[str, int]:
         """Roll up every kind in feed.decoder.produces.
 
         Returns {kind: rows on disk} for every kind, with 0 for kinds that had
         no rows. Kinds skipped because their file already exists are counted
         from the parquet footer.
+
+        If unknown_enum_values is given, it is filled with {kind: n}: the number
+        of enum values the Rust decoder didn't recognise and wrote as null (see
+        rail-decoder/src/enums.rs). Only the Rust path counts these. The Python
+        path nulls them too, but upb gives no way to count them.
         """
+        if unknown_enum_values is None:
+            unknown_enum_values = {}
         feed_name = feed.name
         rows: dict[str, int] = {}
         rust_decode = None
@@ -282,6 +314,11 @@ class Rollup:
                         break
                     if rust_decode:
                         for table_name, rust_batch in decoded.items():
+                            n = _unknown_enum_values(rust_batch)
+                            if n:
+                                unknown_enum_values[table_name] = (
+                                    unknown_enum_values.get(table_name, 0) + n
+                                )
                             entry = batch_writers.get(table_name)
                             if entry is None or rust_batch.num_rows == 0:
                                 continue
@@ -310,7 +347,14 @@ class Rollup:
         rows.update({kind: s.rows for kind, s in sinks.items()})
         return rows
 
-    def _write_marker(self, feed_name: str, day: date, rows: dict[str, int]) -> None:
+    def _write_marker(
+        self,
+        feed_name: str,
+        day: date,
+        rows: dict[str, int],
+        *,
+        unknown_enum_values: dict[str, int] | None = None,
+    ) -> None:
         """Write _SUCCESS.json: this (feed, day) rolled up completely.
 
         rows[kind] is the number of rows rollup wrote for that kind (0 means no
@@ -318,6 +362,11 @@ class Rollup:
         later: compact_trip_updates rewrites trip_updates in place between
         rollup and hot-ship, often to far fewer rows, and the marker isn't
         updated. Don't reconcile these counts against shipped parquet.
+
+        unknown_enum_values[kind] counts enum values the decoder didn't
+        recognise and wrote as null instead (empty if there were none). It is
+        counted while decoding, so it is empty when this run decoded nothing
+        because every kind's parquet already existed.
         """
         path = self._marker_path(feed_name, day)
         tmp = path.with_suffix(".json.tmp")
@@ -326,6 +375,7 @@ class Rollup:
             "feed": feed_name,
             "day": day.isoformat(),
             "rows": rows,
+            "unknown_enum_values": unknown_enum_values or {},
             "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         try:
@@ -411,6 +461,16 @@ def _decode_bin(feed: Feed, rust_decode, name: str, blob: bytes, digest_ts):
             parsed = feed.parser.parse(payload)
             # list(): decode may be lazy, and its errors must surface here.
             yield list(feed.decoder.decode(parsed, fetched_at=fetched_at))
+
+
+def _unknown_enum_values(batch: pa.RecordBatch) -> int:
+    """How many enum values the Rust decoder wrote as null in this batch.
+
+    Reads the schema metadata that rail-decoder/src/enums.rs attaches. Batches
+    without the key (e.g. from an older build) count as 0.
+    """
+    raw = (batch.schema.metadata or {}).get(b"unknown_enum_values")
+    return int(raw) if raw else 0
 
 
 def _batch_to_parquet_table(

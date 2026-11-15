@@ -23,12 +23,15 @@ def get_line_delays(
 
 @router.get("/line_delays", response_model=list[LineDelaysSummary])
 def get_line_delays_range(
-    start_date: date,
-    end_date: date,
+    dates: dependencies.DateRange = Depends(
+        dependencies.date_range(dependencies.MAX_EVENTS_RANGE_DAYS)
+    ),
     agency: Agency = Depends(dependencies.get_agency),
 ) -> list[dict]:
     """Daily delay classification summaries for one agency over a date range."""
     try:
-        return alerts.get_line_delays_range(agency.feed_names, start_date, end_date)
+        return alerts.get_line_delays_range(
+            agency.feed_names, dates.start_date, dates.end_date
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

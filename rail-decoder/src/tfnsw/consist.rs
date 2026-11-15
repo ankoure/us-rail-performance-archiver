@@ -12,6 +12,7 @@
 //! never the other), so both columns exist and neither is collapsed into the
 //! other -- they are different measurements, not one column plus provenance.
 
+use crate::enums::{enum_name, with_unknown_count};
 use crate::tfnsw_realtime;
 use arrow::array::{
     BooleanBuilder, Int32Builder, RecordBatch, StringBuilder, UInt32Builder, UInt64Builder,
@@ -55,6 +56,7 @@ pub struct ConsistRowBuilder {
     quiet_carriage: BooleanBuilder,
     toilet: StringBuilder,
     luggage_rack: BooleanBuilder,
+    unknown_enum_values: u64,
 }
 
 impl ConsistRowBuilder {
@@ -73,6 +75,7 @@ impl ConsistRowBuilder {
             quiet_carriage: BooleanBuilder::new(),
             toilet: StringBuilder::new(),
             luggage_rack: BooleanBuilder::new(),
+            unknown_enum_values: 0,
         }
     }
 
@@ -90,32 +93,27 @@ impl ConsistRowBuilder {
         trip_id: Option<&str>,
         stop_sequence: Option<u32>,
         stop_id: Option<&str>,
-    ) -> Result<(), prost::UnknownEnumValue> {
+    ) {
         use tfnsw_realtime::carriage_descriptor::{OccupancyStatus, ToiletStatus};
 
-        // Every fallible decode happens before the first append. This call
-        // writes exactly one row across thirteen columns, so bailing partway
-        // through would leave those columns at unequal lengths with no way to
-        // un-append -- the builder would be permanently desynced and the
-        // failure would only surface later, in RecordBatch::try_new.
-        //
-        // Reading the raw Option instead of prost's accessors is also what
-        // keeps absent distinct from the zero variant.
-        let occupancy_status = car
-            .occupancy_status
-            .map(OccupancyStatus::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
-        let departure_occupancy_status = car
-            .departure_occupancy_status
-            .map(OccupancyStatus::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
-        let toilet = car
-            .toilet
-            .map(ToiletStatus::try_from)
-            .transpose()?
-            .map(|v| v.as_str_name());
+        // An unknown enum value becomes null and is counted (see crate::enums).
+        // Reading the raw Option instead of prost's accessors is what keeps
+        // absent distinct from the zero variant.
+        let occupancy_status = enum_name(
+            car.occupancy_status,
+            OccupancyStatus::as_str_name,
+            &mut self.unknown_enum_values,
+        );
+        let departure_occupancy_status = enum_name(
+            car.departure_occupancy_status,
+            OccupancyStatus::as_str_name,
+            &mut self.unknown_enum_values,
+        );
+        let toilet = enum_name(
+            car.toilet,
+            ToiletStatus::as_str_name,
+            &mut self.unknown_enum_values,
+        );
 
         self.feed_timestamp
             .append_value(header.timestamp.unwrap_or_default());
@@ -133,8 +131,6 @@ impl ConsistRowBuilder {
         self.quiet_carriage.append_option(car.quiet_carriage);
         self.toilet.append_option(toilet);
         self.luggage_rack.append_option(car.luggage_rack);
-
-        Ok(())
     }
 
     pub fn schema() -> Schema {
@@ -157,7 +153,7 @@ impl ConsistRowBuilder {
 
     pub fn finish(mut self) -> RecordBatch {
         RecordBatch::try_new(
-            Arc::new(Self::schema()),
+            Arc::new(with_unknown_count(Self::schema(), self.unknown_enum_values)),
             vec![
                 Arc::new(self.feed_timestamp.finish()),
                 Arc::new(self.origin.finish()),
