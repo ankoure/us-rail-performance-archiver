@@ -13,9 +13,12 @@ from pathlib import Path
 import zstandard
 
 from archiver.landing_layout import (
+    SHIPPED_DIR,
     iter_window_objects,
+    shipped_marker_path,
     window_metadata_local_path,
     window_object_key,
+    window_start_for,
     window_tar_key,
 )
 from archiver.logger import logger
@@ -96,6 +99,13 @@ class LandingUploader:
         self._feed_names = feed_names
         self._ship_window_seconds = ship_window_seconds
         self._next_raw_ship_due = 0.0
+        # When set, the next raw pass reads EVERY day-partition on disk instead
+        # of just today's and yesterday's. Armed at construction (so the first
+        # pass is the boot sweep that catches anything a long outage left
+        # behind) and re-armed by any pass that fails to ship a window, so it
+        # stays on through an S3 outage and the pass that finally succeeds
+        # catches up on windows that aged out of the cheap two-day lookback.
+        self._full_sweep_due = True
 
         # Set on shutdown. The worker waits on it WITH A TIMEOUT, so the same
         # primitive both paces scans and wakes the thread promptly to stop.
@@ -195,12 +205,44 @@ class LandingUploader:
                 return
             self._next_raw_ship_due = now + self._ship_window_seconds
 
-        ready = self._ready_raw_windows(now)
-        self._tel.gauge("landing.raw_pending", len(ready))
+        full = self._full_sweep_due
+        ready = self._ready_raw_windows(now, full_sweep=full)
+        self._report_backlog(ready, now)
+        all_ok = True
         for feed, window_start, rows in ready:
             if self._stop.is_set() and not ignore_stop:
-                return
-            self._ship_raw_window(feed, window_start, rows)
+                return  # flag untouched: an interrupted sweep isn't a clean one
+            if not self._ship_raw_window(feed, window_start, rows):
+                all_ok = False
+        # A clean pass clears the flag; any failure arms it, so the passes that
+        # follow look at every day until one gets through without a failure.
+        self._full_sweep_due = not all_ok
+
+    def _report_backlog(
+        self, ready: list[tuple[str, int, list[dict]]], now: float
+    ) -> None:
+        """Gauge the backlog and how stale its oldest window is.
+
+        The age (seconds since the oldest unshipped window closed) is the
+        signal that matters: ``raw_pending`` alone can't tell a normal
+        one-window lag from a day-old window waiting on a broken S3 path.
+        """
+        self._tel.gauge("landing.raw_pending", len(ready))
+        if not ready:
+            self._tel.gauge("landing.raw_oldest_unshipped_age_s", 0.0)
+            return
+        feed, oldest, _ = ready[0]  # sorted oldest first
+        age = max(0.0, now - (oldest + self._ship_window_seconds))
+        self._tel.gauge("landing.raw_oldest_unshipped_age_s", age)
+        if age > 86400.0:
+            logger.warning(
+                "oldest unshipped raw window is %.1fh old: feed=%s window=%d "
+                "(%d window(s) pending); local prune will hold its day until it ships",
+                age / 3600.0,
+                feed,
+                oldest,
+                len(ready),
+            )
 
     def _feed_dirs(self) -> set[str]:
         """Feeds to check for raw windows: explicit list if given, else every
@@ -253,27 +295,31 @@ class LandingUploader:
         Named without a "window=" prefix so it matches neither the window-object
         globs nor _warn_if_layout_mismatch's rglob.
         """
-        return self._landing_dir / feed / ".shipped" / str(window_start)
+        return shipped_marker_path(self._landing_dir, feed, window_start)
 
-    def _prune_shipped_markers(self, feed: str, now: float) -> None:
-        """Drop markers for windows older than the metadata we still read.
+    def _prune_shipped_markers(self, feed: str) -> None:
+        """Drop markers whose metadata day-partition is gone from disk.
 
-        _closed_windows only ever looks at today's and yesterday's data.jsonl,
-        so a window more than two days back can never be rediscovered and its
-        marker is dead weight. Without this the directory grows by one entry
-        per window forever (288/day at a 300 s cadence).
+        A marker only matters while its day's data.jsonl exists: that file is
+        what would make the window look unhandled again. Once Shipper.prune
+        removes the day, nothing can rediscover the window and its marker is
+        dead weight. Keyed to the day-dir, not to a fixed age, so a full sweep
+        over an old day that's still on disk can never re-ship windows whose
+        markers were aged out from under it. Without this the directory grows
+        by one entry per window forever.
         """
-        cutoff = now - 2 * 86400.0
-        marker_dir = self._landing_dir / feed / ".shipped"
+        marker_dir = self._landing_dir / feed / SHIPPED_DIR
         try:
-            for entry in marker_dir.iterdir():
-                try:
-                    if int(entry.name) < cutoff:
-                        entry.unlink(missing_ok=True)
-                except ValueError:
-                    continue
+            entries = list(marker_dir.iterdir())
         except OSError:
             return
+        for entry in entries:
+            try:
+                window_start = int(entry.name)
+            except ValueError:
+                continue
+            if not self._metadata_jsonl(feed, window_start).parent.exists():
+                entry.unlink(missing_ok=True)
 
     def _metadata_jsonl(self, feed: str, unix_ts: float) -> Path:
         year, month, day = self._day_partition(unix_ts)
@@ -283,11 +329,35 @@ class LandingUploader:
         year, month, day = self._day_partition(unix_ts)
         return self._landing_dir / feed / "raw" / year / month / day
 
-    def _closed_windows(self, feed: str, now: float) -> dict[int, list[dict]]:
+    def _metadata_files(self, feed: str, now: float, full_sweep: bool) -> list[Path]:
+        """The data.jsonl files a raw pass reads for this feed.
+
+        Steady state: today's and yesterday's only, so the hourly pass doesn't
+        re-read every retained day. Full sweep: every day-partition on disk, so
+        a window that didn't ship before its day turned two days old (box down,
+        S3 failing for a day) is still found instead of stranded and then
+        deleted by prune.
+        """
+        if not full_sweep:
+            return [
+                self._metadata_jsonl(feed, now),
+                self._metadata_jsonl(feed, now - 86400.0),
+            ]
+        base = self._landing_dir / feed / "metadata"
+        try:
+            return sorted(base.glob("year=*/month=*/day=*/data.jsonl"))
+        except OSError:
+            logger.exception("could not list landing metadata: %s", base)
+            return []
+
+    def _closed_windows(
+        self, feed: str, now: float, full_sweep: bool = False
+    ) -> dict[int, list[dict]]:
         """{window_start: [row, ...]} for every CLOSED window found in this
         feed's local metadata, grouped by window index * ship_window_seconds.
 
-        Reads today's AND yesterday's data.jsonl. Yesterday matters for a
+        Reads today's AND yesterday's data.jsonl (every day on disk when
+        ``full_sweep``; see _metadata_files). Yesterday matters for a
         bounded stretch after 00:00 UTC: the last window of the previous day
         only becomes closed once the grace period elapses, by which point the
         writer has already rolled to a new day-partition file. Reading only
@@ -301,8 +371,7 @@ class LandingUploader:
         """
         buckets: dict[int, list[dict]] = {}
         window = self._ship_window_seconds
-        for ts in (now, now - 86400.0):
-            path = self._metadata_jsonl(feed, ts)
+        for path in self._metadata_files(feed, now, full_sweep):
             try:
                 with path.open("r", encoding="utf-8") as fh:
                     for lineno, line in enumerate(fh, 1):
@@ -317,7 +386,7 @@ class LandingUploader:
                                 "skipping malformed metadata line %s:%d", path, lineno
                             )
                             continue
-                        window_start = int(row_ts // window) * int(window)
+                        window_start = window_start_for(row_ts, window)
                         buckets.setdefault(window_start, []).append(row)
             except FileNotFoundError:
                 continue
@@ -330,7 +399,9 @@ class LandingUploader:
         cutoff = now - window - _WINDOW_GRACE_S
         return {ws: rows for ws, rows in buckets.items() if ws <= cutoff}
 
-    def _ready_raw_windows(self, now: float) -> list[tuple[str, int, list[dict]]]:
+    def _ready_raw_windows(
+        self, now: float, full_sweep: bool = False
+    ) -> list[tuple[str, int, list[dict]]]:
         """(feed, window_start, rows) for every closed window not yet handed off.
 
         Readiness is metadata-driven, not bin-driven: a closed window is ready
@@ -344,8 +415,10 @@ class LandingUploader:
         """
         ready = []
         for feed in self._feed_dirs():
-            self._prune_shipped_markers(feed, now)
-            for window_start, rows in self._closed_windows(feed, now).items():
+            self._prune_shipped_markers(feed)
+            for window_start, rows in self._closed_windows(
+                feed, now, full_sweep
+            ).items():
                 if not rows:
                     continue
                 if self._shipped_marker(feed, window_start).exists():
@@ -354,9 +427,10 @@ class LandingUploader:
         ready.sort(key=lambda item: (item[1], item[0]))  # oldest window first
         return ready
 
-    def _ship_raw_window(self, feed: str, window_start: int, rows: list[dict]) -> None:
+    def _ship_raw_window(self, feed: str, window_start: int, rows: list[dict]) -> bool:
         """Tar every still-present {digest}.bin for this window, ship it, then
-        materialize + hand off the window's metadata slice.
+        materialize + hand off the window's metadata slice. True once the
+        shipped marker is written; False on any failure (the window retries).
 
         Ordering matters: raw ships BEFORE metadata is materialized (mirrors
         BatchingWriter._write_buckets' old "bin first, then metadata" -- a
@@ -433,7 +507,7 @@ class LandingUploader:
                     feed,
                     window_start,
                 )
-                return
+                return False
 
         try:
             self._materialize_window_metadata(feed, window_start, rows)
@@ -444,7 +518,7 @@ class LandingUploader:
                 feed,
                 window_start,
             )
-            return
+            return False
 
         # Marker before unlink, and only once the slice is durably on disk. A
         # crash in the gap re-materializes the same file next tick (same bytes,
@@ -456,10 +530,11 @@ class LandingUploader:
             marker.touch()
         except OSError:
             logger.exception("could not write shipped marker: %s", marker)
-            return  # keep the bins; re-shipping is cheaper than losing them
+            return False  # keep the bins; re-shipping is cheaper than losing them
 
         for path in present:
             path.unlink(missing_ok=True)
+        return True
 
     def _materialize_window_metadata(
         self, feed: str, window_start: int, rows: list[dict]
