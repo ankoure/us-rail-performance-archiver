@@ -59,7 +59,8 @@ asyncio_mode = "auto"
 # notebooks, and tests are excluded (tests are entrypoints pytest calls by name,
 # so vulture would flag every test_* as unused). Run with `make deadcode`.
 paths = ["analysis", "archiver", "pipeline", "scripts", "main.py", "tests/vulture_whitelist.py"]
-exclude = ["notebooks/", "__pycache__/"]
+# *_pb2.py is protoc output; its imports register proto deps as a side effect.
+exclude = ["notebooks/", "__pycache__/", "*_pb2.py"]
 # pydantic hooks are called by the framework, not our code — don't report them.
 ignore_decorators = ["@field_validator", "@model_validator", "@field_serializer", "@cached_property"]
 # 60 flags unused attributes (noisy with pydantic field models); 80 keeps it to
