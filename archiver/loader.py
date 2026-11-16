@@ -1,4 +1,5 @@
 # loader.py
+import atexit
 import os
 import yaml
 import ssl
@@ -248,6 +249,14 @@ def build_telemetry(config: TelemetryConfig, shard_index: int = 0) -> Telemetry:
     client = DogStatsd(
         host=config.agent_host, port=config.statsd_port, disable_buffering=False
     )
+    # The buffer flushes on a ~300ms background timer, so a process that exits
+    # right after emitting (a short ECS script, or a span that records
+    # status:error and then crashes) drops its last metrics, and those are
+    # usually the ones a monitor is waiting for. Flush on every interpreter
+    # exit path: normal return, SystemExit, an uncaught exception, or the
+    # poller's SIGTERM shutdown. ProcessPoolExecutor workers skip atexit, so
+    # archiver/parallel.py flushes explicitly there.
+    atexit.register(client.flush)
     default_tags = {
         "service": config.service,
         "env": config.env,

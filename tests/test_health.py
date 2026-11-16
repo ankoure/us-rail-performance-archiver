@@ -1,5 +1,7 @@
-from archiver.health import FeedHealth, is_transient_failure
+from archiver.health import FeedHealth, emit_quarantine_state, is_transient_failure
 from archiver.response import TransportErrorResponse
+from archiver.telemetry_datadog import DatadogTelemetry
+from tests.fakes.dogstatsd import FakeDogStatsd
 
 
 class _FakeResp:
@@ -96,3 +98,23 @@ def test_failures_are_per_feed():
     assert h.is_quarantined("a")
     assert not h.is_quarantined("b")
     assert h.next_interval("b", 60) == 60
+
+
+def test_emit_quarantine_state_is_level_not_edge():
+    h = FeedHealth(quarantine_after=2)
+    client = FakeDogStatsd()
+    tel = DatadogTelemetry(client)
+
+    def state():
+        client.calls.clear()
+        emit_quarantine_state(tel, ["dead", "fine"], h)
+        return {c.tags[0]: c.value for c in client.calls}
+
+    assert state() == {"feed:dead": 0.0, "feed:fine": 0.0}
+    h.record_failure("dead")
+    h.record_failure("dead")  # crosses into quarantine
+    assert state() == {"feed:dead": 1.0, "feed:fine": 0.0}
+    h.record_failure("dead")  # still quarantined: must keep reporting 1
+    assert state() == {"feed:dead": 1.0, "feed:fine": 0.0}
+    h.record_success("dead")
+    assert state() == {"feed:dead": 0.0, "feed:fine": 0.0}

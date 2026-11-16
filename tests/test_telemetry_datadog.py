@@ -1,5 +1,10 @@
-from archiver.telemetry_datadog import DatadogTelemetry
+import atexit
+
 import pytest
+
+from archiver.config import TelemetryConfig
+from archiver.loader import build_telemetry
+from archiver.telemetry_datadog import DatadogTelemetry
 from tests.fakes.dogstatsd import FakeDogStatsd, StatsdCall
 
 
@@ -49,3 +54,25 @@ def test_set_tag_appears_in_emission():
     with dd.span("op") as s:
         s.set_tag("user_id", 42)
     assert "user_id:42" in client.calls[0].tags
+
+
+def test_flush_passes_through():
+    client = FakeDogStatsd()
+    DatadogTelemetry(client).flush()
+    assert client.calls == [StatsdCall("flush", "", 0)]
+
+
+def test_build_telemetry_registers_flush_at_exit(monkeypatch):
+    # Short ECS scripts exit before the buffer's background timer fires; the
+    # atexit flush is what gets their last metrics (often status:error) out.
+    registered = []
+    monkeypatch.setattr(atexit, "register", registered.append)
+    telemetry = build_telemetry(TelemetryConfig(enabled=True))
+    assert registered == [telemetry.client.flush]
+
+
+def test_build_telemetry_disabled_registers_nothing(monkeypatch):
+    registered = []
+    monkeypatch.setattr(atexit, "register", registered.append)
+    build_telemetry(TelemetryConfig(enabled=False))
+    assert registered == []

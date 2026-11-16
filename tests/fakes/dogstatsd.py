@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class StatsdCall:
-    kind: str  # "increment" | "gauge" | "histogram" | "timing"
+    kind: str  # "increment" | "gauge" | "histogram" | "timing" | "flush"
     metric: str
     value: float
     tags: list[str] | None = None
@@ -27,3 +27,6 @@ class FakeDogStatsd:
 
     def timing(self, metric, value, tags=None):
         self.calls.append(StatsdCall("timing", metric, value, tags))
+
+    def flush(self):
+        self.calls.append(StatsdCall("flush", "", 0))

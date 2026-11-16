@@ -144,13 +144,7 @@ def main(args):
         logger.warning(
             "s3.enabled=false or cold_bucket/hot_bucket unset; skipping per-agency cost scan"
         )
-
-    # build_telemetry's DogStatsd client buffers metrics and flushes on a
-    # background timer (~300ms) — force it before exit so a fast run (e.g.
-    # buckets with no datapoints yet) can't race the timer and drop metrics.
-    statsd_client = getattr(telemetry, "client", None)
-    if statsd_client is not None:
-        statsd_client.flush()
+    # No explicit flush needed: build_telemetry registers one with atexit.
 
 
 if __name__ == "__main__":

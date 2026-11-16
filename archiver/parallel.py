@@ -18,7 +18,13 @@ def _init_worker(config_path: str) -> None:
 
 
 def _run_one(feed_name: str, day: date, force: bool) -> tuple[str, date]:
-    _WORKER_ROLLUP.rollup_one(feed_name, day, force=force)
+    try:
+        _WORKER_ROLLUP.rollup_one(feed_name, day, force=force)
+    finally:
+        # Pool workers exit without running atexit handlers, so the flush
+        # build_telemetry registers never fires here. Flush per pair so this
+        # pair's rollup.day metric (including status:error) reaches the agent.
+        _WORKER_ROLLUP.telemetry.flush()
     return (feed_name, day)
 
 
