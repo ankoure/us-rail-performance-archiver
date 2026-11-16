@@ -76,3 +76,20 @@ class FeedHealth:
             return max(base_interval, self._quarantine_interval)
         base = self._backoff_base if self._backoff_base is not None else base_interval
         return max(base_interval, min(self._backoff_cap, base * (2 ** (n - 1))))
+
+
+def emit_quarantine_state(telemetry, feed_names, health: FeedHealth) -> None:
+    """Gauge ``feed.quarantine_state`` (1 = quarantined, 0 = not) for every feed.
+
+    ``feed.quarantined`` is a one-shot counter fired on the poll that *enters*
+    quarantine, so a monitor on it resolves an hour later while the feed is
+    still dead. This level signal backs the "Feed quarantined" monitor instead:
+    it stays at 1 for as long as the feed is quarantined and drops to 0 on
+    recovery, so the alert's state tracks the feed's.
+    """
+    for name in feed_names:
+        telemetry.gauge(
+            "feed.quarantine_state",
+            1.0 if health.is_quarantined(name) else 0.0,
+            tags={"feed": name},
+        )

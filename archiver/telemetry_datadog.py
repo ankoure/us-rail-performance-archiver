@@ -68,6 +68,9 @@ class DatadogTelemetry:
                 tags=self._format_tags(span_obj._final_tags()),
             )
 
+    def flush(self) -> None:
+        self.client.flush()
+
     def _format_tags(self, tags: dict[str, str] | None) -> list[str]:
         merged = {**self.default_tags, **(tags or {})}
         return [f"{k}:{v}" for k, v in merged.items()]

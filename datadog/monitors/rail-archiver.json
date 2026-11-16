@@ -17,8 +17,8 @@
   {
     "name": "[rail-archiver] Batch step errored in last 24h",
     "type": "metric alert",
-    "query": "sum(last_1d):sum:rollup.day.duration.count{env:prod, service:rail-archiver, status:error}.as_count() + sum:ship.cold.duration.count{env:prod, service:rail-archiver, status:error}.as_count() + sum:ship.hot.duration.count{env:prod, service:rail-archiver, status:error}.as_count() > 0",
-    "message": "One or more batch operations (rollup or ship) failed in the last 24h.\n\nTotal errors across rollup.day + ship.cold + ship.hot: {{value}}\n\nInvestigate:\n```\ndocker compose logs batch --since 24h | grep -i 'error\\|traceback'\n```\n\nThis is a once-a-day batch — a single failure can lose a day's worth of S3 uploads if not retried.\n\n@<your-notification-target>",
+    "query": "sum(last_1d):default_zero(sum:rollup.day.duration.count{env:prod, service:rail-archiver, status:error}.as_count()) + default_zero(sum:ship.cold.duration.count{env:prod, service:rail-archiver, status:error}.as_count()) + default_zero(sum:ship.hot.duration.count{env:prod, service:rail-archiver, status:error}.as_count()) > 0",
+    "message": "One or more batch operations (rollup or ship) failed in the last 24h.\n\nTotal errors across rollup.day + ship.cold + ship.hot: {{value}}\n\nEach term is wrapped in `default_zero()` on purpose: a `status:error` series only exists on a day that step failed, and Datadog arithmetic with a missing series returns no data. Without it this fired only when all three failed on the same day.\n\nInvestigate:\n```\ndocker compose logs batch --since 24h | grep -i 'error\\|traceback'\n```\n\nThis is a once-a-day batch — a single failure can lose a day's worth of S3 uploads if not retried.\n\n@<your-notification-target>",
     "tags": ["service:rail-archiver", "env:prod", "layer:batch"],
     "options": {
       "notify_no_data": false,
@@ -43,8 +43,8 @@
   {
     "name": "[rail-archiver] Poller heartbeat absent",
     "type": "metric alert",
-    "query": "avg(last_5m):avg:poller.heartbeat{env:prod, service:rail-archiver} < 1",
-    "message": "The poller has emitted no `poller.heartbeat` in the last 5 minutes — the process is down or hung.\n\nUnlike `Feed went dark` (which is per-feed), this is the single unambiguous \"the archiver is not running\" alert. An 18h outage once went unnoticed because nothing watched for this.\n\nMost common causes:\n- Poller container crashed and is crash-looping (check `restart` count)\n- Poller hung mid-request (autoheal should have restarted it — check why it didn't)\n- datadog-agent down, so the heartbeat never reached Datadog\n\nInvestigate:\n```\ndocker compose ps\ndocker compose logs app --since 15m\n```\n\n@<your-notification-target>",
+    "query": "avg(last_5m):avg:poller.heartbeat{env:prod, service:rail-archiver} by {host,shard} < 1",
+    "message": "Poller shard `{{shard.name}}` on `{{host.name}}` has emitted no `poller.heartbeat` in the last 5 minutes — that process is down or hung.\n\nGrouped by host and shard: every shard on every regional box sends its own heartbeat, so one dead shard is caught even while the others keep running (an ungrouped average stayed at 1 until *every* poller died). Unlike `Feed went dark` (which is per-feed), this is the unambiguous \"this poller is not running\" alert. An 18h outage once went unnoticed because nothing watched for this.\n\nMost common causes:\n- Poller container crashed and is crash-looping (check `restart` count)\n- Poller hung mid-request (autoheal should have restarted it — check why it didn't)\n- datadog-agent down, so the heartbeat never reached Datadog\n\nInvestigate:\n```\ndocker compose -f compose.prod.yml ps\ndocker compose -f compose.prod.yml logs app-shard-{{shard.name}} --since 15m\n```\n\n@<your-notification-target>",
     "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": true,
@@ -71,12 +71,12 @@
   {
     "name": "[rail-archiver] Feed quarantined (dead feed)",
     "type": "metric alert",
-    "query": "sum(last_1h):sum:feed.quarantined{env:prod, service:rail-archiver} by {feed}.as_count() > 0",
-    "message": "Feed `{{feed.name}}` has been QUARANTINED after repeated consecutive failures — the poller gave up on its normal cadence and dropped it to a long fallback interval (~1h), so it is effectively producing no fresh data until it recovers.\n\nUnlike a transient blip, quarantine means the feed failed K times in a row. Most common causes:\n- Upstream URL changed or the endpoint was retired (check the agency dev portal)\n- API key expired or revoked (check `.env`)\n- Agency is down for an extended window\n\nInvestigate:\n```\ndocker compose logs app --since 2h | grep -i 'quarantined\\|{{feed.name}}'\ntail archive/{{feed.name}}/metadata/year=*/month=*/day=*/data.jsonl\n```\n\n@<your-notification-target>",
+    "query": "max(last_10m):max:feed.quarantine_state{env:prod, service:rail-archiver} by {feed} > 0",
+    "message": "Feed `{{feed.name}}` has been QUARANTINED after repeated consecutive failures — the poller gave up on its normal cadence and dropped it to a long fallback interval (~1h), so it is effectively producing no fresh data until it recovers.\n\nThis alert stays open for as long as the feed is quarantined: it is driven by the `feed.quarantine_state` gauge (1 while quarantined, re-sent every 60s), and it resolves only when a poll succeeds and the gauge drops to 0. A poller restart also clears it, because quarantine state is in-memory; a still-dead feed re-quarantines after 5 more failures.\n\nUnlike a transient blip, quarantine means the feed failed K times in a row. Most common causes:\n- Upstream URL changed or the endpoint was retired (check the agency dev portal)\n- API key expired or revoked (check `.env`)\n- Agency is down for an extended window\n\nInvestigate:\n```\ndocker compose logs app --since 2h | grep -i 'quarantined\\|{{feed.name}}'\ntail archive/{{feed.name}}/metadata/year=*/month=*/day=*/data.jsonl\n```\n\n@<your-notification-target>",
     "tags": ["service:rail-archiver", "env:prod", "layer:poll"],
     "options": {
       "notify_no_data": false,
-      "renotify_interval": 60,
+      "renotify_interval": 1440,
       "thresholds": { "critical": 0 },
       "include_tags": true
     }
@@ -170,8 +170,8 @@
   {
     "name": "[rail-archiver] Host disk usage high",
     "type": "metric alert",
-    "query": "max(last_10m):max:system.disk.in_use{host:rail-archiver, device:/dev/nvme0n1p1} * 100 > 85",
-    "message": "The poller box's root filesystem is {{value}}% full.\n\n`system.disk.in_use` is the Datadog Agent's default `disk` check — no custom instrumentation needed, it was already running (confirmed 2026-08-20: matches `df -h /` exactly, since the agent container's own overlay root lives on the same volume as the host — there's no separate data disk on this box). This alert just didn't exist before 2026-08-20 — the local landing zone (raw window `.bin` files plus the local-only daily `data.jsonl`, see `landing_layout.py`) grew unbounded for weeks with nothing watching disk size or pruning it, and the box went down when it filled.\n\nMost common causes:\n- `rail-archiver-prune.timer` stopped firing or is erroring (check `journalctl -u rail-archiver-prune.service`) — it only deletes a day-partition once its cold tarball is confirmed in S3, so a stuck/failing ship path silently blocks pruning too\n- A single feed producing abnormally large raw payloads (e.g. `gtfs-de-delfi-realtime-data-trips-alerts`, a nationwide feed with ~150-200MB per 5-min window) outgrowing the 3-day buffer\n- Docker image/log buildup unrelated to the landing zone\n\nInvestigate:\n```\ndf -h /\ndu -sh /opt/rail-archiver/archive/*/ | sort -rh | head -20\njournalctl -u rail-archiver-prune.service --no-pager | tail -60\ndocker system df\n```\n\n@andkoure@gmail.com @slack-rail-alerts",
+    "query": "max(last_10m):max:system.disk.in_use{host:rail-archiver*, device:/dev/nvme0n1p1} by {host} * 100 > 85",
+    "message": "Poller box `{{host.name}}`'s root filesystem is {{value}}% full.\n\nCovers every poller box (`host:rail-archiver*` = rail-archiver, rail-archiver-eu, rail-archiver-au). All three run the same AL2023 arm64 AMI with a single root EBS volume, so `/dev/nvme0n1p1` is the root device on each.\n\n`system.disk.in_use` is the Datadog Agent's default `disk` check — no custom instrumentation needed, it was already running (confirmed 2026-08-20: matches `df -h /` exactly, since the agent container's own overlay root lives on the same volume as the host — there's no separate data disk on this box). This alert just didn't exist before 2026-08-20 — the local landing zone (raw window `.bin` files plus the local-only daily `data.jsonl`, see `landing_layout.py`) grew unbounded for weeks with nothing watching disk size or pruning it, and the box went down when it filled.\n\nMost common causes:\n- `rail-archiver-prune.timer` stopped firing or is erroring (check `journalctl -u rail-archiver-prune.service`) — it only deletes a day-partition once its cold tarball is confirmed in S3, so a stuck/failing ship path silently blocks pruning too\n- A single feed producing abnormally large raw payloads (e.g. `gtfs-de-delfi-realtime-data-trips-alerts`, a nationwide feed with ~150-200MB per 5-min window) outgrowing the 3-day buffer\n- Docker image/log buildup unrelated to the landing zone\n\nInvestigate:\n```\ndf -h /\ndu -sh /opt/rail-archiver/archive/*/ | sort -rh | head -20\njournalctl -u rail-archiver-prune.service --no-pager | tail -60\ndocker system df\n```\n\n@andkoure@gmail.com @slack-rail-alerts",
     "tags": ["service:rail-archiver", "env:prod", "layer:infra"],
     "options": {
       "notify_no_data": true,

@@ -3,7 +3,7 @@ import contextlib
 import functools
 
 from archiver.scheduler import Scheduler
-from archiver.health import FeedHealth, is_transient_failure
+from archiver.health import FeedHealth, emit_quarantine_state, is_transient_failure
 from archiver.feed import Feed
 from archiver.logger import logger, setup_logging
 from dotenv import load_dotenv
@@ -23,6 +23,10 @@ load_dotenv()
 # Fraction of a feed's interval to jitter reschedules by (±), desyncing feeds
 # that share an origin and softening the startup burst.
 POLL_JITTER = 0.1
+
+# How often to gauge every feed's quarantine state (feed.quarantine_state).
+# Must stay well inside the "Feed quarantined" monitor's evaluation window.
+QUARANTINE_STATE_INTERVAL = 60.0
 
 
 def parse_args():
@@ -108,6 +112,7 @@ async def run(args):
     heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
 
     polls = 0
+    last_quarantine_emit = float("-inf")
     stop = asyncio.Event()
 
     # Signals must wake an awaiting loop on the loop thread: add_signal_handler
@@ -166,6 +171,11 @@ async def run(args):
 
                 archiver.telemetry.gauge("poller.heartbeat", 1)
                 heartbeat_path.touch()
+                if time.monotonic() - last_quarantine_emit >= QUARANTINE_STATE_INTERVAL:
+                    emit_quarantine_state(
+                        archiver.telemetry, (f.name for f in archiver.feeds), health
+                    )
+                    last_quarantine_emit = time.monotonic()
 
                 # Next interval reflects the feed's health: normal, backed-off, or
                 # quarantined. Computed once and used for the reschedule on every

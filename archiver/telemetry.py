@@ -35,6 +35,10 @@ class Telemetry(Protocol):
     ) -> ContextManager[Span]:
         pass
 
+    def flush(self) -> None:
+        """Send any buffered metrics now (call before a process exits)."""
+        pass
+
 
 class _NoOpSpan:
     def set_tag(self, key: str, value: str | int | float | bool) -> None:
@@ -60,3 +64,6 @@ class NoOpTelemetry:
     @contextmanager
     def span(self, name, *, resource=None, tags=None):
         yield _NoOpSpan()
+
+    def flush(self) -> None:
+        pass

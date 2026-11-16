@@ -36,6 +36,9 @@ class RecordingTelemetry:
 
     # gauge/histogram/timing analogous
 
+    def flush(self):
+        self.calls.append(Call("flush", ""))
+
     @contextmanager
     def span(self, name, *, resource=None, tags=None):
         self.calls.append(
