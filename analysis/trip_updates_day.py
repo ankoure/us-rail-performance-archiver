@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -72,6 +73,16 @@ class TripUpdatesDay:
     (list of stub vehicles), and each vehicle exposes `.dwells`. The
     `merge_gap_seconds` kwarg is accepted but ignored — trip_updates already
     produce one row per (trip, stop), so there's nothing to merge.
+
+    `partitions` and `window` work as on VehicleDay (several UTC partitions,
+    one service day's time range), with one difference. The latest-prediction
+    dedupe runs *per partition*, not across them. The key is (trip_id,
+    stop_id), with no date, and most agencies reuse a trip_id every day it
+    runs, so a global dedupe would collapse yesterday's and today's runs of
+    the same trip. See `_merge_partitions` for how one trip that crosses UTC
+    midnight is reconciled instead. `window` applies to the resulting Visit's
+    arrival, after the dedupe. Filtering raw predictions first would let a
+    stale in-window prediction outlive the final out-of-window one.
     """
 
     def __init__(
@@ -80,9 +91,18 @@ class TripUpdatesDay:
         date: dt.date | str,
         base_dir: Path | str = DEFAULT_CURATED_DIR,
         merge_gap_seconds: int = 0,  # accepted for API parity, unused
+        *,
+        partitions: Sequence[dt.date] | None = None,
+        window: tuple[int, int] | None = None,
     ) -> None:
         self.feed = feed
         self.date = _coerce_date(date)
+        self.partitions = (
+            [self.date] if partitions is None else [_coerce_date(d) for d in partitions]
+        )
+        self.window = window
+        # Requested partitions with no parquet, filled in on load.
+        self.missing_partitions: list[dt.date] = []
         # Local path or s3:// URI -- see analysis/curated_fs.py.
         self.base_dir = base_dir
         self._fs, self._base = curated_fs(base_dir)
@@ -93,13 +113,38 @@ class TripUpdatesDay:
 
     @property
     def partition_path(self) -> str:
+        return self._partition_path_for(self.date)
+
+    def _partition_path_for(self, day: dt.date) -> str:
         return (
             f"{self._base}/trip_updates/feed={self.feed}"
-            f"/year={self.date.year}/month={self.date.month}/day={self.date.day}"
+            f"/year={day.year}/month={day.month}/day={day.day}"
         )
 
     @cached_property
     def visits(self) -> list[Visit]:
+        """Visits across every partition in `partitions`, limited to `window`.
+
+        Raises FileNotFoundError only when none of the partitions exist.
+        """
+        paths = [self._partition_path_for(d) for d in self.partitions]
+        per_partition: list[list[Visit]] = []
+        self.missing_partitions = []
+        for d, path in zip(self.partitions, paths):
+            files = list_parquet(self._fs, path)
+            if files:
+                per_partition.append(self._partition_visits(files))
+            else:
+                self.missing_partitions.append(d)
+        if not per_partition:
+            raise FileNotFoundError(f"No trip_updates partition at {', '.join(paths)}")
+        visits = _merge_partitions(per_partition)
+        if self.window is not None:
+            lo, hi = self.window
+            visits = [v for v in visits if lo <= v.arrival_ts < hi]
+        return visits
+
+    def _partition_visits(self, files: list[str]) -> list[Visit]:
         """Synthesized Visits — one per (trip_id, stop_id), latest prediction wins.
 
         Used to dedupe per row group (filter junk rows, sort by feed_timestamp
@@ -139,11 +184,6 @@ class TripUpdatesDay:
         (batched) -- the original's single global pass over 46.9M rows cost
         more than this version's several passes over much smaller batches.
         """
-        path = self.partition_path
-        files = list_parquet(self._fs, path)
-        if not files:
-            raise FileNotFoundError(f"No trip_updates partition at {path}")
-
         merged: pa.Table | None = None
         batch: list[pa.Table] = []
         batch_rows = 0
@@ -198,6 +238,45 @@ class TripUpdatesDay:
         for v in self.visits:
             groups[v.vehicle_id or "_unknown"].append(v)
         return [_StubVehicle(vid, dwells) for vid, dwells in groups.items()]
+
+
+# Two same-(trip_id, stop_id) Visits from adjacent UTC partitions closer than
+# this are one physical stop event predicted from both sides of UTC midnight;
+# further apart, they're the same trip_id running on different days.
+_SAME_EVENT_MAX_GAP_S = 6 * 3600
+
+
+def _merge_partitions(per_partition: list[list[Visit]]) -> list[Visit]:
+    """Combine per-UTC-partition Visits (ascending partition order) into one list.
+
+    A trip running across UTC midnight has predictions in both partitions, so
+    each partition's own dedupe yields a Visit for its stops after midnight. The
+    earlier partition's copy is a pre-midnight forecast and the later one's is
+    the final prediction. The later partition always holds the later
+    feed_timestamp, so it wins, which is what one global latest-prediction
+    dedupe would have picked. Matches more than `_SAME_EVENT_MAX_GAP_S` apart
+    are different days' runs of a recurring trip_id and are both kept.
+    """
+    if len(per_partition) == 1:
+        return per_partition[0]
+    by_key: dict[tuple[str | None, str], list[Visit]] = defaultdict(list)
+    for visits in per_partition:
+        incoming: dict[tuple[str | None, str], list[Visit]] = defaultdict(list)
+        for v in visits:
+            incoming[(v.trip_id, v.stop_id)].append(v)
+        for key, new in incoming.items():
+            kept = by_key.get(key)
+            if kept:
+                kept[:] = [
+                    old
+                    for old in kept
+                    if all(
+                        abs(old.arrival_ts - n.arrival_ts) > _SAME_EVENT_MAX_GAP_S
+                        for n in new
+                    )
+                ]
+            by_key[key].extend(new)
+    return [v for vs in by_key.values() for v in vs]
 
 
 # Internal column order — used to fill in missing columns with nulls so every

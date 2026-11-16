@@ -354,6 +354,11 @@ def build_shipper(config: ArchiverConfig) -> Shipper:
             for agency in config.agencies
             for feed in agency.feeds
         },
+        feed_tz={
+            feed.name: agency.timezone
+            for agency in config.agencies
+            for feed in agency.feeds
+        },
         # Same "names only" reasoning: Decoder.from_name only resolves the
         # registered class, same as build_feeds does internally, without
         # needing build_feeds' agency_id/shard filtering machinery.

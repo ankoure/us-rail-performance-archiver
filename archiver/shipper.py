@@ -9,6 +9,9 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
+from zoneinfo import ZoneInfo
+
+from analysis.timeutil import service_day_for_utc_day
 from archiver.source import Source, S3Source
 from archiver.uploader import Uploader
 from archiver.telemetry import Telemetry, NoOpTelemetry
@@ -46,6 +49,7 @@ class Shipper:
         feed_agency: dict[str, str] | None = None,
         feed_alerts_capable: Iterable[str] = (),
         feed_expected_kinds: dict[str, Iterable[str]] | None = None,
+        feed_tz: dict[str, str] | None = None,
         landing_dir: Path | None = None,
         landing_bucket: str | None = None,
         landing_prefix: str = "",
@@ -83,6 +87,14 @@ class Shipper:
         self.feed_expected_kinds: dict[str, frozenset[str]] = {
             feed: frozenset(kinds)
             for feed, kinds in (feed_expected_kinds or {}).items()
+        }
+        # feed_name -> IANA timezone. Gold partitions its marts by the feed's
+        # local service day, which for a UTC day D is D or D-1 depending on the
+        # zone (analysis.timeutil.service_day_for_utc_day), so _ship_hot needs
+        # it to find the marts gold built after rolling up D. A feed missing
+        # here only ships marts under day=D.
+        self.feed_tz: dict[str, ZoneInfo] = {
+            feed: ZoneInfo(tz) for feed, tz in (feed_tz or {}).items()
         }
         # Local-only; used by prune (which deletes the on-box landing tree). None
         # on Fargate, where prune isn't run (S3 landing expires via lifecycle).
@@ -184,7 +196,18 @@ class Shipper:
             key = self._hot_key(parquet)
             tags = {"feed": feed_name, "kind": kind, "agency": agency}
 
-            if not force and self.uploader.exists(self.hot_bucket, key):
+            # Day-partitioned marts are always overwritten. Each is a pure
+            # recompute from silver, and a rebuild has to replace what's
+            # there (e.g. the UTC-day partitions written before gold moved to
+            # service days, issue #118). Hot-bucket versioning keeps the
+            # previous copy. Silver and version-partitioned marts are
+            # write-once, so they keep the exists() skip.
+            overwrite = parts[0] == "metrics" and not parts[3].startswith("version=")
+            if (
+                not force
+                and not overwrite
+                and self.uploader.exists(self.hot_bucket, key)
+            ):
                 self.telemetry.incr("ship.hot.skipped", tags=tags)
                 logger.debug(
                     "hot already exists, skipping: %s/%s", self.hot_bucket, key
@@ -357,7 +380,35 @@ class Shipper:
         # _SUCCESS.json) doesn't match either glob; _ship_rollup_marker ships it.
         partition = f"feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.parquet"
         yield from self.curated_dir.glob(f"*/{partition}")
+        for mart_day in self._mart_days(feed_name, day):
+            yield from self._curated_marts(feed_name, mart_day)
+
+    def _mart_days(self, feed_name: str, day: date) -> list[date]:
+        """Mart partitions to ship alongside UTC day `day`'s silver: `day` itself
+        (gtfs.py's gtfs_versions and other UTC-keyed marts) and the service day
+        gold builds from it (see feed_tz in __init__)."""
+        days = [day]
+        tz = self.feed_tz.get(feed_name)
+        if tz is not None:
+            service_day = service_day_for_utc_day(day, tz)
+            if service_day != day:
+                days.append(service_day)
+        return days
+
+    def _curated_marts(self, feed_name: str, day: date) -> Iterator[Path]:
+        partition = f"feed={feed_name}/year={day.year}/month={day.month}/day={day.day}/data.parquet"
         yield from self.curated_dir.glob(f"metrics/*/{partition}")
+
+    def ship_marts(self, feed_name: str, day: date) -> None:
+        """Ship only the gold marts under partition `day`, which is a service
+        day, not a UTC day. Used by gold_backfill, which rebuilds marts from
+        silver that's already in S3 and must not re-upload that silver."""
+        agency = self.feed_agency.get(feed_name, "unknown")
+        for parquet in self._curated_marts(feed_name, day):
+            kind = "/".join(parquet.relative_to(self.curated_dir).parts[:2])
+            tags = {"feed": feed_name, "kind": kind, "agency": agency}
+            with self.telemetry.span("ship.hot", tags=tags):
+                self.uploader.upload(self.hot_bucket, self._hot_key(parquet), parquet)
 
     def _curated_version_parquets(self, feed_name: str) -> Iterator[Path]:
         # Version-partitioned marts (gtfs_stops, gtfs_shapes, etc. — see

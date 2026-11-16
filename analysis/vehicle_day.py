@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from analysis.curated_fs import curated_fs, list_parquet
@@ -314,7 +316,16 @@ class Stop:
 
 
 class VehicleDay:
-    """Loads one (feed, date) parquet partition and yields Vehicles / Stops."""
+    """Loads one (feed, date) parquet partition and yields Vehicles / Stops.
+
+    By default it reads the single UTC partition `date`. gold.py builds one
+    *service day*, which straddles two UTC partitions, so it passes
+    `partitions` (every UTC day to read, concatenated so a dwell spanning UTC
+    midnight stays one Visit) and `window` (`[start, end)` unix seconds; pings
+    outside it are dropped at read time to keep memory at about one day's worth).
+    A listed partition that doesn't exist is skipped. Only when none exist does
+    this raise FileNotFoundError.
+    """
 
     def __init__(
         self,
@@ -322,9 +333,18 @@ class VehicleDay:
         date: dt.date | str,
         base_dir: Path | str = DEFAULT_CURATED_DIR,
         merge_gap_seconds: int = DEFAULT_MERGE_GAP_S,
+        *,
+        partitions: Sequence[dt.date] | None = None,
+        window: tuple[int, int] | None = None,
     ) -> None:
         self.feed = feed
         self.date = _coerce_date(date)
+        self.partitions = (
+            [self.date] if partitions is None else [_coerce_date(d) for d in partitions]
+        )
+        self.window = window
+        # Requested partitions with no parquet, filled in on load.
+        self.missing_partitions: list[dt.date] = []
         # `base_dir` may be a local path or an s3:// URI -- see analysis/curated_fs.py.
         # It stays a public attribute for callers that only ever pass a local
         # path, but reads go through self._fs so both resolve identically.
@@ -337,9 +357,12 @@ class VehicleDay:
 
     @property
     def partition_path(self) -> str:
+        return self._partition_path_for(self.date)
+
+    def _partition_path_for(self, day: dt.date) -> str:
         return (
             f"{self._base}/vehicles/feed={self.feed}"
-            f"/year={self.date.year}/month={self.date.month}/day={self.date.day}"
+            f"/year={day.year}/month={day.month}/day={day.day}"
         )
 
     @cached_property
@@ -357,25 +380,35 @@ class VehicleDay:
         per-trip dwell detection, since each trip's ping sequence is
         self-contained.
         """
-        path = self.partition_path
-        files = list_parquet(self._fs, path)
+        paths = [self._partition_path_for(d) for d in self.partitions]
+        files: list[str] = []
+        self.missing_partitions = []
+        for d, path in zip(self.partitions, paths):
+            found = list_parquet(self._fs, path)
+            if not found:
+                self.missing_partitions.append(d)
+            files += found
         if not files:
-            raise FileNotFoundError(f"No partition at {path}")
+            raise FileNotFoundError(f"No partition at {', '.join(paths)}")
 
+        tables = []
+        for f in files:
+            t = pq.read_table(f, filesystem=self._fs)
+            present = [c for c in _COLUMN_MAP if c in t.column_names]
+            t = t.select(present).rename_columns([_COLUMN_MAP[c] for c in present])
+            if self.window is not None and "vehicle_timestamp" in t.column_names:
+                lo, hi = self.window
+                ts = t["vehicle_timestamp"]
+                t = t.filter(pc.and_(pc.greater_equal(ts, lo), pc.less(ts, hi)))
+            tables.append(t)
+        # promote_options: partitions from different days can disagree on a
+        # column's presence or null-ness (e.g. direction_id all-null one day).
         table = (
-            pq.read_table(files[0], filesystem=self._fs)
-            if len(files) == 1
-            else pa.concat_tables(
-                [pq.read_table(f, filesystem=self._fs) for f in files]
-            )
+            tables[0]
+            if len(tables) == 1
+            else pa.concat_tables(tables, promote_options="permissive")
         )
-
-        present = [c for c in _COLUMN_MAP if c in table.column_names]
-        df = (
-            table.select(present)
-            .rename_columns([_COLUMN_MAP[c] for c in present])
-            .to_pylist()
-        )
+        df = table.to_pylist()
 
         grouped: dict[str, list[dict]] = defaultdict(list)
         for r in df:

@@ -197,6 +197,72 @@ def test_ship_one_hot_upload_includes_gold_marts(dirs, shipper):
     assert f"curated/vehicles/feed={FEED}/{part}/data.parquet" in hot_keys
 
 
+def _write_mart(dirs, mart: str, day: date) -> str:
+    part = f"year={day.year}/month={day.month}/day={day.day}"
+    mart_dir = dirs / "curated" / "metrics" / mart / f"feed={FEED}" / part
+    mart_dir.mkdir(parents=True)
+    (mart_dir / "data.parquet").write_bytes(b"PAR1fake")
+    return f"curated/metrics/{mart}/feed={FEED}/{part}/data.parquet"
+
+
+def test_ship_one_includes_marts_for_the_service_day_gold_built(dirs):
+    """Gold partitions marts by local service day: after rolling up UTC day D,
+    a New York feed's gold builds service day D-1. Ship for D must find it, or
+    those marts stay on ephemeral disk."""
+    shipper = Shipper(
+        source=LocalSource(dirs / "landing"),
+        curated_dir=dirs / "curated",
+        uploader=FakeUploader(),
+        cold_bucket="cold-bucket",
+        hot_bucket="hot-bucket",
+        hot_prefix="curated/",
+        feed_names=[FEED],
+        feed_tz={FEED: "America/New_York"},
+    )
+    service_day_key = _write_mart(dirs, "stop_day", DAY - timedelta(days=1))
+    utc_day_key = _write_mart(dirs, "gtfs_versions", DAY)
+    unrelated_key = _write_mart(dirs, "stop_day", DAY - timedelta(days=2))
+
+    shipper.ship_one(FEED, DAY, hot_only=True)
+    hot_keys = {u.key for u in shipper.uploader.uploads}
+
+    assert service_day_key in hot_keys
+    assert utc_day_key in hot_keys
+    assert unrelated_key not in hot_keys
+
+
+def test_ship_one_without_feed_tz_ships_only_utc_day_marts(dirs, shipper):
+    other_key = _write_mart(dirs, "stop_day", DAY - timedelta(days=1))
+    shipper.ship_one(FEED, DAY, hot_only=True)
+    assert other_key not in {u.key for u in shipper.uploader.uploads}
+
+
+def test_ship_one_overwrites_day_partitioned_marts(dirs, shipper):
+    """A rebuilt mart must replace the S3 copy without --force, otherwise the
+    UTC-day partitions written before issue #118 would never be corrected.
+    Silver keeps its write-once skip."""
+    mart_key = _write_mart(dirs, "stop_day", DAY)
+    silver_key = f"curated/vehicles/feed={FEED}/year=2026/month=5/day=1/data.parquet"
+    shipper.uploader.mark_existing("hot-bucket", mart_key)
+    shipper.uploader.mark_existing("hot-bucket", silver_key)
+
+    shipper.ship_one(FEED, DAY, hot_only=True)
+    hot_keys = [u.key for u in shipper.uploader.uploads]
+
+    assert mart_key in hot_keys
+    assert silver_key not in hot_keys
+
+
+def test_ship_marts_ships_only_that_days_marts(dirs, shipper):
+    service_day = DAY - timedelta(days=1)
+    mart_key = _write_mart(dirs, "stop_day", service_day)
+    _write_mart(dirs, "stop_day", DAY)
+
+    shipper.ship_marts(FEED, service_day)
+
+    assert [u.key for u in shipper.uploader.uploads] == [mart_key]
+
+
 def test_ship_one_hot_upload_includes_version_partitioned_marts(dirs, shipper):
     """Regression: pipeline/gtfs.py's marts (gtfs_stops, gtfs_shapes, etc. —
     see docs/design/static-gtfs-normalization.md) are keyed by (feed,

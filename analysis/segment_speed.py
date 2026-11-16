@@ -45,7 +45,7 @@ from analysis.geo import (
     project_point_to_polyline,
 )
 from analysis.metrics import _pct, _round
-from analysis.timeutil import service_date as _service_date
+from analysis.timeutil import service_day as _service_day
 from analysis.vehicle_day import Visit
 
 _MPS_TO_MPH = 2.23694
@@ -326,7 +326,7 @@ def compute_segment_speeds(
             speed_mph = (distance_m / transit_s) * _MPS_TO_MPH
             if speed_mph > max_speed_mph:
                 continue
-            sd = _service_date(a.departure_ts, local_tz).isoformat()
+            sd = _service_day(a.departure_ts, local_tz).isoformat()
             fact_rows.append(
                 {
                     "feed": feed,

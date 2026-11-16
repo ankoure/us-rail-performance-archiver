@@ -183,6 +183,20 @@ class TestMatching:
         assert fact[0]["service_date"] == "2024-05-19"
         assert abs(fact[0]["arrival_delay_s"]) <= 1
 
+    def test_service_date_is_service_day_not_gtfs_date(self):
+        # A feed that schedules a trip as 00:30:00 on the 21st (not 24:30:00 on
+        # the 20th) is scored against the 21st's schedule, but it runs before
+        # the 03:00 service-day boundary, so it's filed with the 20th's service,
+        # the same service_date metrics.compute_marts gives this visit.
+        arrival = int(dt.datetime(2024, 5, 21, 0, 30, tzinfo=NY).timestamp())
+        sched = {dt.date(2024, 5, 21): {("EARLY", "S1"): _sched(arrival_seconds=1800)}}
+        fact, stop_rows, _ = compute_adherence(
+            [_visit(trip_id="EARLY", arrival=arrival)], sched, "f", NY
+        )
+        assert fact[0]["arrival_delay_s"] == 0
+        assert fact[0]["service_date"] == "2024-05-20"
+        assert [r["service_date"] for r in stop_rows] == ["2024-05-20"]
+
     def test_departure_fallback_when_no_scheduled_arrival(self):
         # arrival_seconds == -1 (absent) -> classify on departure delay instead.
         sched = {

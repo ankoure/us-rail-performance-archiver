@@ -406,11 +406,11 @@ One row per (route, direction, service_date). Same throughput / span columns as 
 
 ### `metrics/events` (gold, written by [pipeline/gold.py](pipeline/gold.py))
 
-One row per ARR/DEP — each stop visit explodes into an `ARR` at its arrival and a `DEP` at its departure. Every route shares one time-ordered parquet per (feed, day). `route_id`, `direction_id` (nullable), `stop_id`, `stop_sequence` (nullable), `trip_id`, `vehicle_id`, `event_type` (`ARR`/`DEP`), `event_unix`, `service_date`. Same universe as the day marts (null `route_id` dropped, null `direction_id` kept). This is the queryable, single-file-per-day counterpart to the fanned-out gobble `events/feed=…/{route}-{dir}-{stop}/…/events.csv` tree from [event_export.py](analysis/event_export.py). See [EVENTS_SCHEMA](analysis/metrics.py).
+One row per ARR/DEP — each stop visit explodes into an `ARR` at its arrival and a `DEP` at its departure. Every route shares one time-ordered parquet per (feed, service day). `route_id`, `direction_id` (nullable), `stop_id`, `stop_sequence` (nullable), `trip_id`, `vehicle_id`, `event_type` (`ARR`/`DEP`), `event_unix`, `service_date`. Same universe as the day marts (null `route_id` dropped, null `direction_id` kept). This is the queryable, single-file-per-day counterpart to the fanned-out gobble `events/feed=…/{route}-{dir}-{stop}/…/events.csv` tree from [event_export.py](analysis/event_export.py). See [EVENTS_SCHEMA](analysis/metrics.py).
 
 ### `metrics/adherence` (gold OTP, written by [pipeline/gold.py](pipeline/gold.py))
 
-The schedule-joined fact table: one row per stop visit that matched the static GTFS schedule. Each visit is joined to its scheduled stop by `(trip_id, stop_id)` (not by observed time — that would mis-attribute a neighbouring trip when a vehicle runs early/late), and `route_id`/`direction_id`/`stop_sequence` are taken from the **schedule** (authoritative), so OTP covers trip_id-only feeds (NYCT subway, TriMet) that omit them in realtime. Columns: `route_id`, `direction_id` (nullable), `stop_id`, `stop_sequence` (nullable), `trip_id`, `vehicle_id` (nullable), `route_mode` (nullable; `rapid`/`bus`/`cr`/`other`), `service_date`, `arrival_unix`, `scheduled_arrival_unix` (nullable), `arrival_delay_s` (nullable; +late/−early), `departure_unix`, `scheduled_departure_unix` (nullable), `departure_delay_s` (nullable), `status` (`early`/`on_time`/`late`), `on_time` (bool). Scheduled times are anchored to the trip's service day, so owl trips (e.g. scheduled `25:30:00`) match the prior day. See [ADHERENCE_SCHEMA](analysis/adherence.py).
+The schedule-joined fact table: one row per stop visit that matched the static GTFS schedule. Each visit is joined to its scheduled stop by `(trip_id, stop_id)` (not by observed time — that would mis-attribute a neighbouring trip when a vehicle runs early/late), and `route_id`/`direction_id`/`stop_sequence` are taken from the **schedule** (authoritative), so OTP covers trip_id-only feeds (NYCT subway, TriMet) that omit them in realtime. Columns: `route_id`, `direction_id` (nullable), `stop_id`, `stop_sequence` (nullable), `trip_id`, `vehicle_id` (nullable), `route_mode` (nullable; `rapid`/`bus`/`cr`/`other`), `service_date`, `arrival_unix`, `scheduled_arrival_unix` (nullable), `arrival_delay_s` (nullable; +late/−early), `departure_unix`, `scheduled_departure_unix` (nullable), `departure_delay_s` (nullable), `status` (`early`/`on_time`/`late`), `on_time` (bool). Scheduled times are anchored to the trip's GTFS service date, so owl trips (e.g. scheduled `25:30:00`) match the prior day. `service_date` is the visit's service day (03:00–03:00 local, the same key as `stop_day`), not necessarily the GTFS date it was scored against. See [ADHERENCE_SCHEMA](analysis/adherence.py).
 
 ### `metrics/stop_day_otp` (gold OTP, written by [pipeline/gold.py](pipeline/gold.py))
 
@@ -465,7 +465,7 @@ The [analysis/](analysis/) package turns curated parquet into the metrics a ride
 | [analysis/event_export.py](analysis/event_export.py) | emit gobble-style per-stop ARR/DEP `events.csv` |
 | [analysis/metrics.py](analysis/metrics.py) | fold a `Visit` stream into the **schedule-free** gold marts (headway, dwell, throughput, regularity, service span) |
 | [analysis/adherence.py](analysis/adherence.py) | fold a `Visit` stream + GTFS schedule into the gold **on-time-performance** marts (delay, on-time %, early/late) |
-| [analysis/timeutil.py](analysis/timeutil.py) | dependency-light local-time helpers (`service_date`, `fmt_local`) shared by the pandas-free gold path |
+| [analysis/timeutil.py](analysis/timeutil.py) | dependency-light local-time helpers (`service_day` and the service-day ↔ UTC-partition mapping, `service_date`, `fmt_local`) shared by the pandas-free gold path and the shipper |
 | [analysis/static_gtfs.py](analysis/static_gtfs.py) | load a static GTFS zip for scheduled travel-time / headway lookups |
 | [analysis/gtfs_fetcher.py](analysis/gtfs_fetcher.py) | resolve a service date to the right archived static GTFS zip |
 
@@ -480,13 +480,15 @@ Driver scripts in [scripts/](scripts/) wrap these for CLI use:
 
 ### Gold tier
 
-[pipeline/gold.py](pipeline/gold.py) is the daily aggregation runner (alongside [pipeline/rollup.py](pipeline/rollup.py) and [pipeline/ship.py](pipeline/ship.py)). For each (feed, day) it derives Visits from the silver `vehicles` (or `trip_updates`, via `--source trip-updates`) parquet and writes two families of partitioned parquet marts off a single load.
+[pipeline/gold.py](pipeline/gold.py) is the daily aggregation runner (alongside [pipeline/rollup.py](pipeline/rollup.py) and [pipeline/ship.py](pipeline/ship.py)). For each (feed, service day) it derives Visits from the silver `vehicles` (or `trip_updates`, via `--source trip-updates`) parquet and writes two families of partitioned parquet marts off a single load.
+
+**Service days.** Every gold mart is keyed *and partitioned* by the feed's local transit service day, which runs from 03:00 to 03:00 local ([analysis/timeutil.py](analysis/timeutil.py) `service_day`). Owl visits after midnight stay with the evening they belong to, and the schedule-free and OTP marts agree on `service_date`. Silver is partitioned by UTC day, so a service day is built from every UTC partition its window overlaps (plus a 1 h margin), and partition `day=D` holds exactly `service_date = D`: one row per (route, stop, service_date). `--day D` names the UTC day rollup just produced and builds the service day that partition completes. That is D−1 for the Americas and Europe, and D for e.g. Australia. `--service-date D` builds a service day directly. Gold needs the previous UTC partition too, so run it with `--silver-dir s3://<hot bucket>` (as the prod gold stage does) or against a local tree holding both partitions. A missing partition logs `WARNING — partial service day`. Marts built before this change (UTC-day partitions, two partial rows per service date; issue #118) are fixed by re-running [pipeline/gold_backfill.py](pipeline/gold_backfill.py) over the range, whose `--start-day`/`--end-day` are service days. Ship always overwrites day-partitioned marts, so a rebuild replaces the old split partitions.
 
 **Schedule-free** (always, via [analysis/metrics.py](analysis/metrics.py)) — headway p50/p90, headway mean + coefficient of variation (regularity), dwell p50/p90, trip / visit / distinct-vehicle counts, and service span:
 
 - `curated/metrics/stop_day/feed=…/year=…/month=…/day=…/data.parquet` — one row per (route, direction, stop, service_date)
 - `curated/metrics/route_day/…` — one row per (route, direction, service_date)
-- `curated/metrics/events/…` — one row per ARR/DEP, every route in one partition per day (the columnar counterpart to the gobble `events/*.csv` tree)
+- `curated/metrics/events/…` — one row per ARR/DEP, every route in one partition per service day (the columnar counterpart to the gobble `events/*.csv` tree); both of a visit's events carry the visit's (arrival) service day
 
 Visits without a `route_id` are dropped; a null `direction_id` is kept as its own bucket.
 
@@ -497,8 +499,9 @@ OTP runs in the daily prod batch (`pandas` is a runtime dependency). It's **best
 Partition keys (`feed`, `year`, `month`, `day`) live in the path only, matching the silver layout. [notebooks/gold_metrics.ipynb](notebooks/gold_metrics.ipynb) validates the marts against the raw visits.
 
 ```bash
-uv run python pipeline/gold.py --feed wmata-vehicles --day 2026-05-20   # schedule-free + OTP (GTFS auto-resolved)
-uv run python pipeline/gold.py --all-days --no-otp                      # every feed/day on disk, schedule-free only
+uv run python pipeline/gold.py --feed wmata-vehicles --day 2026-05-20   # service day completed by that UTC partition: schedule-free + OTP (GTFS auto-resolved)
+uv run python pipeline/gold.py --feed wmata-vehicles --service-date 2026-05-19  # one explicit service day
+uv run python pipeline/gold.py --all-days --no-otp                      # every service day the silver on disk completes, schedule-free only
 ```
 
 ### Static GTFS reference tier

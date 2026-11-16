@@ -13,9 +13,10 @@ reusing that module's schemas/aggregation/classification so the output is
 indistinguishable from a live-derived day.
 
 Ships into the SAME feed-partitioned mart paths the live pipeline uses (see
-_AGENCY_TO_FEED), via Shipper.ship_one(hot_only=True) -- the exact pattern
-pipeline/gold_backfill.py uses -- so dashboard/api's existing OTP endpoints
-pick this up for any date range with no API/frontend changes.
+_AGENCY_TO_FEED), partitioned by service_date like gold's own marts, via
+Shipper.ship_marts() -- the exact pattern pipeline/gold_backfill.py uses -- so
+dashboard/api's existing OTP endpoints pick this up for any date range with no
+API/frontend changes.
 
 Meant to run as the rail-archiver-historic-511-otp ECS task
 (terraform/historic_511_otp.tf, manual-only like gold_backfill), one month at
@@ -286,7 +287,7 @@ def main(args: argparse.Namespace) -> int:
             _write_parquet(stop_rows, STOP_DAY_OTP_SCHEMA, otp_paths["stop_day_otp"])
             _write_parquet(route_rows, ROUTE_DAY_OTP_SCHEMA, otp_paths["route_day_otp"])
 
-        shipper.ship_one(feed, day, force=args.force, hot_only=True)
+        shipper.ship_marts(feed, day)
         shipped += 1
         logger.info("[%s %s] %d adherence rows shipped", feed, day, len(fact_rows))
 

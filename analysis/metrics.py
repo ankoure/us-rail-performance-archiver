@@ -14,6 +14,11 @@ The module is pure and I/O-free — no parquet, no disk, no GTFS. `gold.py` owns
 discovery, the source choice and the atomic parquet write; the schemas below
 (`STOP_DAY_SCHEMA`, `ROUTE_DAY_SCHEMA`) are the contract between the two.
 
+service_date is the transit service day (`analysis.timeutil.service_day`,
+03:00 local to 03:00 local), not the calendar date, so owl visits stay with the
+evening they belong to. Callers pass one service day's complete visit set and
+get exactly one row per key; gold.py partitions the marts by that same date.
+
 Null-handling:
   - a visit with no route_id is dropped (route-keyed marts are meaningless
     without it, and v1 does no GTFS backfill);
@@ -31,7 +36,7 @@ from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 
-from analysis.timeutil import service_date as _service_date
+from analysis.timeutil import service_day as _service_day
 from analysis.vehicle_day import Visit
 
 # The in-file schemas deliberately omit the hive partition keys (feed, year,
@@ -158,7 +163,7 @@ def compute_marts(
     for v in visits:
         if not v.route_id:
             continue
-        sd = _service_date(v.arrival_ts, local_tz)
+        sd = _service_day(v.arrival_ts, local_tz)
         stop_buckets[(v.route_id, v.direction_id, v.stop_id, sd)].append(v)
         route_buckets[(v.route_id, v.direction_id, sd)].append(v)
 
@@ -237,8 +242,9 @@ def compute_events(
     (equal timestamps for a single-ping visit). All routes share one table;
     `gold.py` writes it to one parquet per (feed, day). Same universe as
     `compute_marts` — visits with no route_id are dropped, null direction_id is
-    kept. service_date is computed per event so a visit straddling local
-    midnight files its two events on the dates they actually fall.
+    kept. service_date is the visit's service day (by arrival), the same key
+    `compute_marts` uses, so both of a visit's events land in the same
+    service-day partition even when the dwell straddles the day boundary.
 
     Rows are sorted by event_unix so the partition is time-ordered.
     """
@@ -246,6 +252,7 @@ def compute_events(
     for v in visits:
         if not v.route_id:
             continue
+        sd = _service_day(v.arrival_ts, local_tz).isoformat()
         for event_type, ts in (("ARR", v.arrival_ts), ("DEP", v.departure_ts)):
             rows.append(
                 {
@@ -258,7 +265,7 @@ def compute_events(
                     "vehicle_id": v.vehicle_id,
                     "event_type": event_type,
                     "event_unix": ts,
-                    "service_date": _service_date(ts, local_tz).isoformat(),
+                    "service_date": sd,
                 }
             )
     rows.sort(key=lambda r: r["event_unix"])

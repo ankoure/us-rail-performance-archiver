@@ -1,8 +1,8 @@
 """Build the gold tier: daily performance-metrics marts from curated parquet.
 
-For each (feed, day) this reads the silver `vehicles` (or `trip_updates`)
-partition, derives Visits, folds them with `analysis.metrics.compute_marts`, and
-writes two parquet marts:
+For each (feed, service day) this reads the silver `vehicles` (or
+`trip_updates`) partitions, derives Visits, folds them with
+`analysis.metrics.compute_marts`, and writes two parquet marts:
 
     {curated}/metrics/stop_day/feed={feed}/year=/month=/day=/data.parquet
     {curated}/metrics/route_day/feed={feed}/year=/month=/day=/data.parquet
@@ -31,14 +31,32 @@ best-effort: it self-skips when an agency has no mdb_feed_id, when the schedule
 snapshot can't be resolved, or — defensively — when pandas is unavailable, and
 none of these block the schedule-free marts. Pass --no-otp to skip it explicitly.
 
-It mirrors rollup.py's CLI shell and ship.py's per-(feed, day) loop, so the prod
-batch chain can call `python pipeline/gold.py --day "$DAY"` symmetrically between
-rollup and ship. Missing partitions skip rather than abort.
+Service days vs UTC days
+------------------------
+Silver is partitioned by UTC day; every mart is keyed and partitioned by the
+feed's local *service day* (`analysis.timeutil.service_day`: 03:00 to 03:00
+local). One mart partition `day=D` therefore holds exactly service_date D, so
+the API gets one row per (route, stop, service_date) (issue #118). Building a
+service day reads each UTC partition its window overlaps, plus a small margin
+(`analysis.timeutil.utc_days_for_service_day`), and keeps only visits that
+belong to it.
+
+`--day D` still names a UTC day, the one rollup just produced, so the prod
+batch chain can call `python pipeline/gold.py --day "$DAY"` between rollup and
+ship. For each feed it builds the service day that partition completes
+(`service_day_for_utc_day`). That is D-1 for the Americas and Europe and D for
+zones far enough east, such as Australia. `--service-date` builds named
+service days directly, for backfills. Missing partitions skip rather than
+abort.
 
 Examples:
 
-    # one feed, one day (schedule-free marts + OTP, GTFS auto-resolved)
+    # one feed, the service day completed by UTC day 2026-05-20's partition
+    # (schedule-free marts + OTP, GTFS auto-resolved)
     uv run python pipeline/gold.py --feed wmata-vehicles --day 2026-05-20
+
+    # one feed, one explicit local service day
+    uv run python pipeline/gold.py --feed wmata-vehicles --service-date 2026-05-19
 
     # every feed in the config, every day already on disk (auto-picks
     # trip-updates for _TRIP_UPDATES_ONLY_FEEDS, vehicles for everything else)
@@ -76,6 +94,12 @@ from analysis.metrics import (  # noqa: E402
     compute_marts,
 )
 from analysis.curated_fs import curated_fs, has_any, list_parquet  # noqa: E402
+from analysis.timeutil import (  # noqa: E402
+    SERVICE_DAY_MARGIN,
+    service_day_bounds,
+    service_day_for_utc_day,
+    utc_days_for_service_day,
+)
 from analysis.trip_updates_day import TripUpdatesDay  # noqa: E402
 from analysis.vehicle_day import VehicleDay  # noqa: E402
 from archiver.loader import load_config  # noqa: E402
@@ -252,13 +276,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--day",
         type=dt.date.fromisoformat,
-        help="A single day (YYYY-MM-DD) to build.",
+        help="A UTC silver day (YYYY-MM-DD), the one rollup just produced. "
+        "Builds, per feed, the local service day that partition completes "
+        "(see the module docstring).",
+    )
+    p.add_argument(
+        "--service-date",
+        type=dt.date.fromisoformat,
+        nargs="+",
+        default=None,
+        help="Local service day(s) (YYYY-MM-DD) to build directly, reading "
+        "whichever UTC silver partitions overlap each one.",
     )
     p.add_argument(
         "--all-days",
         action="store_true",
-        help="Build every service_date partition on disk for each feed "
-        "(unioned with --day).",
+        help="Build every service day completed by a UTC silver partition on "
+        "disk for each feed (unioned with --day / --service-date).",
     )
     p.add_argument(
         "--source",
@@ -344,8 +378,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "standardize units/time).",
     )
     args = p.parse_args(argv)
-    if not args.day and not args.all_days:
-        p.error("provide --day YYYY-MM-DD or --all-days")
+    if not args.day and not args.all_days and not args.service_date:
+        p.error("provide --day YYYY-MM-DD, --service-date YYYY-MM-DD or --all-days")
+    if args.normalize and args.service_date:
+        p.error("--service-date doesn't apply to --normalize (pass --day)")
     return args
 
 
@@ -381,8 +417,20 @@ def discover_dates_for_dir(feed: str, root: Path) -> list[dt.date]:
 
 
 def discover_dates(feed: str, curated_dir: Path, source: str) -> list[dt.date]:
-    """Every service_date with a partition for (feed, source) under curated_dir."""
+    """Every UTC day with a silver partition for (feed, source) under curated_dir."""
     return discover_dates_for_dir(feed, curated_dir / _SOURCE_SUBDIR[source])
+
+
+def service_days_to_build(
+    tz: ZoneInfo,
+    *,
+    utc_days: list[dt.date] = (),
+    service_dates: list[dt.date] = (),
+) -> list[dt.date]:
+    """Sorted service days for one feed: each UTC day mapped to the service day
+    it completes, unioned with any explicitly named service days."""
+    days = {service_day_for_utc_day(d, tz) for d in utc_days} | set(service_dates)
+    return sorted(days)
 
 
 def _partition_path(root: Path, feed: str, day: dt.date) -> Path:
@@ -428,7 +476,10 @@ def build_one(
     early_threshold_s: int = 60,
     late_threshold_s: int = 300,
 ) -> dict | None:
-    """Build the marts for one (feed, day). Returns a counts dict, or None.
+    """Build the marts for one (feed, service day). Returns a counts dict, or None.
+
+    `day` is a local service day in `tz`, not a UTC day: Visits are loaded from
+    every UTC silver partition overlapping it, and every mart row is for it.
 
     `curated_dir` is where marts are WRITTEN and must stay a local path.
     `silver_dir` is where silver is READ from and may be an s3:// URI (defaults
@@ -465,17 +516,35 @@ def build_one(
         return None
 
     day_cls = VehicleDay if source == "vehicles" else TripUpdatesDay
+    start, end = service_day_bounds(day, tz)
+    margin = int(SERVICE_DAY_MARGIN.total_seconds())
     try:
         vd = day_cls(
             feed,
             day,
             base_dir=silver_dir if silver_dir is not None else curated_dir,
             merge_gap_seconds=merge_gap_seconds,
+            partitions=utc_days_for_service_day(day, tz),
+            window=(start - margin, end + margin),
         )
-        visits = [v for veh in vd.vehicles for v in veh.dwells]
+        # The margin's visits help only to see dwells/segments whole at the
+        # window edges; everything except segment speed (which pairs
+        # neighbouring visits, and filters its own output) uses this day's only.
+        loaded = [v for veh in vd.vehicles for v in veh.dwells]
     except FileNotFoundError as e:
         print(f"[{feed} {day}] SKIP — {e}", file=sys.stderr)
         return None
+    if vd.missing_partitions:
+        # Legitimate for a feed's first day or an outage, but it also means a
+        # partial service day, e.g. gold run against a local curated tree that
+        # holds only today's rollup. Pass --silver-dir for the full set.
+        missing = ", ".join(d.isoformat() for d in vd.missing_partitions)
+        print(
+            f"[{feed} {day}] WARNING — partial service day, no silver for UTC "
+            f"{missing}",
+            file=sys.stderr,
+        )
+    visits = [v for v in loaded if start <= v.arrival_ts < end]
 
     result = {
         "stop": 0,
@@ -518,7 +587,7 @@ def build_one(
             result.update(adherence=otp[0], on_time=otp[1])
 
     if need_speed:
-        n = _build_speed(feed, day, tz, visits, gtfs_for, speed_paths)
+        n = _build_speed(feed, day, tz, loaded, gtfs_for, speed_paths)
         if n is not None:
             result["segments"] = n
 
@@ -544,8 +613,16 @@ def _build_otp(
 
     Imports the pandas-backed GTFS path lazily so gold.py stays importable (and
     the schedule-free marts keep building) where pandas is absent. Resolves the
-    schedule for `day` plus the prior day (owl trips), folds adherence, and writes
-    the three OTP marts. Any GTFS lookup failure skips OTP for this (feed, day).
+    schedule for `day` plus its neighbours, folds adherence, and writes the three
+    OTP marts. Any GTFS lookup failure for `day` itself skips OTP for this
+    (feed, day).
+
+    The neighbours are needed because compute_adherence tries each visit's local
+    calendar date and the date before it. A service day's visits fall on
+    calendar dates `day` and `day+1` (00:00-03:00), so the candidates are
+    `day-1` (owl trips of the previous evening, still running after 03:00),
+    `day`, and `day+1` (trips a feed schedules as e.g. 00:15:00 rather than
+    24:15:00).
     """
     from analysis.adherence import (
         ADHERENCE_SCHEMA,
@@ -568,13 +645,13 @@ def _build_otp(
         return None
 
     schedules = {day: schedule_index(gtfs_day, day)}
-    prev = day - dt.timedelta(days=1)
-    try:  # prior-day schedule backs owl trips; best-effort.
-        gtfs_prev = gtfs_for(feed, prev)
-        if gtfs_prev is not None:
-            schedules[prev] = schedule_index(gtfs_prev, prev)
-    except (LookupError, FileNotFoundError):
-        pass
+    for other in (day - dt.timedelta(days=1), day + dt.timedelta(days=1)):
+        try:  # neighbouring schedules are best-effort.
+            gtfs_other = gtfs_for(feed, other)
+            if gtfs_other is not None:
+                schedules[other] = schedule_index(gtfs_other, other)
+        except (LookupError, FileNotFoundError):
+            pass
 
     fact, stop_rows, route_rows = compute_adherence(
         visits,
@@ -665,7 +742,11 @@ def _build_speed(
     gtfs_for,
     speed_paths: dict[str, Path],
 ) -> int | None:
-    """Build the segment-speed marts for one (feed, day). Returns fact row count or None.
+    """Build the segment-speed marts for one (feed, service day). Returns fact
+    row count or None.
+
+    `visits` is every Visit loaded for the day *including* the edge margin;
+    only rows whose service_date is `day` are written.
 
     Resolves the same GTFS snapshot as OTP (so no extra network I/O when both run
     together) and passes stop coordinates plus trip/shape geometry to
@@ -743,6 +824,12 @@ def _build_speed(
         )
         fact_rows.extend(fr)
         seg_day_rows.extend(sdr)
+    # `visits` includes the margin around this service day, so a segment whose
+    # origin departs just before the window opens is computed too. Keep only
+    # this day's rows; the neighbouring day's own build owns the rest.
+    sd = day.isoformat()
+    fact_rows = [r for r in fact_rows if r["service_date"] == sd]
+    seg_day_rows = [r for r in seg_day_rows if r["service_date"] == sd]
     if not fact_rows:
         print(f"[{feed} {day}] no segment speed rows", file=sys.stderr)
         return None
@@ -1107,7 +1194,7 @@ def main(argv: list[str] | None = None) -> int:
         # See superseded_by_trip_updates: an agency builds from one source.
         skip = superseded_by_trip_updates(args.config)
         feeds = [f for f in sorted(feed_tz_map) if f not in skip]
-    base_dates = [args.day] if args.day else []
+    base_utc_days = [args.day] if args.day else []
     gtfs_for = None if args.no_otp else _make_gtfs_resolver(args)
 
     totals = {
@@ -1128,13 +1215,16 @@ def main(argv: list[str] | None = None) -> int:
         source = args.source or (
             "trip-updates" if feed in _TRIP_UPDATES_ONLY_FEEDS else "vehicles"
         )
-        dates = set(base_dates)
+        utc_days = list(base_utc_days)
         if args.all_days:
-            dates |= set(discover_dates(feed, args.curated_dir, source))
+            utc_days += discover_dates(feed, args.curated_dir, source)
+        dates = service_days_to_build(
+            tz, utc_days=utc_days, service_dates=args.service_date or []
+        )
         if not dates:
             print(f"[{feed}] no dates to process — skipping", file=sys.stderr)
             continue
-        for day in sorted(dates):
+        for day in dates:
             result = build_one(
                 feed,
                 day,

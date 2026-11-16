@@ -10,11 +10,21 @@ pull the already-shipped silver parquet back down into the local partition
 layout gold.py expects, rebuild metrics locally, and ship only the metrics
 marts back.
 
-Ships via Shipper.ship_one(..., hot_only=True) directly rather than
-pipeline/ship.py's CLI: Shipper.run()'s discovery always gates on the LANDING
-partition existing (see Shipper._discover / archiver/source.py's
-discover()), which is exactly the data this script assumes has already
-expired. ship_one() with hot_only=True never touches landing at all.
+The day range is in local *service days* (gold's mart partition key; see
+pipeline/gold.py's module docstring). One service day overlaps two UTC silver
+partitions, so each one is pulled before gold runs with --service-date.
+A partition that isn't in S3 is a warning, not a skip: the feed may really have
+had no data that UTC day, but the service day is then built from partial data.
+
+Ships via Shipper.ship_marts() directly rather than pipeline/ship.py's CLI:
+Shipper.run()'s discovery always gates on the LANDING partition existing (see
+Shipper._discover / archiver/source.py's discover()), which is exactly the
+data this script assumes has already expired. ship_marts() uploads only the
+rebuilt marts, never landing or the silver it just pulled down.
+
+This is also how to repair marts built before gold partitioned by service day
+(issue #118): rebuilding a service day overwrites its partition, so a range
+backfill replaces the old split rows.
 
 Generalizes deploy/reprocess_day.sh (single feed, single day, run by hand) to
 a feed list x day range; meant to run as the rail-archiver-gold-backfill ECS
@@ -37,6 +47,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # Make the repo root importable when run as `python pipeline/gold_backfill.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -50,6 +61,7 @@ from archiver.loader import (
     load_config,
 )
 from archiver.logger import logger
+from analysis.timeutil import utc_days_for_service_day
 from pipeline.gold import _SOURCE_SUBDIR, _TRIP_UPDATES_ONLY_FEEDS
 
 load_dotenv()
@@ -66,12 +78,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--start-day",
         type=dt.date.fromisoformat,
         required=True,
-        help="First day (YYYY-MM-DD) to reprocess.",
+        help="First local service day (YYYY-MM-DD) to reprocess.",
     )
     p.add_argument(
         "--end-day",
         type=dt.date.fromisoformat,
-        help="Last day (YYYY-MM-DD), inclusive. Defaults to --start-day.",
+        help="Last local service day (YYYY-MM-DD), inclusive. Defaults to --start-day.",
     )
     p.add_argument(
         "-c",
@@ -126,21 +138,48 @@ def main(args: argparse.Namespace) -> int:
     curated_dir = config.writer.curated_dir
     hot_bucket = config.s3.hot_bucket
 
+    feed_tz = {
+        feed.name: ZoneInfo(agency.timezone)
+        for agency in config.agencies
+        for feed in agency.feeds
+    }
+
     done = skipped = 0
     for feed in args.feed:
         table = _table_for_feed(feed)
+        tz = feed_tz.get(feed)
+        if tz is None:
+            logger.error("[%s] not in %s — skipping", feed, args.config)
+            skipped += 1
+            continue
         for day in _daterange(args.start_day, end_day):
-            key = _silver_key(config.s3.hot_prefix, table, feed, day)
-            if not uploader.exists(hot_bucket, key):
+            utc_days = utc_days_for_service_day(day, tz)
+            pulled = []
+            for utc_day in utc_days:
+                key = _silver_key(config.s3.hot_prefix, table, feed, utc_day)
+                local = _local_silver_path(curated_dir, table, feed, utc_day)
+                if local.exists():  # pulled for the previous service day
+                    pulled.append(utc_day)
+                    continue
+                if not uploader.exists(hot_bucket, key):
+                    continue
+                local.parent.mkdir(parents=True, exist_ok=True)
+                local.write_bytes(uploader.get_bytes(hot_bucket, key))
+                pulled.append(utc_day)
+            if not pulled:
                 logger.info(
                     "[%s %s] no shipped %s parquet — skipping", feed, day, table
                 )
                 skipped += 1
                 continue
-
-            local = _local_silver_path(curated_dir, table, feed, day)
-            local.parent.mkdir(parents=True, exist_ok=True)
-            local.write_bytes(uploader.get_bytes(hot_bucket, key))
+            if len(pulled) < len(utc_days):
+                logger.warning(
+                    "[%s %s] building from partial silver: have UTC %s of %s",
+                    feed,
+                    day,
+                    [d.isoformat() for d in pulled],
+                    [d.isoformat() for d in utc_days],
+                )
             logger.info("[%s %s] pulled shipped %s parquet", feed, day, table)
 
             subprocess.run(
@@ -149,16 +188,16 @@ def main(args: argparse.Namespace) -> int:
                     "pipeline/gold.py",
                     "--config",
                     args.config,
-                    "--feed",
-                    feed,
-                    "--day",
+                    "--service-date",
                     day.isoformat(),
                     "--force",
+                    "--feed",
+                    feed,
                 ],
                 check=True,
             )
-            # hot_only, bypassing Shipper.run()'s discovery -- see module docstring.
-            shipper.ship_one(feed, day, force=True, hot_only=True)
+            # Marts only, bypassing Shipper.run()'s discovery -- see module docstring.
+            shipper.ship_marts(feed, day)
             done += 1
 
     logger.info(

@@ -29,9 +29,17 @@ Definitions (the on-time window is the caller's policy; defaults below):
 lookup (see `schedule_index`), so it unit-tests without any GTFS files. `gold.py`
 owns resolving the StaticGtfs snapshot and the atomic parquet write.
 
-Scheduled times are anchored to the trip's *service day*, not the wall-clock date
-of the ping: a visit's local arrival date is tried first, then the prior day, so
-an owl trip scheduled as e.g. 25:30:00 on the previous service day still matches.
+Scheduled times are anchored to the trip's GTFS service date, not the wall-clock
+date of the ping: a visit's local arrival date is tried first, then the prior day,
+so an owl trip scheduled as e.g. 25:30:00 on the previous service day still matches.
+
+The `service_date` column is the visit's *service day* (`timeutil.service_day`,
+03:00 local to 03:00 local), the same key the schedule-free marts use, so
+stop_day and stop_day_otp agree row-for-row and gold.py can partition all of them
+by one date. For almost every visit that is also the matched GTFS date. The
+exception is a trip scheduled before 03:00 on its own GTFS date (e.g. 00:15:00
+rather than 24:15:00). It is scored against that date's schedule, but it is
+filed with the evening service it physically runs in.
 """
 
 from __future__ import annotations
@@ -47,6 +55,7 @@ import pyarrow as pa
 
 from analysis.metrics import _pct, _round
 from analysis.timeutil import service_date as _service_date
+from analysis.timeutil import service_day as _service_day
 from analysis.vehicle_day import Visit
 
 if TYPE_CHECKING:  # pandas-backed; only imported for type hints, never at load.
@@ -238,7 +247,7 @@ def compute_adherence(
                 best = cand
         if best is None:
             continue
-        _, matched_sd, sched, sched_arr, sched_dep, arr_delay, dep_delay = best
+        _, _, sched, sched_arr, sched_dep, arr_delay, dep_delay = best
 
         route_id = sched.route_id or v.route_id
         if not route_id:  # route-keyed marts are meaningless without it
@@ -262,7 +271,7 @@ def compute_adherence(
                 "trip_id": v.trip_id,
                 "vehicle_id": v.vehicle_id or None,
                 "route_mode": modes.get(route_id),
-                "service_date": matched_sd.isoformat(),
+                "service_date": _service_day(v.arrival_ts, local_tz).isoformat(),
                 "arrival_unix": v.arrival_ts,
                 "scheduled_arrival_unix": sched_arr,
                 "arrival_delay_s": arr_delay,

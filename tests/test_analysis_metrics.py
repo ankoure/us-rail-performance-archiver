@@ -139,13 +139,28 @@ class TestStopDayMart:
         dirs = {r["direction_id"] for r in stop}
         assert dirs == {None, 0}
 
-    def test_service_date_splits_across_local_midnight(self):
-        # 03:00 UTC on 2024-05-20 is 23:00 the prior day in New York (EDT).
+    def test_owl_visits_stay_on_previous_service_day(self):
+        # 03:00 UTC on 2024-05-20 is 23:00 the prior day in New York (EDT). The
+        # 01:00 visit is after calendar midnight but before the 03:00 service-day
+        # boundary, so both visits are one service day and one row.
         before_midnight = 1_716_174_000  # 2024-05-19 23:00 local
         after_midnight = before_midnight + 7200  # 2024-05-20 01:00 local
         visits = [
             _visit(arrival=before_midnight, trip_id="T1"),
             _visit(arrival=after_midnight, trip_id="T2"),
+        ]
+        stop, route = compute_marts(visits, "f", NY)
+        row = _stop_row(stop, stop_id="S1")
+        assert row["service_date"] == "2024-05-19"
+        assert row["visit_count"] == 2
+        assert row["headway_p50_s"] == 7200
+        assert [r["service_date"] for r in route] == ["2024-05-19"]
+
+    def test_service_date_splits_at_three_am_local(self):
+        boundary = 1_716_188_400  # 2024-05-20 03:00 local
+        visits = [
+            _visit(arrival=boundary - 1, trip_id="T1"),
+            _visit(arrival=boundary, trip_id="T2"),
         ]
         stop, _ = compute_marts(visits, "f", NY)
         dates = {r["service_date"] for r in stop}
@@ -209,15 +224,16 @@ class TestEventsMart:
         assert all(r["direction_id"] is None for r in rows)
         assert all(r["vehicle_id"] == "" for r in rows)
 
-    def test_event_service_date_per_event(self):
-        # A visit whose ARR is before local midnight and DEP after it files its
-        # two events on different service dates.
-        before = 1_716_174_000  # 2024-05-19 23:00 local
+    def test_event_service_date_follows_visit_arrival(self):
+        # A dwell straddling the 03:00 service-day boundary files both of its
+        # events with the visit's service day (by arrival), the same key
+        # compute_marts uses, so they land in one partition.
+        before = 1_716_188_400 - 600  # 2024-05-20 02:50 local
         rows = compute_events(
-            [_visit(arrival=before, departure=before + 7200)], "f", NY
+            [_visit(arrival=before, departure=before + 1200)], "f", NY
         )
         dates = {r["event_type"]: r["service_date"] for r in rows}
-        assert dates == {"ARR": "2024-05-19", "DEP": "2024-05-20"}
+        assert dates == {"ARR": "2024-05-19", "DEP": "2024-05-19"}
 
     def test_schema_round_trip(self):
         visits = [
