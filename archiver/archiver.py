@@ -57,7 +57,7 @@ class FeedArchiver:
                 with self.telemetry.span(
                     "feed.poll",
                     tags={"feed": feed.name, "interval_class": interval_class},
-                ):
+                ) as span:
                     start = time.monotonic()
                     client = self.clients[feed.agency_id]
                     if feed.method == "POST":
@@ -66,6 +66,14 @@ class FeedArchiver:
                         )
                     else:
                         http = await client.get(feed.path, headers=conditional_headers)
+
+                    # An HTTP error comes back as a response, not an exception, so
+                    # the span would otherwise record it as status:ok and the "Poll
+                    # error rate" monitor would only see transport failures. Use
+                    # the same >= 400 line FeedHealth uses for backoff/quarantine.
+                    if http.status_code >= 400:
+                        span.set_tag("status", "error")
+                        span.set_tag("error_type", f"HTTP{http.status_code}")
 
                     if http.status_code == 304:
                         self.telemetry.incr(

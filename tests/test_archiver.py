@@ -8,6 +8,7 @@ from archiver.poll_state import PollStateStore
 from archiver.writer import LocalWriter
 from tests.conftest import _FakeResponse
 from tests.fakes.client import _ConditionalFakeClient, _FakeClient, _SequenceFakeClient
+from tests.fakes.recording_telemetry import Call, RecordingTelemetry
 
 
 async def test_duplicate_poll_writes_no_bin(
@@ -229,3 +230,51 @@ async def test_transient_error_does_not_update_poll_state(
         assert records[2]["response_type"] == "DuplicateResponse", (
             "third poll should indicate DuplicateResponse"
         )
+
+
+async def test_http_error_marks_poll_span_as_error(make_response, tmp_path):
+    # HTTP errors arrive as responses, not exceptions; the span must still be
+    # tagged status:error so the "Poll error rate" monitor counts them.
+    feed = Feed(
+        name="test-feed",
+        path="/x",
+        parser=Parser.from_name("protobuf"),
+        decoder=Decoder.from_name("standard"),
+        agency_id="A",
+        poll_interval_seconds=60,
+    )
+    telemetry = RecordingTelemetry()
+    archiver = FeedArchiver(
+        feeds=[feed],
+        clients={"A": _FakeClient(make_response(status_code=503))},
+        writer=LocalWriter(str(tmp_path)),
+        store=PollStateStore(),
+        telemetry=telemetry,
+    )
+    await archiver.archive_one(feed)
+    tags = [c for c in telemetry.calls if c.kind == "span_tag"]
+    assert Call("span_tag", "status", "error", resource="feed.poll") in tags
+    assert Call("span_tag", "error_type", "HTTP503", resource="feed.poll") in tags
+
+
+async def test_success_leaves_poll_span_untagged(
+    make_response, valid_protobuf_bytes, tmp_path
+):
+    feed = Feed(
+        name="test-feed",
+        path="/x",
+        parser=Parser.from_name("protobuf"),
+        decoder=Decoder.from_name("standard"),
+        agency_id="A",
+        poll_interval_seconds=60,
+    )
+    telemetry = RecordingTelemetry()
+    archiver = FeedArchiver(
+        feeds=[feed],
+        clients={"A": _FakeClient(make_response(content=valid_protobuf_bytes))},
+        writer=LocalWriter(str(tmp_path)),
+        store=PollStateStore(),
+        telemetry=telemetry,
+    )
+    await archiver.archive_one(feed)
+    assert not [c for c in telemetry.calls if c.kind == "span_tag"]
