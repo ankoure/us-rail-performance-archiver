@@ -11,10 +11,17 @@ on:
       - "datadog/dashboards/**"
       - "scripts/sync_datadog.py"
       - ".github/workflows/datadog.yml"
+  pull_request:
+    paths:
+      - "datadog/monitors/**"
+      - "datadog/dashboards/**"
+      - "scripts/sync_datadog.py"
+      - ".github/workflows/datadog.yml"
   workflow_dispatch:
 
 concurrency:
-  group: datadog-sync
+  # PR validation runs don't write, so they don't need to queue behind a sync.
+  group: datadog-sync-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
   cancel-in-progress: false
 
 jobs:
@@ -29,7 +36,17 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Validate monitors (PR, no writes)
+        if: github.event_name == 'pull_request'
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+          DD_SITE: ${{ vars.DD_SITE || 'datadoghq.com' }}
+          DD_NOTIFY_TARGET: ${{ vars.DD_NOTIFY_TARGET }}
+        run: python scripts/sync_datadog.py --dry-run --monitors-only
+
       - name: Sync monitors and dashboards
+        if: github.event_name != 'pull_request'
         env:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
           DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
