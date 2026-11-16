@@ -30,6 +30,20 @@ def parse_args():
     return parser.parse_args()
 
 
+def _https_host(base_url: str) -> str | None:
+    """Host to probe for this agency's cert, or None if it isn't polled over HTTPS.
+
+    A plain-http agency never does a TLS handshake when polled, so whatever
+    cert its host happens to serve on :443 can't affect collection. Probing it
+    anyway raised false alarms (an openov.lu cert ~4.75 years expired on a
+    feed polling fine over http).
+    """
+    parsed = urlparse(base_url)
+    if parsed.scheme != "https":
+        return None
+    return parsed.hostname
+
+
 def _cert_days_remaining(host: str) -> float:
     pem = ssl.get_server_certificate((host, 443), timeout=10)
     with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as f:
@@ -47,9 +61,9 @@ def main(args):
     config = load_config(args.config)
     telemetry = build_telemetry(config.telemetry)
     for agency in config.agencies:
-        host = urlparse(str(agency.base_url)).hostname
+        host = _https_host(str(agency.base_url))
         if not host:
-            logger.warning("no host in base_url for %s", agency.agency_id)
+            logger.debug("skipping %s: not polled over https", agency.agency_id)
             continue
         try:
             days = _cert_days_remaining(host)
