@@ -200,8 +200,8 @@
   {
     "name": "[rail-archiver] Daily rollup task did not run",
     "type": "metric alert",
-    "query": "sum(last_4h):sum:pipeline.task.duration.count{env:prod, service:rail-archiver}.as_count() < 1",
-    "message": "No `pipeline.task.duration` for 28 hours: the nightly rollup ECS task (rollup + gtfs + gold + ship via `pipeline/agency_batch.py`) has not completed a run since yesterday.\n\nThe task emits this metric from a shell `trap ... EXIT`, so it reports even when the rollup itself fails (those failures surface via `Batch step errored`). Silence therefore means the task never started, or was killed before its shell exited:\n- The EventBridge schedule `rail-archiver-rollup-daily` is disabled, or the nightly state machine (stage split) didn't invoke it\n- ECS couldn't place the task (capacity, image pull, or secrets errors)\n- The task was OOM-killed or stopped by ECS, so the trap never ran\n- The datadog-agent sidecar was down, so the metric never left the task\n\nInvestigate:\n```\naws scheduler get-schedule --name rail-archiver-rollup-daily --query State\naws ecs list-tasks --cluster rail-archiver --desired-status STOPPED\naws logs tail /ecs/rail-archiver-rollup --since 30h\n```\n\nThis only alerts on silence: the 4h window and `< 1` threshold never trip while the job is healthy, and `no_data_timeframe` (28h = one daily run plus slack for a slow run) does the work.\n\n@<your-notification-target>",
+    "query": "sum(last_4h):sum:rollup.day.duration.count{env:prod, service:rail-archiver}.as_count() < 1",
+    "message": "No `rollup.day` metric for 28 hours: the nightly rollup ECS task (rollup + gtfs + gold + ship via `pipeline/agency_batch.py`) has not rolled up a single feed-day since yesterday.\n\n`rollup.day` is emitted per feed-day whether the rollup succeeds or fails (failures surface via `Batch step errored`), so silence means the task never started or died before rolling anything up:\n- The EventBridge schedule `rail-archiver-rollup-daily` is disabled, or the nightly state machine (stage split) didn't invoke it\n- ECS couldn't place the task (capacity, image pull, or secrets errors)\n- The task was OOM-killed early\n- The datadog-agent sidecar was down, so no metric left the task\n\nInvestigate:\n```\naws scheduler get-schedule --name rail-archiver-rollup-daily --query State\naws ecs list-tasks --cluster rail-archiver --desired-status STOPPED\naws logs tail /ecs/rail-archiver-rollup --since 30h\n```\n\nThis only alerts on silence: the `< 1` threshold never trips while the job is healthy, and `no_data_timeframe` (28h = one nightly run plus slack) does the work. (It watches `rollup.day` rather than `pipeline.task.duration` because the latter was never reaching Datadog: the task's EXIT trap sent it after the drain sleep.)\n\n@<your-notification-target>",
     "tags": ["service:rail-archiver", "env:prod", "layer:batch"],
     "options": {
       "notify_no_data": true,
@@ -215,14 +215,14 @@
   {
     "name": "[rail-archiver] Daily cert check did not run",
     "type": "metric alert",
-    "query": "sum(last_4h):sum:pipeline.cert_check.duration.count{env:prod, service:rail-archiver}.as_count() < 1",
-    "message": "No `pipeline.cert_check.duration` for 28 hours: the daily `cert_check` ECS task has not completed a run since yesterday.\n\nWithout it, `TLS cert expiring or expired` goes quiet: it doesn't alert on missing data, so a cert could lapse unnoticed (TRI_RAIL lost 8 days this way). Silence means the task never started or was killed:\n- The EventBridge schedule `rail-archiver-cert-check-daily` is disabled\n- ECS couldn't place the task\n- The datadog-agent sidecar was down, so the metric never left the task\n\nInvestigate:\n```\naws scheduler get-schedule --name rail-archiver-cert-check-daily --query State\naws ecs list-tasks --cluster rail-archiver --desired-status STOPPED\naws logs tail /ecs/rail-archiver-cert-check --since 30h\n```\n\nThis only alerts on silence: the 4h window and `< 1` threshold never trip while the job is healthy, and `no_data_timeframe` (28h = one daily run plus slack for a slow run) does the work.\n\n@<your-notification-target>",
+    "query": "min(last_4h):min:cert.days_remaining{env:prod, service:rail-archiver} < -36500",
+    "message": "No `cert.days_remaining` reading from any agency for 28 hours: the daily `cert_check` ECS task is not producing data.\n\nWhile this fires, BOTH TLS monitors are blind: they don't alert on missing data, so a cert could lapse unnoticed (TRI_RAIL lost 8 days this way).\n\nMost common causes:\n- The EventBridge schedule `rail-archiver-cert-check-daily` is disabled (`cert_check_schedule_enabled` defaults to false in terraform/variables.tf)\n- The task fails before emitting (it runs under `set -e`)\n- ECS couldn't place the task, or the datadog-agent sidecar was down\n\nInvestigate:\n```\naws scheduler get-schedule --name rail-archiver-cert-check-daily --query State\naws logs tail /ecs/rail-archiver-cert-check --since 30h\n```\n\nThis only alerts on silence: the `< -36500` threshold (a cert 100 years expired) never trips, and `no_data_timeframe` (28h) does the work.\n\n@<your-notification-target>",
     "tags": ["service:rail-archiver", "env:prod", "layer:batch"],
     "options": {
       "notify_no_data": true,
       "no_data_timeframe": 1680,
       "renotify_interval": 720,
-      "thresholds": { "critical": 1 },
+      "thresholds": { "critical": -36500 },
       "include_tags": true,
       "require_full_window": false
     }

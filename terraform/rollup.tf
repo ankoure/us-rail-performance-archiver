@@ -163,7 +163,11 @@ locals {
     # early-exit, so a run that fails partway is still billed-cost-tracked
     # instead of silently dropped.
     START=$(date +%s)
-    trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --seconds $(( $(date +%s) - START )) || true' EXIT
+    # The trap runs AFTER any drain sleep below, so it needs its own: without
+    # `sleep 15` the container exits right after emitting and ECS SIGTERMs the
+    # datadog-agent sidecar before it forwards the metric (no pipeline.*.duration
+    # point had ever reached Datadog as of 2026-11-16).
+    trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --seconds $(( $(date +%s) - START )) || true; sleep 15' EXIT
 
     # 2026-08-17: rollup/gtfs/gold/ship replaced with pipeline/agency_batch.py,
     # which runs each agency's slice of that same chain as its own disposable

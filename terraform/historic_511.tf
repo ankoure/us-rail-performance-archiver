@@ -50,7 +50,11 @@ locals {
     # comment for why agent_host must be 127.0.0.1 on Fargate.
     python -c 'import yaml; c = yaml.safe_load(open("config/feeds.yaml")); c["telemetry"]["enabled"] = True; c["telemetry"]["agent_host"] = "127.0.0.1"; c["telemetry"]["env"] = "prod"; yaml.safe_dump(c, open("/tmp/fargate.yaml", "w"))'
     START=$(date +%s)
-    trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --metric pipeline.historic_511.duration --seconds $(( $(date +%s) - START )) || true' EXIT
+    # The trap runs AFTER any drain sleep below, so it needs its own: without
+    # `sleep 15` the container exits right after emitting and ECS SIGTERMs the
+    # datadog-agent sidecar before it forwards the metric (no pipeline.*.duration
+    # point had ever reached Datadog as of 2026-11-16).
+    trap 'python pipeline/task_duration.py --config /tmp/fargate.yaml --metric pipeline.historic_511.duration --seconds $(( $(date +%s) - START )) || true; sleep 15' EXIT
     # MONTH is optional -- historic_511.py defaults to the previous UTC month
     # when --month is omitted. Set it via an environment override (not a
     # command override, which would skip the yaml overlay above) to backfill
