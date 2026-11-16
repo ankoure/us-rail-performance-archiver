@@ -1,0 +1,7 @@
+{
+  "_comment": "route:<name> tag on a monitor -> who gets notified. Each Slack handle only delivers once that channel is added to the Datadog Slack integration. Keys starting with _ are ignored.",
+  "outage": "@slack-rail-alerts-outage @andkoure@gmail.com",
+  "feeds": "@slack-rail-alerts-feeds",
+  "pipeline": "@slack-rail-alerts-pipeline",
+  "capacity": "@slack-rail-alerts-capacity"
+}
