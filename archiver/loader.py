@@ -406,7 +406,9 @@ def build_landing_uploader(
     continent: str | None = None,
 ) -> LandingUploader | None:
     if config.writer.landing_mode == "s3":
-        telemetry = build_telemetry(config.telemetry)
+        # shard_index so this shard's landing.* gauges carry its own shard tag;
+        # without it every shard on a box reported shard:0.
+        telemetry = build_telemetry(config.telemetry, shard_index)
         uploader = build_uploader(config.s3, telemetry)
         feed_names = {
             f.name for f in build_feeds(config, shard_index, shard_count, continent)

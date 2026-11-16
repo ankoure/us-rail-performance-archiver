@@ -25,6 +25,10 @@ Environment:
 
 Usage:
   python scripts/sync_datadog.py [--dry-run] [--monitors-only] [--dashboards-only]
+
+--dry-run writes nothing, but still sends every monitor to Datadog's
+/api/v1/monitor/validate endpoint and exits non-zero if any is rejected, so a
+bad query fails CI on the PR instead of failing the sync after merge.
 """
 
 from __future__ import annotations
@@ -59,6 +63,15 @@ def _api_request(method: str, path: str, body: dict | None = None) -> dict | lis
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace")
         raise SystemExit(f"  ✗ {method} {path} → HTTP {exc.code}: {detail}") from exc
+
+
+def _validate_monitor(monitor: dict) -> str | None:
+    """Ask Datadog whether a monitor definition is valid; return its error, if any."""
+    try:
+        _api_request("POST", "/api/v1/monitor/validate", monitor)
+    except SystemExit as exc:  # _api_request turns HTTP errors into SystemExit
+        return str(exc)
+    return None
 
 
 def _apply_notify_target(monitor: dict, target: str | None) -> dict:
@@ -97,13 +110,19 @@ def sync_monitors(dry_run: bool) -> None:
     existing = {m["name"]: m["id"] for m in _api_request("GET", "/api/v1/monitor")}
     print(f"Monitors: {len(monitors)} in repo, {len(existing)} already in Datadog")
 
+    invalid = []
     for monitor in monitors:
         monitor = _apply_notify_target(monitor, target)
         name = monitor["name"]
         monitor_id = existing.get(name)
         if dry_run:
             verb = "update" if monitor_id else "create"
-            print(f"  [dry-run] would {verb} '{name}'")
+            error = _validate_monitor(monitor)
+            if error:
+                invalid.append(name)
+                print(f"  ✗ [dry-run] '{name}' is INVALID:{error}")
+            else:
+                print(f"  [dry-run] would {verb} '{name}' (validated)")
             continue
         if monitor_id:
             _api_request("PUT", f"/api/v1/monitor/{monitor_id}", monitor)
@@ -111,6 +130,8 @@ def sync_monitors(dry_run: bool) -> None:
         else:
             created = _api_request("POST", "/api/v1/monitor", monitor)
             print(f"  + created '{name}' (id {created['id']})")
+    if invalid:
+        raise SystemExit(f"{len(invalid)} monitor(s) failed validation: {invalid}")
 
 
 def sync_dashboards(dry_run: bool) -> None:
