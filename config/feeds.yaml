@@ -722,7 +722,7 @@ agencies:
     timezone: America/New_York
     base_url: https://gtfsr.tri-rail.com
     mdb_feed_id: mdb-333
-    tls_verify: false # cert expired 2026-06-09
+    tls_verify: true # was false after the cert expired 2026-06-09; renewed (27d left on 2026-11-16)
     auth:
       type: none
     feeds:
