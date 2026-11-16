@@ -4,6 +4,15 @@
 Source of truth (committed):
   datadog/monitors/rail-archiver.json    — list of monitor definitions
   datadog/dashboards/rail-archiver.json  — one dashboard definition
+  datadog/notify_routes.json             — route name -> notification handles
+
+Alert routing: every monitor carries exactly one `route:<name>` tag and the
+"@<your-notification-target>" placeholder in its message. The sync replaces the
+placeholder with that route's handles from notify_routes.json (e.g. a Slack
+channel per kind of alert). Routes are resolved for every monitor before any
+API call, and a monitor with no route, an unknown route, or no placeholder
+aborts the whole sync: a monitor that pages nobody is worse than no deploy
+(an 18 h outage once went unalerted this way).
 
 Upserts by name (monitors) / title (dashboards): an existing object with the
 same name/title is updated in place (PUT), otherwise a new one is created
@@ -15,13 +24,6 @@ Environment:
   DD_APP_KEY        (required)  Datadog *Application* key — the management API
                                 needs this in addition to the API key
   DD_SITE           (optional)  default "datadoghq.com" (e.g. "datadoghq.eu")
-  DD_NOTIFY_TARGET  (required if any monitor still contains the
-                                "@<your-notification-target>" placeholder)
-                                replaces that placeholder in monitor messages,
-                                e.g. "@you@example.com". A leading "@" is added
-                                if missing. If a monitor still has the
-                                placeholder and this is unset, the sync fails
-                                rather than deploy a monitor that pages nobody.
 
 Usage:
   python scripts/sync_datadog.py [--dry-run] [--monitors-only] [--dashboards-only]
@@ -43,8 +45,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MONITORS_FILE = REPO_ROOT / "datadog" / "monitors" / "rail-archiver.json"
 DASHBOARDS_FILE = REPO_ROOT / "datadog" / "dashboards" / "rail-archiver.json"
+ROUTES_FILE = REPO_ROOT / "datadog" / "notify_routes.json"
 
 NOTIFY_PLACEHOLDER = "@<your-notification-target>"
+ROUTE_TAG_PREFIX = "route:"
 
 
 def _api_request(method: str, path: str, body: dict | None = None) -> dict | list:
@@ -74,45 +78,65 @@ def _validate_monitor(monitor: dict) -> str | None:
     return None
 
 
-def _apply_notify_target(monitor: dict, target: str | None) -> dict:
-    """Substitute the notify placeholder in a monitor's message.
+def load_routes(path: Path = ROUTES_FILE) -> dict[str, str]:
+    """Load route name -> handles, ignoring "_"-prefixed keys (comments)."""
+    return {
+        name: handles
+        for name, handles in json.loads(path.read_text()).items()
+        if not name.startswith("_")
+    }
 
-    Fails closed: a monitor that still contains the placeholder with no
-    DD_NOTIFY_TARGET set would deploy but page nobody — worse than not
-    deploying at all (an 18 h outage once went unalerted this way). So we
-    refuse to sync rather than ship a monitor that notifies no one.
+
+def apply_route(monitor: dict, routes: dict[str, str]) -> dict:
+    """Return a copy of ``monitor`` with its placeholder replaced by its route's handles.
+
+    Raises SystemExit if the monitor can't be routed to anyone: no route tag,
+    more than one, a route missing from notify_routes.json (or empty there),
+    or no placeholder in the message to substitute.
     """
+    name = monitor["name"]
+    tagged = [
+        t[len(ROUTE_TAG_PREFIX) :]
+        for t in monitor.get("tags", [])
+        if t.startswith(ROUTE_TAG_PREFIX)
+    ]
+    if len(tagged) != 1:
+        raise SystemExit(
+            f"  ✗ '{name}' needs exactly one '{ROUTE_TAG_PREFIX}<name>' tag, "
+            f"found {tagged or 'none'}. Routes: {sorted(routes)}"
+        )
+    route = tagged[0]
+    handles = routes.get(route, "").strip()
+    if not handles:
+        raise SystemExit(
+            f"  ✗ '{name}' is routed to '{route}', which has no handles in "
+            f"{ROUTES_FILE.name}. Routes: {sorted(routes)}"
+        )
     message = monitor.get("message", "")
     if NOTIFY_PLACEHOLDER not in message:
-        return monitor
-    if not target:
         raise SystemExit(
-            f"  ✗ '{monitor['name']}' still contains {NOTIFY_PLACEHOLDER} and "
-            "DD_NOTIFY_TARGET is unset — it would page nobody. Set "
-            "DD_NOTIFY_TARGET (e.g. '@you@example.com') and re-run."
+            f"  ✗ '{name}' has no {NOTIFY_PLACEHOLDER} in its message, so "
+            f"route '{route}' would notify nobody."
         )
     monitor = dict(monitor)
-    monitor["message"] = message.replace(NOTIFY_PLACEHOLDER, target)
+    monitor["message"] = message.replace(NOTIFY_PLACEHOLDER, handles)
     return monitor
 
 
 def sync_monitors(dry_run: bool) -> None:
     """Upsert every monitor in the repo JSON by name (PUT if it exists, else POST).
 
-    Applies the DD_NOTIFY_TARGET substitution first, so a monitor still holding
-    the notify placeholder aborts the sync rather than deploy paging nobody.
+    Routes every monitor first, so one unroutable monitor aborts the sync
+    before anything is written rather than leaving it half-applied.
     """
-    monitors = json.loads(MONITORS_FILE.read_text())
-    target = os.environ.get("DD_NOTIFY_TARGET")
-    if target and not target.startswith("@"):
-        target = "@" + target
+    routes = load_routes()
+    monitors = [apply_route(m, routes) for m in json.loads(MONITORS_FILE.read_text())]
 
     existing = {m["name"]: m["id"] for m in _api_request("GET", "/api/v1/monitor")}
     print(f"Monitors: {len(monitors)} in repo, {len(existing)} already in Datadog")
 
     invalid = []
     for monitor in monitors:
-        monitor = _apply_notify_target(monitor, target)
         name = monitor["name"]
         monitor_id = existing.get(name)
         if dry_run:
